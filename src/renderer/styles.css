@@ -6,6 +6,11 @@
   --accent: #4a7c59;
   --accent-soft: #eaf1ec;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  --status-want: #999;
+  --status-reading: #4a7c59;
+  --status-finished: #2d5a3a;
+  --status-shelved: #c89456;
+  --status-abandoned: #c0573d;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
@@ -46,13 +51,11 @@ button:focus-visible {
 }
 
 /* ============ App shell ============ */
-
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
-
 .app-body {
   flex: 1;
   overflow: hidden;
@@ -60,7 +63,6 @@ button:focus-visible {
 }
 
 /* ============ TopBar ============ */
-
 .topbar {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -72,14 +74,12 @@ button:focus-visible {
   box-shadow: var(--shadow);
   z-index: 10;
 }
-
 .topbar-left .app-title {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-
 .search-input {
   width: 100%;
   max-width: 480px;
@@ -89,26 +89,22 @@ button:focus-visible {
   background: var(--bg);
   font-size: 13px;
 }
-
 .search-input:focus {
   outline: none;
   border-color: var(--accent);
   background: white;
 }
-
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-
 .mode-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
-
 .mode-toggle button {
   padding: 6px 14px;
   font-size: 13px;
@@ -117,17 +113,14 @@ button:focus-visible {
   border: none;
   border-right: 1px solid var(--border);
 }
-
 .mode-toggle button:last-child {
   border-right: none;
 }
-
 .mode-toggle button.active {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
 }
-
 .add-btn {
   padding: 6px 14px;
   font-size: 13px;
@@ -136,50 +129,222 @@ button:focus-visible {
   border-radius: 6px;
   font-weight: 500;
 }
-
 .add-btn:hover {
   filter: brightness(0.95);
 }
 
 /* ============ Edit mode ============ */
-
 .page-edit {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 280px 1fr;
   flex: 1;
   overflow: hidden;
 }
-
 .sidebar {
   border-right: 1px solid var(--border);
   background: white;
   padding: 16px 12px;
   overflow-y: auto;
 }
+.detail-panel {
+  flex: 1;
+  padding: 32px 40px;
+  overflow-y: auto;
+}
 
-.sidebar-section h3 {
-  margin: 0 0 8px;
+/* sidebar book list */
+.book-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.book-list-group h3 {
+  margin: 0 0 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.book-list-group h3 .count {
+  font-weight: 400;
+  color: var(--muted);
+}
+.book-list-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.book-list-group li {
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.book-list-group li:hover {
+  background: var(--accent-soft);
+}
+.book-list-group li.selected {
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+.book-list-group li .read-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.book-list-group .empty-hint {
+  padding: 4px 8px;
+  margin: 0;
+  font-size: 12px;
 }
 
-.detail-panel {
-  flex: 1;
-  padding: 24px;
-  overflow-y: auto;
+/* status dot */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.status-want { background: var(--status-want); }
+.status-dot.status-reading { background: var(--status-reading); }
+.status-dot.status-finished { background: var(--status-finished); }
+.status-dot.status-shelved { background: var(--status-shelved); }
+.status-dot.status-abandoned { background: var(--status-abandoned); }
+
+/* detail panel */
+.detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.book-detail {
+  max-width: 720px;
+}
+.detail-header h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+}
+.meta-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.status-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-pill.status-shelved { background: #f7eddc; color: var(--status-shelved); }
+.status-pill.status-abandoned { background: #f7dfd8; color: var(--status-abandoned); }
+.status-pill.status-want { background: #ebebeb; color: var(--muted); }
+.lock-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: #f0e8d8;
+  color: #8a6a2a;
+}
+.lock-pill.error {
+  background: #f7dfd8;
+  color: var(--status-abandoned);
+}
+
+.detail-fields {
+  margin: 24px 0;
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.detail-fields dt {
+  color: var(--muted);
+}
+.detail-fields dd {
+  margin: 0;
+}
+.detail-fields code {
+  font-size: 12px;
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.detail-prereqs {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.detail-prereqs h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.rule-tag {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.detail-prereqs ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.prereq {
+  padding: 6px 10px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.prereq:hover {
+  background: var(--accent-soft);
+}
+.prereq-missing {
+  cursor: default;
+  opacity: 0.6;
+}
+.status-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.status-tag.status-finished { color: var(--status-finished); }
+.status-tag.status-reading { color: var(--status-reading); }
+.status-tag.status-shelved { color: var(--status-shelved); }
+.status-tag.status-abandoned { color: var(--status-abandoned); }
+.status-tag.status-want { color: var(--muted); }
+
+.hint-text {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
 }
 
 /* ============ Clean mode ============ */
-
 .page-clean {
   flex: 1;
   padding: 24px 32px;
   overflow-y: auto;
 }
-
 .clean-header h2 {
   margin: 0 0 4px;
   font-size: 18px;
