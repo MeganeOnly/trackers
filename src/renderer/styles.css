@@ -1,11 +1,13 @@
 :root {
   --bg: #fafaf8;
   --fg: #1a1a1a;
-  --muted: #666;
+  --muted: #777;
   --border: #e5e5e0;
   --accent: #4a7c59;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --accent-soft: #eaf1ec;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color-scheme: light;
@@ -17,7 +19,7 @@
 
 html,
 body,
-  #root {
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -25,37 +27,161 @@ body,
   color: var(--fg);
 }
 
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ============ App shell ============ */
+
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-.app-header {
+.app-body {
+  flex: 1;
+  overflow: hidden;
   display: flex;
+}
+
+/* ============ TopBar ============ */
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 16px;
-  padding: 12px 24px;
+  gap: 24px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border);
+  background: white;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+
+.topbar-left .app-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.search-input {
+  width: 100%;
+  max-width: 480px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
   background: white;
 }
 
-.app-header h1 {
-  margin: 0;
-  font-size: 16px;
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mode-toggle button {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  background: white;
+  border: none;
+  border-right: 1px solid var(--border);
+}
+
+.mode-toggle button:last-child {
+  border-right: none;
+}
+
+.mode-toggle button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 600;
 }
 
-.badge {
-  font-size: 12px;
-  color: var(--muted);
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+.add-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  background: var(--accent);
+  color: white;
+  border-radius: 6px;
+  font-weight: 500;
 }
 
-.app-main {
+.add-btn:hover {
+  filter: brightness(0.95);
+}
+
+/* ============ Edit mode ============ */
+
+.page-edit {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: white;
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.sidebar-section h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detail-panel {
   flex: 1;
   padding: 24px;
-  overflow: auto;
+  overflow-y: auto;
+}
+
+/* ============ Clean mode ============ */
+
+.page-clean {
+  flex: 1;
+  padding: 24px 32px;
+  overflow-y: auto;
+}
+
+.clean-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
 }

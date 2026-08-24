@@ -1,13 +1,23 @@
+import { useEffect } from 'react'
+import { TopBar } from './components/TopBar'
+import { EditMode } from './pages/EditMode'
+import { CleanMode } from './pages/CleanMode'
+import { useModeStore } from './store/mode'
+
 function App(): JSX.Element {
+  const mode = useModeStore((s) => s.mode)
+
+  useEffect(() => {
+    window.electron.config
+      .get()
+      .then((cfg) => useModeStore.getState().hydrate(cfg))
+      .catch((e) => console.error('config load failed:', e))
+  }, [])
+
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <h1>书架追踪</h1>
-        <span className="badge">脚手架就绪 · Phase 0</span>
-      </header>
-      <main className="app-main">
-        <p>这是 Phase 0 脚手架。后续 Phase 会接入数据层、解锁引擎、UI。</p>
-      </main>
+      <TopBar />
+      <div className="app-body">{mode === 'edit' ? <EditMode /> : <CleanMode />}</div>
     </div>
   )
 }
