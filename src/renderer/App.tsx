@@ -3,6 +3,7 @@ import { TopBar } from './components/TopBar'
 import { EditMode } from './pages/EditMode'
 import { CleanMode } from './pages/CleanMode'
 import { BookForm } from './components/BookForm'
+import { GraphModal } from './components/GraphModal'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
@@ -19,6 +20,7 @@ export default function App(): JSX.Element {
   const select = useBooksStore((s) => s.select)
 
   const [form, setForm] = useState<FormState>(null)
+  const [graphOpen, setGraphOpen] = useState(false)
 
   useEffect(() => {
     window.electron.config
@@ -41,11 +43,14 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar onAdd={openAdd} />
+      <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} />
       <div className="app-body">
         <EditModeWrapper onEdit={openEdit} />
       </div>
-      {form && <BookForm book={form.mode === 'edit' ? form.book : null} onClose={() => setForm(null)} />}
+      {form && (
+        <BookForm book={form.mode === 'edit' ? form.book : null} onClose={() => setForm(null)} />
+      )}
+      {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
     </div>
   )
 }

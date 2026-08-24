@@ -2,9 +2,10 @@ import { useModeStore } from '../store/mode'
 
 interface TopBarProps {
   onAdd?: () => void
+  onGraph?: () => void
 }
 
-export function TopBar({ onAdd }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
 
@@ -21,6 +22,11 @@ export function TopBar({ onAdd }: TopBarProps): JSX.Element {
         />
       </div>
       <div className="topbar-right">
+        {onGraph && (
+          <button className="topbar-icon-btn" onClick={onGraph} title="关系图">
+            图
+          </button>
+        )}
         <div className="mode-toggle" role="tablist" aria-label="模式">
           <button
             role="tab"
@@ -39,7 +45,7 @@ export function TopBar({ onAdd }: TopBarProps): JSX.Element {
             编辑模式
           </button>
         </div>
-        <button className="add-btn" onClick={onAdd} title="加书 (Phase 5)">
+        <button className="add-btn" onClick={onAdd} title="加书">
           + 加书
         </button>
       </div>

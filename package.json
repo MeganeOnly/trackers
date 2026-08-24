@@ -21,6 +21,7 @@
     "pinyin-pro": "^3.29.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-force-graph-2d": "^1.29.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
