@@ -11,6 +11,7 @@
   --status-finished: #2d5a3a;
   --status-shelved: #c89456;
   --status-abandoned: #c0573d;
+  --danger: #c0573d;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
@@ -21,30 +22,26 @@
 * { box-sizing: border-box; }
 
 html, body, #root {
-  height: 100%;
-  margin: 0; padding: 0;
-  background: var(--bg);
-  color: var(--fg);
+  height: 100%; margin: 0; padding: 0;
+  background: var(--bg); color: var(--fg);
 }
 
 button {
   font: inherit; color: inherit;
-  cursor: pointer;
-  background: transparent;
+  cursor: pointer; background: transparent;
   border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 10px;
 }
 
 button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
 .muted { color: var(--muted); font-size: 13px; }
 
 /* ============ App shell ============ */
-.app-shell {
-  display: flex; flex-direction: column; height: 100vh;
-}
+.app-shell { display: flex; flex-direction: column; height: 100vh; }
 .app-body { flex: 1; overflow: hidden; display: flex; }
 
 /* ============ TopBar ============ */
@@ -80,6 +77,7 @@ button:focus-visible {
 .mode-toggle button {
   padding: 6px 14px; font-size: 13px; color: var(--muted);
   background: white; border: none; border-right: 1px solid var(--border);
+  border-radius: 0;
 }
 .mode-toggle button:last-child { border-right: none; }
 .mode-toggle button.active {
@@ -90,6 +88,93 @@ button:focus-visible {
   background: var(--accent); color: white; border-radius: 6px; font-weight: 500;
 }
 .add-btn:hover { filter: brightness(0.95); }
+
+/* ============ Buttons ============ */
+.btn-primary {
+  padding: 6px 16px;
+  background: var(--accent); color: white;
+  border-radius: 4px; font-weight: 500;
+}
+.btn-primary:hover { filter: brightness(0.95); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 12px;
+}
+.btn-secondary:hover { background: var(--bg); }
+
+.btn-danger {
+  padding: 4px 12px;
+  background: white;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 12px;
+}
+.btn-danger:hover { background: var(--danger); color: white; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ============ Modal ============ */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  width: 90%;
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.modal-close {
+  font-size: 22px; line-height: 1;
+  padding: 0 6px; color: var(--muted);
+}
+.modal-close:hover { color: var(--fg); }
+.modal-body { padding: 20px; overflow-y: auto; }
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.form-footer { display: flex; align-items: center; gap: 8px; }
+.form-footer .spacer { flex: 1; }
+
+/* ============ Form ============ */
+.book-form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.field > span { font-size: 12px; color: var(--muted); }
+.field input,
+.field select,
+.field textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  background: white;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: none; border-color: var(--accent);
+}
+.field textarea { font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace; font-size: 13px; resize: vertical; }
+.field-row { display: flex; gap: 12px; }
+.form-error {
+  margin: 0; padding: 8px 12px;
+  background: #f7dfd8; color: var(--danger);
+  border-radius: 4px; font-size: 13px;
+}
 
 /* ============ Edit mode ============ */
 .page-edit {
@@ -102,9 +187,7 @@ button:focus-visible {
   padding: 16px 12px;
   overflow-y: auto;
 }
-.detail-panel {
-  flex: 1; padding: 32px 40px; overflow-y: auto;
-}
+.detail-panel { flex: 1; padding: 32px 40px; overflow-y: auto; }
 
 .book-list { display: flex; flex-direction: column; gap: 18px; }
 .book-list-group h3 {
@@ -126,7 +209,8 @@ button:focus-visible {
 .book-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
 
 .status-dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; flex-shrink: 0;
 }
 .status-dot.status-want { background: var(--status-want); }
 .status-dot.status-reading { background: var(--status-reading); }
@@ -152,6 +236,10 @@ button:focus-visible {
   background: #f0e8d8; color: #8a6a2a;
 }
 .lock-pill.error { background: #f7dfd8; color: var(--status-abandoned); }
+
+.detail-actions {
+  display: flex; gap: 8px; margin-top: 12px;
+}
 
 .detail-fields {
   margin: 24px 0;
@@ -187,11 +275,6 @@ button:focus-visible {
 .status-tag.status-abandoned { color: var(--status-abandoned); }
 .status-tag.status-want { color: var(--muted); }
 
-.hint-text {
-  margin-top: 32px; padding-top: 16px;
-  border-top: 1px dashed var(--border);
-}
-
 /* ============ Clean mode ============ */
 .page-clean { flex: 1; padding: 24px 32px; overflow-y: auto; }
 .clean-header h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
@@ -204,7 +287,6 @@ button:focus-visible {
   display: inline-block;
 }
 .empty-hint { padding: 16px 0; }
-
 .clean-list {
   list-style: none;
   padding: 0; margin: 16px 0;

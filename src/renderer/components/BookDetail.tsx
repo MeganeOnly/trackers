@@ -1,5 +1,10 @@
 import { useBooksStore } from '../store/books'
 import { useEdgeFor, useUnlocked } from '../store/selectors'
+import type { Book } from '@shared/types'
+
+interface BookDetailProps {
+  onEdit: () => void
+}
 
 const STATUS_LABELS = {
   want: '想看',
@@ -9,9 +14,11 @@ const STATUS_LABELS = {
   abandoned: '弃读'
 } as const
 
-export function BookDetail(): JSX.Element {
+export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const books = useBooksStore((s) => s.books)
+  const select = useBooksStore((s) => s.select)
+  const update = useBooksStore((s) => s.update)
   const book = books.find((b) => b.id === selectedId)
   const edge = useEdgeFor(selectedId)
   const { unlocked, cycles } = useUnlocked()
@@ -27,6 +34,11 @@ export function BookDetail(): JSX.Element {
   const isUnlocked = unlocked.get(book.id) ?? true
   const cycle = cycles.find((c) => c.includes(book.id))
 
+  async function quickSetStatus(status: Book['status']): Promise<void> {
+    if (!book) return
+    await update(book.id, { status })
+  }
+
   return (
     <article className="book-detail">
       <header className="detail-header">
@@ -38,6 +50,19 @@ export function BookDetail(): JSX.Element {
           </span>
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
+        </div>
+        <div className="detail-actions">
+          <button onClick={onEdit}>编辑</button>
+          {book.status !== 'reading' && (
+            <button className="btn-secondary" onClick={() => quickSetStatus('reading')}>
+              开始读
+            </button>
+          )}
+          {book.status !== 'finished' && (
+            <button className="btn-secondary" onClick={() => quickSetStatus('finished')}>
+              标记已读
+            </button>
+          )}
         </div>
       </header>
 
@@ -79,7 +104,7 @@ export function BookDetail(): JSX.Element {
                 <li
                   key={pid}
                   className={`prereq status-${prereq.status}`}
-                  onClick={() => useBooksStore.getState().select(pid)}
+                  onClick={() => select(pid)}
                 >
                   <span className="title">{prereq.title}</span>
                   <span className={`status-tag status-${prereq.status}`}>
@@ -91,8 +116,6 @@ export function BookDetail(): JSX.Element {
           </ul>
         </section>
       )}
-
-      <p className="muted hint-text">编辑表单留 Phase 5。</p>
     </article>
   )
 }
