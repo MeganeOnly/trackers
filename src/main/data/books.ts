@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile, ensureDir } from './files'
 import { makeBaseSlug } from './slug'
-import type { Book, BookStatus } from '@shared/types'
+import type { Book, BookInput, BookStatus } from '@shared/types'
 
 const VALID_STATUS: BookStatus[] = ['want', 'shelved', 'reading', 'finished', 'abandoned']
 
@@ -69,11 +69,6 @@ function normalizeBook(id: string, data: Record<string, unknown>): Book {
     updated: String(data.updated ?? nowIso()),
     tags: Array.isArray(data.tags) ? data.tags.map(String) : []
   }
-}
-
-/** 输入：用户填的字段（不含 id/created/updated） */
-export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'> & {
-  tags?: string[]
 }
 
 /** 写入一本书（覆盖或新建）。返回最终写入的 Book（含 id） */

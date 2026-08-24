@@ -8,6 +8,11 @@ export type BookStatus =
   | 'finished' // 已读
   | 'abandoned' // 弃读
 
+/** 创建/编辑输入：用户填的字段，不含 id/created/updated/read_count/tags 默认值 */
+export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'> & {
+  tags?: string[]
+}
+
 /** 一本书 */
 export interface Book {
   id: string

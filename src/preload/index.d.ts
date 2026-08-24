@@ -1,8 +1,8 @@
+import type { ElectronAPI } from '@shared/api'
+
 declare global {
   interface Window {
-    electron: {
-      // Phase 3 will add: books / relations / config IPC methods
-    }
+    electron: ElectronAPI
   }
 }
 
