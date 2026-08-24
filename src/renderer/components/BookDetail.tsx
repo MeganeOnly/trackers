@@ -1,5 +1,6 @@
 import { useBooksStore } from '../store/books'
-import { useEdgeFor, useUnlocked } from '../store/selectors'
+import { useUnlocked } from '../store/selectors'
+import { PrereqEditor } from './PrereqEditor'
 import type { Book } from '@shared/types'
 
 interface BookDetailProps {
@@ -17,10 +18,8 @@ const STATUS_LABELS = {
 export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const books = useBooksStore((s) => s.books)
-  const select = useBooksStore((s) => s.select)
   const update = useBooksStore((s) => s.update)
   const book = books.find((b) => b.id === selectedId)
-  const edge = useEdgeFor(selectedId)
   const { unlocked, cycles } = useUnlocked()
 
   if (!book) {
@@ -81,41 +80,7 @@ export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
         </dd>
       </dl>
 
-      {edge && (
-        <section className="detail-prereqs">
-          <h3>
-            前置依赖 <span className="muted">({edge.prerequisites.length} 本)</span>
-          </h3>
-          {edge.rule === 'any_of' && (
-            <p className="rule-tag">规则: 至少 {edge.threshold} 本</p>
-          )}
-          <ul>
-            {edge.prerequisites.map((pid) => {
-              const prereq = books.find((b) => b.id === pid)
-              if (!prereq) {
-                return (
-                  <li key={pid} className="prereq prereq-missing">
-                    <span className="title">{pid}</span>
-                    <span className="muted">未找到</span>
-                  </li>
-                )
-              }
-              return (
-                <li
-                  key={pid}
-                  className={`prereq status-${prereq.status}`}
-                  onClick={() => select(pid)}
-                >
-                  <span className="title">{prereq.title}</span>
-                  <span className={`status-tag status-${prereq.status}`}>
-                    {STATUS_LABELS[prereq.status]}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      )}
+      <PrereqEditor bookId={book.id} />
     </article>
   )
 }
