@@ -1,5 +1,6 @@
 import { useGroupedByStatus } from '../store/selectors'
 import { useBooksStore } from '../store/books'
+import { useSearchStore, matchBook } from '../store/search'
 import type { Book, BookStatus } from '@shared/types'
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -16,30 +17,30 @@ function StatusDot({ status }: { status: BookStatus }): JSX.Element {
   return <span className={`status-dot status-${status}`} title={STATUS_LABELS[status]} />
 }
 
-interface BookListProps {
-  filter?: BookStatus | 'all'
-}
-
-export function BookList({ filter = 'all' }: BookListProps): JSX.Element {
+export function BookList(): JSX.Element {
   const groups = useGroupedByStatus()
   const selectedId = useBooksStore((s) => s.selectedId)
   const select = useBooksStore((s) => s.select)
+  const query = useSearchStore((s) => s.query)
 
-  const visible: BookStatus[] =
-    filter === 'all' ? STATUS_ORDER : [filter]
+  const filtered = (items: Book[]): Book[] => items.filter((b) => matchBook(b, query))
 
   return (
     <div className="book-list">
-      {visible.map((status) => {
-        const items = groups[status]
+      {STATUS_ORDER.map((status) => {
+        const items = filtered(groups[status])
+        const totalCount = groups[status].length
         return (
           <section key={status} className="book-list-group">
             <h3>
               <StatusDot status={status} />
-              {STATUS_LABELS[status]} <span className="count">({items.length})</span>
+              {STATUS_LABELS[status]}{' '}
+              <span className="count">
+                ({query ? `${items.length}/${totalCount}` : totalCount})
+              </span>
             </h3>
             {items.length === 0 ? (
-              <p className="muted empty-hint">—</p>
+              <p className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</p>
             ) : (
               <ul>
                 {items.map((b) => (

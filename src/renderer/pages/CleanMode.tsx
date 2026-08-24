@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
+import { useSearchStore, matchBook } from '../store/search'
 import type { Book, BookStatus } from '@shared/types'
 
 const COLLAPSED_SECTIONS: { key: BookStatus; label: string }[] = [
@@ -15,6 +16,7 @@ export function CleanMode(): JSX.Element {
   const update = useBooksStore((s) => s.update)
   const edges = useRelationsStore((s) => s.edges)
   const { unlocked } = useUnlocked()
+  const query = useSearchStore((s) => s.query)
 
   const [openSections, setOpenSections] = useState<Set<BookStatus>>(new Set())
 
@@ -29,21 +31,24 @@ export function CleanMode(): JSX.Element {
     return books
       .filter((b) => b.status !== 'finished' && b.status !== 'abandoned' && b.status !== 'shelved')
       .filter((b) => unlocked.get(b.id))
+      .filter((b) => matchBook(b, query))
       .map((book) => ({ book, refCount: refCount.get(book.id) ?? 0 }))
       .sort((a, b) => {
         if (b.refCount !== a.refCount) return b.refCount - a.refCount
         return a.book.title.localeCompare(b.book.title, 'zh')
       })
-  }, [books, edges, unlocked])
+  }, [books, edges, unlocked, query])
 
   const collapsedLists: Record<BookStatus, Book[]> = useMemo(() => {
     const groups: Record<BookStatus, Book[]> = { want: [], shelved: [], reading: [], finished: [], abandoned: [] }
     for (const b of books) groups[b.status].push(b)
     for (const k of Object.keys(groups) as BookStatus[]) {
-      groups[k].sort((a, b) => a.title.localeCompare(b.title, 'zh'))
+      groups[k] = groups[k]
+        .filter((b) => matchBook(b, query))
+        .sort((a, b) => a.title.localeCompare(b.title, 'zh'))
     }
     return groups
-  }, [books])
+  }, [books, query])
 
   async function markFinished(id: string): Promise<void> {
     await update(id, { status: 'finished' })
@@ -64,7 +69,10 @@ export function CleanMode(): JSX.Element {
   return (
     <div className="page-clean">
       <header className="clean-header">
-        <h2>现在能读的书 ({readableList.length})</h2>
+        <h2>
+          现在能读的书 ({readableList.length}
+          {query && readableList.length !== books.length ? ` / ${books.length}` : ''})
+        </h2>
         {nowReading && (
           <p className="currently-reading">
             正在读: <strong>{nowReading.title}</strong>
@@ -74,7 +82,9 @@ export function CleanMode(): JSX.Element {
       </header>
 
       {readableList.length === 0 ? (
-        <p className="muted empty-hint">暂无未读已解锁的书。先在右侧编辑模式加几本。</p>
+        <p className="muted empty-hint">
+          {query ? '无匹配。' : '暂无未读已解锁的书。先在右侧编辑模式加几本。'}
+        </p>
       ) : (
         <ul className="clean-list">
           {readableList.map(({ book, refCount }) => (
@@ -114,7 +124,7 @@ export function CleanMode(): JSX.Element {
               {open && (
                 <ul className="collapsed-list">
                   {items.length === 0 ? (
-                    <li className="muted empty-hint">—</li>
+                    <li className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</li>
                   ) : (
                     items.map((b) => (
                       <li key={b.id} className="collapsed-item">

@@ -7,6 +7,7 @@ import { GraphModal } from './components/GraphModal'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
+import { useSearchStore } from './store/search'
 import type { Book } from '@shared/types'
 
 type FormState = { mode: 'add' } | { mode: 'edit'; book: Book } | null
@@ -18,6 +19,7 @@ export default function App(): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const books = useBooksStore((s) => s.books)
   const select = useBooksStore((s) => s.select)
+  const clearSearch = useSearchStore((s) => s.clear)
 
   const [form, setForm] = useState<FormState>(null)
   const [graphOpen, setGraphOpen] = useState(false)
@@ -40,6 +42,34 @@ export default function App(): JSX.Element {
     if (!b) return
     setForm({ mode: 'edit', book: b })
   }
+
+  // 全局快捷键（input/textarea 焦点时不触发）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key === 'n') {
+        e.preventDefault()
+        openAdd()
+      } else if (key === 'g') {
+        e.preventDefault()
+        setGraphOpen((v) => !v)
+      } else if (key === 'e') {
+        e.preventDefault()
+        useModeStore.getState().setMode('edit')
+      } else if (key === 'c') {
+        e.preventDefault()
+        useModeStore.getState().setMode('clean')
+      } else if (e.key === 'Escape') {
+        clearSearch()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books, selectedId])
 
   return (
     <div className="app-shell">
