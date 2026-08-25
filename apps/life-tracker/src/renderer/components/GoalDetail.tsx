@@ -63,6 +63,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
   )
   const [note, setNote] = useState(goal?.note ?? '')
   const [pinned, setPinned] = useState(goal?.pinned ?? false)
+  const [hidden, setHidden] = useState(goal?.hidden ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -79,6 +80,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
     )
     setNote(goal?.note ?? '')
     setPinned(goal?.pinned ?? false)
+    setHidden(goal?.hidden ?? false)
     setError(null)
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,7 +129,8 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
         status,
         progress: null,
         note: note.trim(),
-        pinned
+        pinned,
+        hidden
       }
       // 仅当 status === 'in_progress' 且填了 current 时才把 progress 写进 patch
       if (status === 'in_progress') {
@@ -179,15 +182,6 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           <span className={`status-pill status-${status}`}>{STATUS_LABELS[status]}</span>
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
-        </div>
-        <div className="detail-actions">
-          <button className="btn-danger" onClick={handleDelete} disabled={busy}>
-            删除
-          </button>
-          <div className="spacer" />
-          <button className="btn-primary" onClick={handleSave} disabled={busy}>
-            {busy ? '保存中...' : saved ? '已保存' : '保存'}
-          </button>
         </div>
       </header>
 
@@ -283,6 +277,16 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             <span>置顶到『进行中』栏（日常模式顶部展示）</span>
           </label>
         )}
+        {(status === 'not_started' || status === 'in_progress') && (
+          <label className="form-checkline">
+            <input
+              type="checkbox"
+              checked={hidden}
+              onChange={(e) => setHidden(e.target.checked)}
+            />
+            <span>在日常模式『现在能推进』中收起（隐藏，不影响解锁）</span>
+          </label>
+        )}
         <label className="field">
           <span>备注 / 描述</span>
           <textarea
@@ -296,6 +300,16 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
       </div>
 
       <PrereqEditor goalId={goal.id} />
+
+      <footer className="detail-footer">
+        <button className="btn-danger" onClick={handleDelete} disabled={busy}>
+          删除
+        </button>
+        <div className="spacer" />
+        <button className="btn-primary" onClick={handleSave} disabled={busy}>
+          {busy ? '保存中...' : saved ? '已保存' : '保存'}
+        </button>
+      </footer>
     </article>
   )
 }

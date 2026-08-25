@@ -50,6 +50,8 @@ pub struct Goal {
     pub progress: Option<Progress>,
     /// 置顶展示：in_progress 时显示在 CleanMode 顶部『进行中』栏
     pub pinned: bool,
+    /// 日常模式收起：not_started / in_progress 时从『现在能推进的目标』列表隐藏（纯展示，不影响解锁）
+    pub hidden: bool,
     /// ISO 8601 字符串
     pub created: String,
     /// ISO 8601 字符串
@@ -67,6 +69,8 @@ pub struct GoalInput {
     pub progress: Option<Progress>,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// 更新目标的 patch(全字段可选)。
@@ -93,6 +97,9 @@ pub struct GoalPatch {
     /// 置顶展示
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
+    /// 日常模式收起
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

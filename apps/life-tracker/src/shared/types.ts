@@ -41,6 +41,8 @@ export interface Goal {
   progress: Progress | null
   /** 置顶展示：状态为进行中时，显示在 CleanMode 顶部的『进行中』栏 */
   pinned: boolean
+  /** 日常模式收起：状态为未开始/进行中时，从『现在能推进的目标』列表隐藏（纯展示，不影响解锁） */
+  hidden: boolean
   /** ISO 8601 字符串 */
   created: string
   /** ISO 8601 字符串 */

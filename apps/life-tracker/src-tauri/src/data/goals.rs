@@ -71,6 +71,7 @@ fn normalize_goal(id: &str, data: &serde_json::Value) -> Goal {
         status: parse_status(data.get("status")),
         progress: data.get("progress").and_then(tracker_core::progress::parse_progress),
         pinned: data.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false),
+        hidden: data.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false),
         created: data.get("created").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         updated: data.get("updated").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
@@ -131,6 +132,7 @@ pub fn write_goal(
         status: input.status,
         progress: normalize_progress_input(input.progress.as_ref()),
         pinned: input.pinned,
+        hidden: input.hidden,
         created: now.clone(),
         updated: now,
     };
@@ -154,6 +156,7 @@ pub fn update_goal(
     if let Some(v) = &patch.deadline { merged.deadline = if v.is_empty() { None } else { Some(v.clone()) }; }
     if let Some(v) = patch.status { merged.status = v; }
     if let Some(v) = patch.pinned { merged.pinned = v; }
+    if let Some(v) = patch.hidden { merged.hidden = v; }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -215,9 +218,12 @@ fn persist(goals_dir: impl AsRef<Path>, goal: &Goal) -> std::io::Result<()> {
         }
         fm.insert("progress".into(), serde_json::Value::Object(prog_map));
     }
-    // pinned 只在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
+    // pinned / hidden 只在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
     if goal.pinned {
         fm.insert("pinned".into(), serde_json::Value::Bool(true));
+    }
+    if goal.hidden {
+        fm.insert("hidden".into(), serde_json::Value::Bool(true));
     }
 
     let front = serde_json::to_string_pretty(&serde_json::Value::Object(fm))
@@ -250,6 +256,7 @@ mod tests {
             status: GoalStatus::InProgress,
             progress: Some(Progress { current: 1, total: Some(2) }),
             pinned: false,
+            hidden: false,
         }
     }
 
@@ -364,5 +371,39 @@ mod tests {
         let legacy = goals_dir.join("99.md");
         std::fs::write(&legacy, "---\n{\"id\":\"99\",\"title\":\"旧目标\",\"status\":\"in_progress\"}\n---\n# 旧目标\n").unwrap();
         assert!(!read_goal(&goals_dir, "99").unwrap().unwrap().pinned);
+    }
+
+    #[test]
+    fn hidden_round_trip_and_omit_when_false() {
+        let dir = temp_goals_dir();
+        let goals_dir = dir.path().join("goals");
+
+        // hidden=true → 写盘并读回
+        let mut input = sample_input();
+        input.hidden = true;
+        let goal = write_goal(&goals_dir, &input, &HashSet::new()).unwrap();
+        assert!(goal.hidden);
+        let raw_true = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal.id))).unwrap();
+        assert!(raw_true.contains("hidden"), "hidden=true 应写盘");
+        assert!(read_goal(&goals_dir, &goal.id).unwrap().unwrap().hidden);
+
+        // hidden=false → 不写盘，读回仍为 false
+        let mut input2 = sample_input();
+        input2.hidden = false;
+        let ids: HashSet<String> = [goal.id.clone()].into_iter().collect();
+        let goal2 = write_goal(&goals_dir, &input2, &ids).unwrap();
+        let raw = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal2.id))).unwrap();
+        assert!(!raw.contains("hidden"), "hidden=false 不应写盘");
+        assert!(!read_goal(&goals_dir, &goal2.id).unwrap().unwrap().hidden);
+
+        // 旧文件没有 hidden 字段 → 默认 false
+        let legacy = goals_dir.join("98.md");
+        std::fs::write(&legacy, "---\n{\"id\":\"98\",\"title\":\"旧目标2\",\"status\":\"in_progress\"}\n---\n# 旧目标2\n").unwrap();
+        assert!(!read_goal(&goals_dir, "98").unwrap().unwrap().hidden);
+
+        // patch.hidden 只在该字段出现时合并
+        let patch = GoalPatch { hidden: Some(true), ..Default::default() };
+        let updated = update_goal(&goals_dir, &goal.id, &patch).unwrap();
+        assert!(updated.hidden);
     }
 }

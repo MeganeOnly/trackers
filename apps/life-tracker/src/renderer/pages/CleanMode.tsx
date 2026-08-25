@@ -4,12 +4,22 @@ import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
 import { useSearchStore, matchGoal } from '../store/search'
 import { isGoalDone } from '@shared/types'
+import { computeDailyHidden } from '@shared/visibility'
 import type { Goal, GoalStatus } from '@shared/types'
 
-const COLLAPSED_SECTIONS: { key: GoalStatus; label: string }[] = [
+const STATUS_LABELS: Record<GoalStatus, string> = {
+  not_started: '未开始',
+  in_progress: '进行中',
+  done: '已达成',
+  shelved: '搁置',
+  abandoned: '放弃'
+}
+
+const COLLAPSED_SECTIONS: { key: string; label: string }[] = [
   { key: 'shelved', label: '搁置' },
   { key: 'done', label: '已达成' },
-  { key: 'abandoned', label: '放弃' }
+  { key: 'abandoned', label: '放弃' },
+  { key: 'hidden', label: '已收起' }
 ]
 
 /** 折叠区条目"恢复"的目标状态：搁置/放弃 → 未开始，已达成 → 进行中 */
@@ -35,12 +45,15 @@ export function CleanMode(): JSX.Element {
   const { unlocked } = useUnlocked()
   const query = useSearchStore((s) => s.query)
 
-  const [openSections, setOpenSections] = useState<Set<GoalStatus>>(new Set())
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set())
 
   const nowInProgress = useMemo(
-    () => goals.filter((g) => g.status === 'in_progress' && g.pinned),
+    () => goals.filter((g) => g.status === 'in_progress' && g.pinned && !g.hidden),
     [goals]
   )
+
+  // ④ 上级（反向前置）被搁置/放弃 → 从可推进列表隐藏
+  const blockedByDeadParent = useMemo(() => computeDailyHidden(goals, edges), [goals, edges])
 
   const doableList = useMemo(() => {
     const refCount = new Map<string, number>()
@@ -51,24 +64,33 @@ export function CleanMode(): JSX.Element {
     return goals
       .filter((g) => g.status !== 'done' && g.status !== 'abandoned' && g.status !== 'shelved')
       .filter((g) => unlocked.get(g.id))
+      .filter((g) => !g.hidden)
+      .filter((g) => !blockedByDeadParent.has(g.id))
       .filter((g) => matchGoal(g, query))
       .map((goal) => ({ goal, refCount: refCount.get(goal.id) ?? 0 }))
       .sort((a, b) => {
         if (b.refCount !== a.refCount) return b.refCount - a.refCount
         return a.goal.title.localeCompare(b.goal.title, 'zh')
       })
-  }, [goals, edges, unlocked, query])
+  }, [goals, edges, unlocked, query, blockedByDeadParent])
 
-  const collapsedLists: Record<GoalStatus, Goal[]> = useMemo(() => {
-    const groups: Record<GoalStatus, Goal[]> = {
+  const collapsedLists: Record<string, Goal[]> = useMemo(() => {
+    const groups: Record<string, Goal[]> = {
       not_started: [],
       in_progress: [],
       done: [],
       shelved: [],
-      abandoned: []
+      abandoned: [],
+      hidden: []
     }
-    for (const g of goals) groups[g.status].push(g)
-    for (const k of Object.keys(groups) as GoalStatus[]) {
+    for (const g of goals) {
+      if (g.hidden && (g.status === 'not_started' || g.status === 'in_progress')) {
+        groups.hidden.push(g)
+        continue
+      }
+      groups[g.status].push(g)
+    }
+    for (const k of Object.keys(groups)) {
       groups[k] = groups[k]
         .filter((g) => matchGoal(g, query))
         .sort((a, b) => a.title.localeCompare(b.title, 'zh'))
@@ -85,8 +107,14 @@ export function CleanMode(): JSX.Element {
   async function restore(g: Goal): Promise<void> {
     await update(g.id, { status: RESTORE_TO[g.status] })
   }
+  async function hide(id: string): Promise<void> {
+    await update(id, { hidden: true })
+  }
+  async function unhide(id: string): Promise<void> {
+    await update(id, { hidden: false })
+  }
 
-  function toggle(key: GoalStatus): void {
+  function toggle(key: string): void {
     setOpenSections((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -162,6 +190,13 @@ export function CleanMode(): JSX.Element {
                     解锁 {refCount} 个
                   </span>
                   <div className="quick-actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => hide(goal.id)}
+                      title="在日常模式『现在能推进』中收起（隐藏）"
+                    >
+                      收起
+                    </button>
                     <button className="btn-secondary" onClick={() => shelve(goal.id)} title="搁置">
                       搁置
                     </button>
@@ -201,22 +236,36 @@ export function CleanMode(): JSX.Element {
                   {items.length === 0 ? (
                     <li className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</li>
                   ) : (
-                    items.map((g) => (
-                      <li key={g.id} className="collapsed-item">
-                        <span className="title">{g.title}</span>
-                        <span className="author muted">
-                          {g.status === 'done' &&
-                          isGoalDone(g) &&
-                          g.progress &&
-                          g.progress.total !== null
-                            ? `${g.progress.current}/${g.progress.total}`
-                            : g.category || ''}
-                        </span>
-                        <button className="restore-btn" onClick={() => restore(g)} title="恢复">
-                          恢复
-                        </button>
-                      </li>
-                    ))
+                    items.map((g) =>
+                      key === 'hidden' ? (
+                        <li key={g.id} className="collapsed-item">
+                          <span className="title">{g.title}</span>
+                          <span className="author muted">{STATUS_LABELS[g.status]}</span>
+                          <button
+                            className="restore-btn"
+                            onClick={() => unhide(g.id)}
+                            title="展开（回到『现在能推进』列表）"
+                          >
+                            展开
+                          </button>
+                        </li>
+                      ) : (
+                        <li key={g.id} className="collapsed-item">
+                          <span className="title">{g.title}</span>
+                          <span className="author muted">
+                            {g.status === 'done' &&
+                            isGoalDone(g) &&
+                            g.progress &&
+                            g.progress.total !== null
+                              ? `${g.progress.current}/${g.progress.total}`
+                              : g.category || ''}
+                          </span>
+                          <button className="restore-btn" onClick={() => restore(g)} title="恢复">
+                            恢复
+                          </button>
+                        </li>
+                      )
+                    )
                   )}
                 </ul>
               )}

@@ -39,6 +39,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
   )
   const [note, setNote] = useState(goal?.note ?? '')
   const [pinned, setPinned] = useState(goal?.pinned ?? false)
+  const [hidden, setHidden] = useState(goal?.hidden ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -58,7 +59,8 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
         status,
         progress: null,
         note: note.trim(),
-        pinned
+        pinned,
+        hidden
       }
       // 仅当 status === 'in_progress' 且填了 current 时才把 progress 写进 input
       if (status === 'in_progress') {
@@ -181,6 +183,16 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
               onChange={(e) => setPinned(e.target.checked)}
             />
             <span>置顶到『进行中』栏（日常模式顶部展示）</span>
+          </label>
+        )}
+        {(status === 'not_started' || status === 'in_progress') && (
+          <label className="form-checkline">
+            <input
+              type="checkbox"
+              checked={hidden}
+              onChange={(e) => setHidden(e.target.checked)}
+            />
+            <span>在日常模式『现在能推进』中收起（隐藏，不影响解锁）</span>
           </label>
         )}
         <label className="field">

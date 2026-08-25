@@ -17,7 +17,7 @@ interface GraphModalProps {
  * GraphView.onNodeClick 已经直接更新 goalsStore.selectedId，
  * 这里读 selectedId 即可驱动布局切换。
  */
-const SPLIT_WIDTH = 1200
+const SPLIT_WIDTH = 1360
 const GRAPH_WIDTH = 880
 
 export function GraphModal({ onClose }: GraphModalProps): JSX.Element {

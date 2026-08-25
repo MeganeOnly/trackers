@@ -8,7 +8,10 @@ import { resolve } from 'node:path'
 // 别名与 vite.config.ts 一致,保证 import 路径在两套构建下都解析正确。
 export default defineConfig({
   test: {
-    include: ['../../packages/tracker-core/src/__tests__/**/*.test.ts']
+    include: [
+      '../../packages/tracker-core/src/__tests__/**/*.test.ts',
+      'src/shared/**/*.test.ts'
+    ]
   },
   resolve: {
     alias: {

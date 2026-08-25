@@ -271,10 +271,15 @@ button:focus-visible {
 }
 .lock-pill.error { background: #f7dfd8; color: var(--status-abandoned); }
 
-.detail-actions {
-  display: flex; gap: 8px; margin-top: 12px;
+/* 详情底部操作条：删除（左）+ 保存（右），置于全部字段与前置编辑之后 */
+.detail-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
-.detail-actions .spacer { flex: 1; }
+.detail-footer .spacer { flex: 1; }
 
 /* 内联编辑表单（编辑模式详情 = 表单字段，复用 .field/.field-row 样式） */
 .detail-form {
@@ -498,6 +503,11 @@ button:focus-visible {
 .collapsed-section.status-abandoned .collapsed-header {
   background: #fbf0ed; border-color: #f0d2c8;
 }
+/* 『已收起』：中性灰，与状态分类条区分 */
+.collapsed-section.status-hidden .collapsed-header {
+  background: #f3f3f1; border-color: #e2e2dc;
+}
+.status-dot.status-hidden { background: var(--muted); }
 .collapsed-list {
   list-style: none; padding: 0 0 0 24px; margin: 0;
   display: flex; flex-direction: column; gap: 4px;
@@ -637,14 +647,14 @@ button:focus-visible {
   flex-direction: column;
 }
 .graph-modal-pane-left {
-  flex: 2;
+  flex: 3;
   min-width: 0;          /* 防止 flex 子项被 canvas 撑爆 */
   display: flex;
   flex-direction: column;
 }
 .graph-modal-pane-right {
-  flex: 1;
-  min-width: 280px;
+  flex: 2;
+  min-width: 360px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -721,6 +731,9 @@ button:focus-visible {
   padding-right: 0;
   max-width: none;
 }
+/* 关系图右侧卡片较窄：分类/截止等同行字段允许换行、给足最小宽度 */
+.goal-card .field-row { flex-wrap: wrap; }
+.goal-card .field { min-width: 150px; }
 .goal-card-empty {
   flex: 1;
   display: flex;
