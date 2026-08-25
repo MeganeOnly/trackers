@@ -70,6 +70,7 @@ src/
 ```
 
 - `deadline` / `progress` 只在有值时写盘；`progress` 写盘判断与 book-tracker 同款（避免污染）
+- `pinned`（置顶到『进行中』栏）只在 `true` 时写盘，缺省 `false`；旧文件无该字段按 `false` 处理
 - `progress.current >= progress.total` → 视为已达成（`isGoalDone`）
 - 数据目录：`<data_dir>/goals/` + `relations.json` + `config.json`（%APPDATA%/life-tracker 存 data_dir 指针）
 
@@ -113,3 +114,5 @@ cd F:\LIFE && cargo build -p life-tracker
 - `GoalPatch.deadline` 是 `Option<String>`（不是三态）——清空靠空字符串约定
 - 达成判定要同时看 `status == done` 和"量化进度已满"，两处（TS `isGoalDone` 与 Rust `service/relations.rs`）必须保持一致
 - Vite 端口是 **1421**，改回 1420 会和 book-tracker 撞（tauri.conf.json devUrl + vite.config.ts 要一起改）
+- CleanMode 顶部『进行中』栏只显示 `status === 'in_progress' && pinned` 的目标。历史上这里用 `goals.find()` 只取**数组第一个** in_progress（单槽位"当前焦点"，沿袭 book-tracker 的"正在读"）——多个 in_progress 时只有第一个显示，容易被当成 bug；改多槽位时必须保留 pinned 过滤，别退回 find
+- 给 Goal 加字段要同步 Rust 四处 + TS 一处：`types.rs`（Goal / GoalInput / GoalPatch 三处 serde 镜像）→ `data/goals.rs`（normalize_goal 读取、write_goal、update_goal、persist 写入）；TS 端 `GoalInput = Omit<Goal, ...>` 派生，新必填字段会让 create 调用处立刻报错，属正常提醒

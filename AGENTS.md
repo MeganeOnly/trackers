@@ -78,6 +78,9 @@ cd apps/life-tracker && npm run typecheck
 cd apps/life-tracker && npm test
 ```
 
+> **Windows 环境坑（cargo）**：跑 `cargo` 命令前确保 msys2 的 `ucrt64/bin` 目录在 PATH（linker 与 dlltool 依赖，位置见 `.cargo/config.toml`）。
+> 缺了会报 `ld returned 53` / `dlltool: program not found` —— 编译正常但链接失败，是环境 PATH 问题，不是代码问题。
+
 ## 七、数据与代码分离（不变）
 
 应用数据（`books/`、`goals/`、`relations.json`、`config.json`）由用户启动时选定的数据目录管理，与代码仓完全分离；两 app 各自数据目录独立。
