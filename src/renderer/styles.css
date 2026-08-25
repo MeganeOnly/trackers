@@ -357,11 +357,20 @@ button:focus-visible {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  flex: 1;
   min-width: 0;
 }
-.clean-item-meta .title { font-weight: 500; }
-.clean-item-meta .author { font-size: 12px; color: var(--muted); }
+.clean-item-meta .title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+.clean-item-meta .author {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
 .ref-badge {
   font-size: 11px;
   padding: 2px 8px;
