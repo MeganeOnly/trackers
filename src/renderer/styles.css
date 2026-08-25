@@ -491,10 +491,28 @@ button:focus-visible {
 .topbar-icon-btn:hover { background: var(--bg); }
 
 .graph-modal-body {
-  height: 70vh;
-  min-height: 480px;
   display: flex;
   flex-direction: column;
+  /* body 自适应内容高度（旧的 70vh/min-height 在两栏布局下不再合适） */
+}
+.graph-modal-split {
+  display: flex;
+  gap: 16px;
+  height: 70vh;
+  min-height: 520px;
+}
+.graph-modal-pane-left {
+  flex: 2;
+  min-width: 0;          /* 防止 flex 子项被 canvas 撑爆 */
+  display: flex;
+  flex-direction: column;
+}
+.graph-modal-pane-right {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .graph-view {
   flex: 1;
@@ -533,33 +551,17 @@ button:focus-visible {
   margin: 0 4px;
 }
 
-/* ============ BookCard（图内嵌的书详情卡片） ============ */
+/* ============ BookCard（关系图右侧的书详情卡片） ============ */
 .book-card {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  /* 比 graph-view 更紧凑的高度，给 modal 留标题与关闭按钮 */
-  height: 70vh;
-  min-height: 480px;
-}
-.book-card-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 12px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-}
-.book-card-toolbar .btn-back {
-  font-size: 13px;
-  color: var(--muted);
-  padding: 4px 10px;
+  min-height: 0;          /* 允许内部滚动 */
+  background: white;
   border-radius: 4px;
-  background: transparent;
   border: 1px solid var(--border);
-}
-.book-card-toolbar .btn-back:hover {
-  color: var(--fg);
-  background: var(--bg);
+  padding: 16px;
+  overflow: hidden;
 }
 .book-card .book-detail {
   flex: 1;
@@ -567,3 +569,16 @@ button:focus-visible {
   padding-right: 4px;
   max-width: none;
 }
+.book-card-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 24px;
+}
+.book-card-empty .hint { font-size: 12px; opacity: 0.8; }

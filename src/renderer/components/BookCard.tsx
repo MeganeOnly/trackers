@@ -5,24 +5,16 @@ interface BookCardProps {
   bookId: string
   /** 打开 BookForm 编辑此书 */
   onEdit: () => void
-  /** 返回关系图视图 */
-  onBack: () => void
 }
 
 /**
- * 关系图内嵌的书详情卡片。结构与 EditMode 右侧 BookDetail 一致
+ * 关系图右侧的书详情卡片。结构与 EditMode 右侧 BookDetail 一致
  * （功能齐全：状态切换 / 章节进度 / 前置编辑 / 编辑表单入口），
- * 顶部多一条"← 返回图"工具栏。固定 bookId，不读写全局 selectedId，
- * 因此不会污染 EditMode 里的选中状态。
+ * 不读写全局 selectedId，因此不会污染 EditMode 里的选中状态。
  */
-export function BookCard({ bookId, onEdit, onBack }: BookCardProps): JSX.Element {
+export function BookCard({ bookId, onEdit }: BookCardProps): JSX.Element {
   return (
     <section className="book-card">
-      <div className="book-card-toolbar">
-        <button className="btn-back" onClick={onBack} type="button">
-          ← 返回图
-        </button>
-      </div>
       <BookDetail bookId={bookId} onEdit={onEdit} />
     </section>
   )
