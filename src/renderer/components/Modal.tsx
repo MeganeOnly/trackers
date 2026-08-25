@@ -8,9 +8,19 @@ interface ModalProps {
   width?: number
   /** 附加到 .modal-card 上的类名（如需要确定高度/特殊布局时用） */
   className?: string
+  /** 附加到 .modal-backdrop 上的类名（如需要更高层级、叠在其它 modal 之上时用） */
+  backdropClassName?: string
 }
 
-export function Modal({ title, onClose, children, footer, width = 560, className }: ModalProps): JSX.Element {
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+  width = 560,
+  className,
+  backdropClassName
+}: ModalProps): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
@@ -20,7 +30,10 @@ export function Modal({ title, onClose, children, footer, width = 560, className
   }, [onClose])
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className={`modal-backdrop${backdropClassName ? ` ${backdropClassName}` : ''}`}
+      onClick={onClose}
+    >
       <div
         className={`modal-card${className ? ` ${className}` : ''}`}
         style={{ maxWidth: width }}

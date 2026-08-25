@@ -47,7 +47,7 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
       {showSplit ? (
         <div className="graph-modal-split">
           <div className="graph-modal-pane-left">
-            <GraphView />
+            <GraphView highlightId={selectedId} />
           </div>
           <div className="graph-modal-pane-right">
             <BookCardContainer onEdit={onEdit} onClose={() => select(null)} />
@@ -55,7 +55,7 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
         </div>
       ) : (
         <div className="graph-modal-full">
-          <GraphView />
+          <GraphView highlightId={selectedId} />
         </div>
       )}
     </Modal>

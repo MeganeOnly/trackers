@@ -135,6 +135,10 @@ button:focus-visible {
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
+/* 表单等需要叠在关系图弹窗之上的 modal（关系图里点"编辑"时用） */
+.modal-backdrop--top {
+  z-index: 200;
+}
 .modal-card {
   background: white;
   border-radius: 8px;

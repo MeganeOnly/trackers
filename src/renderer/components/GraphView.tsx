@@ -93,12 +93,33 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
     return () => ro.disconnect()
   }, [])
 
+  // 两段式居中：
+  // 1) 点击后立即 centerAt（即时反馈；此时可能碰上画布 resize / 模拟还在跑，位置是近似的）
+  // 2) 等力导向模拟收敛（cooldownTicks 120 ≈ 2s）后，按节点最终位置再精确居中一次。
+  //    不能暂停模拟：pauseAnimation 会 cancelAnimationFrame 停掉整个渲染循环，
+  //    居中 tween 画不出来、hover/点击命中也会失效（点了没反应）。
+  const settleTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(settleTimer.current), [])
+
   useEffect(() => {
     if (!highlightId || !fgRef.current) return
     const node = data.nodes.find((n) => n.id === highlightId)
     if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-      fgRef.current.centerAt(node.x, node.y, 400)
+      fgRef.current.centerAt(node.x, node.y, 350)
     }
+  }, [highlightId, data.nodes, dims])
+
+  useEffect(() => {
+    window.clearTimeout(settleTimer.current)
+    if (!highlightId) return
+    settleTimer.current = window.setTimeout(() => {
+      if (!fgRef.current) return
+      const node = data.nodes.find((n) => n.id === highlightId)
+      if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+        fgRef.current.centerAt(node.x, node.y, 250)
+      }
+    }, 2500)
+    return () => window.clearTimeout(settleTimer.current)
   }, [highlightId, data.nodes])
 
   return (
@@ -135,6 +156,7 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
           onNodeClick={(n) => {
             select(n.id)
             onSelect?.(n.id)
+            // 居中由 highlightId 变化的两段式效果处理（立即 + 模拟收敛后精确居中）
           }}
           nodeCanvasObjectMode={() => 'after'}
           nodeCanvasObject={(n, ctx, scale) => {

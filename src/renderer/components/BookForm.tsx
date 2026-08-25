@@ -116,6 +116,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
       title={isEdit ? `编辑《${book.title}》` : '加书'}
       onClose={onClose}
       width={600}
+      backdropClassName="modal-backdrop--top"
       footer={
         <div className="form-footer">
           {isEdit && (
