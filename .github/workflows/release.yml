@@ -1,0 +1,59 @@
+name: Release
+
+# 触发:推送 tag 时构建对应 app 的 Windows NSIS installer,并创建 draft GitHub Release。
+# tag 前缀分派:
+#   book-tracker-v*  → apps/book-tracker
+#   life-tracker-v*  → apps/life-tracker
+# 例:git tag book-tracker-v0.1.0 && git push origin book-tracker-v0.1.0
+
+on:
+  push:
+    tags:
+      - 'book-tracker-v*'
+      - 'life-tracker-v*'
+
+jobs:
+  release-book:
+    if: startsWith(github.ref_name, 'book-tracker-v')
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      # tauri-action 自动:装 stable Rust(MSVC)/webview2/跑 npm install + build/传 .exe/建 draft release
+      - name: Build & draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/book-tracker
+          tagName: ${{ github.ref_name }}
+          releaseName: "BookTracker ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+
+  release-life:
+    if: startsWith(github.ref_name, 'life-tracker-v')
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Build & draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/life-tracker
+          tagName: ${{ github.ref_name }}
+          releaseName: "LifeTracker ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false

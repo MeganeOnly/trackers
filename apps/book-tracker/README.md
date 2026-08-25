@@ -1,5 +1,10 @@
 # BookTracker — 下位书籍追踪器
 
+> **monorepo 迁移说明**：本项目现位于 `trackers` monorepo（仓库根 `F:\LIFE`）的 `apps/book-tracker`。
+> 共享逻辑（前置依赖图 / 解锁 / 进度 / 文件存储 / 配置 / 数据目录）已抽到 `tracker-core`
+> （`packages/tracker-core` TS + `crates/tracker-core` Rust），与 `life-tracker` 共用——**一处改、两 app 同生效**。
+> 本目录 `src/shared/` 只保留 Book 领域类型与文案；开发命令与工作流见根 `AGENTS.md`。
+
 管理"想读的书 + 前置依赖"，自动算出"现在能读哪本"。
 
 ## 功能
@@ -27,8 +32,8 @@
 npm install
 npm run dev          # tauri dev：启动 Vite + 编译 Rust + 打开原生窗口（带热重载）
 npm run dev:vite     # 只跑 Vite dev server (1420)，纯 renderer 调试用
-npm run typecheck    # tsc 双段检查（node: vite.config.ts；web: renderer + shared）
-npm test             # vitest 单测（renderer/shared 纯函数）
+npm run typecheck    # tsc 双段检查（node: vite.config.ts；web: renderer + shared + @core）
+npm test             # vitest run（tracker-core 共享纯函数）
 ```
 
 ## 打包
@@ -38,21 +43,22 @@ npm run build        # tauri build：产物在 src-tauri/target/release/bundle/n
 npm run build:vite   # 只跑 vite build：产物在 dist/（供 tauri build 消费）
 ```
 
-Rust 后端单独验证：
+Rust 后端验证（monorepo workspace 统一在根跑）：
 
 ```bash
-cd src-tauri && cargo test    # 61/61 单元测试
-cd src-tauri && cargo build   # 全量编译
+cd F:\LIFE && cargo test            # workspace 全量（含本 app）
+cd F:\LIFE && cargo build -p book-tracker
 ```
 
 ## 发布
 
-推送形如 `v0.1.0` 的 tag 即可触发 `.github/workflows/release.yml`，自动构建 Windows NSIS installer 并创建 draft GitHub Release：
+推送形如 `book-tracker-v0.1.0` 的 tag 触发 monorepo 根 `.github/workflows/release.yml`（按 tag 前缀分派本 app），自动构建 Windows NSIS installer 并创建 draft GitHub Release：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag book-tracker-v0.1.0
+git push origin book-tracker-v0.1.0
 # → GitHub Actions 跑完后到 repo 的 Releases 页 review draft 并 publish
+# （life-tracker 用 life-tracker-v* 前缀，同一 workflow 分派）
 ```
 
 工作流特性：

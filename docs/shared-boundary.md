@@ -38,12 +38,19 @@
 
 ### C. 领域专属（各 app 持有，禁止进 core）
 
-- 领域类型字段：Book（title/author/country/year/translator/read_count）vs Goal（名称/描述/类别/deadline/里程碑/量化指标）
+- 领域类型字段：Book（title/author/country/year/translator/read_count）vs Goal（名称/描述/类别/deadline/量化进度）
 - 状态机名称与语义、文案（含进度单位）
 - 表单 / 卡片 / 列表 / 详情页 / 页面布局
 - renderer api shim（命令名 books_* / goals_* 不同）
 - 领域 CSS
 
+## 待办（UI 基座共享）
+
+初版迁移时，**UI 组件未抽进共享包**：`Modal / TopBar / GraphView / GraphModal / PrereqEditor` 目前在两个 app 各复制一份（领域耦合点：状态颜色 / store 访问 / 候选搜索字段）。逻辑内核已全部共享，这部分待两个 app 有 UI 级改动、或需要保持视觉一致时再做：
+
+- 抽 `packages/tracker-ui`：Modal（零耦合，可直接进）；TopBar（title/placeholder/callbacks 参数化）；GraphView（改纯展示：接 nodes/links 数据 + 颜色映射 props）；PrereqEditor（items/edges/setAll props 化）；styles-base.css（CSS 变量基座）
+- 改完 book-tracker 与 life-tracker 都指向 `@ui/*`，重跑两 app typecheck / build 验证
+
 ## 变更记录
 
-- v1（monorepo 初建）：从 book-tracker 抽取 core，life-tracker 从 core 长出
+- v1（monorepo 初建）：从 book-tracker 抽取 core，life-tracker 从 core 长出；UI 基座共享列为待办

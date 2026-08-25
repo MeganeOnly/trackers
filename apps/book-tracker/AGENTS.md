@@ -2,6 +2,14 @@
 
 > **给后续 agent 看的开发指南**。本文件应随项目一起 commit；不含本机路径 / 私人化信息。
 
+> **monorepo 迁移后说明（重要）**：本应用已并入 `trackers` monorepo（仓库根 `F:\LIFE`）。
+> 共享逻辑已抽到 monorepo 内核，**不要在本目录重新实现/复制**：
+> - 解锁图 + 环检测：`tracker-core`（TS `packages/tracker-core/src/unlock.ts`、Rust `crates/tracker-core/src/unlock.rs`）
+> - 进度纯函数：`packages/tracker-core/src/progress.ts` / `crates/tracker-core/src/progress.rs`
+> - 原子写 / JSON / 数字 ID / frontmatter / config / data_dir：`crates/tracker-core`
+> - 本目录 `src/shared/` 只保留 Book 领域类型与文案（`formatProgress`）；`src/shared/unlock.ts` / `progress.ts` 纯函数已删除
+> - **改共享逻辑去 monorepo 根**，改完一个 commit 两 app 同生效（见根 `AGENTS.md` §五 + `docs/shared-boundary.md`）
+
 ## 一、定位
 
 **book-tracker** 是一个本地书籍追踪器（Tauri 2 桌面应用），管理：
@@ -85,15 +93,15 @@ src-tauri/                        # Rust 后端
     │   └── data_dir.rs           # 双仓分离 + Mutex<Option<String>> 全局 cache
     └── commands.rs               # 12 个 #[tauri::command] + 1 个 app_ensure_data_dir
 
-src/shared/                       # 跨进程共享类型(被 renderer 用,Rust 端有 serde 镜像)
-├── types.ts                      # Book / Edge / Progress / Config / BrokenEntry
+src/shared/                       # Book 领域类型 + 文案(被 renderer 用,Rust 端有 serde 镜像)
+├── types.ts                      # Book / BookStatus / Config + re-export core 的 Edge/Progress/…
 ├── api.ts                        # ElectronAPI 接口定义(被 renderer 用)
-├── unlock.ts                     # computeUnlocked(纯函数,有测试)
-├── progress.ts                   # parseProgress / bumpProgress / formatProgress(纯函数)
-└── __tests__/                    # vitest 单测
-    ├── unlock.test.ts
-    └── progress.test.ts
+└── progress.ts                   # formatProgress(领域文案;纯函数在 tracker-core)
 ```
+
+> **共享内核在 monorepo 根**：`packages/tracker-core`（TS 纯函数 + 测试）+ `crates/tracker-core`（Rust）。
+> 本目录 `src-tauri/src/` 不再有 `unlock.rs` / `progress.rs` / `data/files.rs` / `data/slug.rs` / `data/relations.rs`——
+> 全部在 `crates/tracker-core`；`src/shared/` 不再有 `unlock.ts` / `progress.ts` 纯函数与 `__tests__/`。
 
 **依赖方向**（单向，禁止反向）：
 
@@ -187,7 +195,7 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 - 无前置：永远解锁
 - **循环依赖**：被检测到的环上的书**全部置为不解锁**，不参与解锁计算
 - 性能：带 memo 的迭代 DFS，单测已覆盖
-- TS 端在 `src/shared/unlock.ts`，Rust 端在 `src-tauri/src/unlock.rs`，二者逻辑等价（TS 用于 renderer 实时计算，Rust 用于校验）
+- TS 端在 `packages/tracker-core/src/unlock.ts`，Rust 端在 `crates/tracker-core/src/unlock.rs`（monorepo 共享），二者逻辑等价（TS 用于 renderer 实时计算，Rust 用于校验）
 
 ## 七、架构两层（Rust commands / renderer）
 
@@ -231,12 +239,12 @@ npm run build            # tauri build(产物: src-tauri/target/release/bundle/n
 npm run build:vite       # 只跑 vite build(产物: dist/，供 tauri build 消费)
 
 # 校验
-npm run typecheck        # tsc 双段(node: vite.config.ts；web: renderer + shared)
-npm test                 # vitest run(renderer/shared 纯函数)
+npm run typecheck        # tsc 双段(node: vite.config.ts；web: renderer + shared + @core)
+npm test                 # vitest run（tracker-core 共享纯函数，见 vitest.config.ts）
 
-# Rust 后端（单独验证）
-cd src-tauri && cargo test    # 61/61 单元测试
-cd src-tauri && cargo build   # 全量编译(debug profile)
+# Rust 后端（workspace 统一在 repo 根跑）
+cd F:\LIFE && cargo test            # workspace 全量（tracker-core + book-tracker + life-tracker）
+cd F:\LIFE && cargo build -p book-tracker   # 单独构建本 app
 ```
 
 Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 `src-tauri/target/release/book-tracker.exe`（可执行文件）。Vite 构建产物在 `dist/`。
@@ -295,13 +303,9 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 
 ## 十三、测试规范
 
-- **TS 纯函数测试**放 `src/shared/__tests__/*.test.ts`，跟被测代码同目录或就近
-- **Rust 纯函数测试**用 `#[cfg(test)] mod tests { ... }` 内联在被测文件底部
-- TS 测试用 vitest 的 `describe / it / expect`；不要 jest 的 `test()`
-- Rust 测试用 `#[test]` + `assert_eq!`；每个被测函数至少 2-3 个 case
-- 跑：TS `npm test`（CI 模式）或 `npm run test:watch`（开发模式）；Rust `cd src-tauri && cargo test`
-- 每次加新的 pure function（不依赖 fs / Tauri），必须带测试
-- 加 Tauri command 时，如果逻辑复杂（不是单纯 dispatch），把核心逻辑抽到 `service/` 层并加 cargo test
+- **TS 纯函数测试**放 monorepo `packages/tracker-core/src/__tests__/*.test.ts`（app 内不再有纯函数测试）
+- **Rust 纯函数测试**放 `crates/tracker-core`（共享部分）或本目录 `src-tauri/src/*` 内联 `#[cfg(test)] mod tests`
+- 跑：TS `npm test`（本目录，指向 tracker-core 测试）；Rust 在 repo 根 `cargo test`
 
 ## 十四、数据目录约定
 
