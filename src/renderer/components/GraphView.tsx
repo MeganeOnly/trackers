@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
@@ -79,12 +79,16 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
     return { nodes, links }
   }, [books, edges])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!wrapRef.current) return
-    const ro = new ResizeObserver(() => {
+    const measure = (): void => {
       const rect = wrapRef.current!.getBoundingClientRect()
-      setDims({ w: rect.width, h: rect.height })
-    })
+      if (rect.width > 0 && rect.height > 0) {
+        setDims({ w: rect.width, h: rect.height })
+      }
+    }
+    measure()                              /* 同步测一次，避免初次 800x600 flash */
+    const ro = new ResizeObserver(measure)
     ro.observe(wrapRef.current)
     return () => ro.disconnect()
   }, [])
