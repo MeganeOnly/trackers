@@ -78,20 +78,3 @@ export interface UnlockResult {
   /** 循环依赖的书 id 列表（这些书不参与解锁计算） */
   cycles: string[][]
 }
-
-/** IPC 通道名常量 */
-export const IPC = {
-  booksList: 'books:list',
-  booksGet: 'books:get',
-  booksCreate: 'books:create',
-  booksUpdate: 'books:update',
-  booksDelete: 'books:delete',
-  /** 单字段快速更新进度（避免传整个 patch 走完整 patch 合并） */
-  booksProgressBump: 'books:progressBump',
-  relationsGet: 'relations:get',
-  relationsSet: 'relations:set',
-  configGet: 'config:get',
-  configSet: 'config:set',
-  dataPickDir: 'data:pickDir',
-  dataRevealInExplorer: 'data:revealInExplorer'
-} as const

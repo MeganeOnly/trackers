@@ -15,32 +15,35 @@
 
 ## 技术栈
 
-- Electron 33 + electron-vite + React 18 + TypeScript + Vite
+- Tauri 2（Rust 后端 + 系统 WebView 渲染）
+- React 18 + TypeScript + Vite 5
 - zustand（状态）
-- gray-matter（Markdown frontmatter）
-- pinyin-pro（中文 slug）
 - react-force-graph-2d（力导向图）
-- vitest（单测）
+- vitest（renderer/shared 单测）+ cargo test（Rust 后端测试）
 
 ## 开发
 
-\`\`\`bash
+```bash
 npm install
-npm run dev         # 启动开发模式（带热重载）
-npm run build       # 构建主+preload+renderer
-npm run typecheck   # tsc 检查
-npm test            # 跑单测
-\`\`\`
+npm run dev          # tauri dev：启动 Vite + 编译 Rust + 打开原生窗口（带热重载）
+npm run dev:vite     # 只跑 Vite dev server (1420)，纯 renderer 调试用
+npm run typecheck    # tsc 双段检查（node: vite.config.ts；web: renderer + shared）
+npm test             # vitest 单测（renderer/shared 纯函数）
+```
 
 ## 打包
 
-\`\`\`bash
-npm run pack        # 本地构建（不打包成 installer）
-npm run dist        # 全平台打包
-npm run dist:win    # 仅 Windows x64
-\`\`\`
+```bash
+npm run build        # tauri build：产物在 src-tauri/target/release/bundle/nsis/*.exe
+npm run build:vite   # 只跑 vite build：产物在 dist/（供 tauri build 消费）
+```
 
-产物在 `release/` 目录。
+Rust 后端单独验证：
+
+```bash
+cd src-tauri && cargo test    # 61/61 单元测试
+cd src-tauri && cargo build   # 全量编译
+```
 
 ## 数据
 
@@ -51,33 +54,33 @@ npm run dist:win    # 仅 Windows x64
 
 用户数据目录结构：
 
-\`\`\`
+```
 <data_dir>/
-├── books/{slug}.md       # 一本书一个文件
-├── relations.json        # 前置关系图
+├── books/<id>.md       # 一本书一个文件，id 为纯数字
+├── relations.json      # 前置关系图
 └── config.json
-\`\`\`
+```
 
 在数据目录跑 `git init` 即可纳入 Git 管理。建议发 GitHub 时**代码 + 数据分两个仓库**，因为数据含个人阅读历史。
 
 ## 书文件格式
 
-\`\`\`markdown
+```markdown
 ---
-id: bai-nian-gu-du
-title: 百年孤独
-author: 加西亚·马尔克斯
-country: 哥伦比亚
-year: 1967
-translator: 范晔
-status: reading
-read_count: 2
-progress:        # 章节进度（仅连载小说；可选）
-  current: 12
-  total: 100
-created: 2024-01-15T...
-updated: 2024-03-20T...
-tags: []
+{
+  "id": 1,
+  "title": "百年孤独",
+  "author": "加西亚·马尔克斯",
+  "country": "哥伦比亚",
+  "year": 1967,
+  "translator": "范晔",
+  "status": "reading",
+  "read_count": 2,
+  "progress": { "current": 12, "total": 100 },
+  "created": "2024-01-15T...",
+  "updated": "2024-03-20T...",
+  "tags": []
+}
 ---
 
 # 百年孤独
@@ -87,7 +90,7 @@ tags: []
 
 ## 摘录
 ...（自由写）
-\`\`\`
+```
 
 ### 章节进度（`progress`）
 
@@ -104,24 +107,24 @@ tags: []
 
 ## relations.json 格式
 
-\`\`\`json
+```json
 {
   "version": 1,
   "edges": [
     {
-      "to": "bai-nian-gu-du",
-      "prerequisites": ["huo-luan-shi-qi-de-ai-qing", "zu-zhang-de-qiu-tian"],
+      "to": "1",
+      "prerequisites": ["2", "3"],
       "rule": "all"
     },
     {
-      "to": "some-book",
-      "prerequisites": ["a", "b", "c"],
+      "to": "4",
+      "prerequisites": ["5", "6", "7"],
       "rule": "any_of",
       "threshold": 2
     }
   ]
 }
-\`\`\`
+```
 
 ## 状态机
 

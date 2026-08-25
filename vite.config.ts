@@ -7,9 +7,6 @@ import { resolve } from 'node:path'
 // - dev 端口固定 1420(tauri.conf.json devUrl 对应)
 // - build 输出到 <project>/dist/(frontendDist ../dist 对应)
 // - 不监听 src-tauri/(Rust 改动由 cargo 自己处理)
-//
-// 注: electron.vite.config.ts 在 P0 阶段保留(向后兼容),
-// P5 切换完成后删除。
 
 export default defineConfig({
   root: 'src/renderer',
