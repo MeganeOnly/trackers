@@ -271,10 +271,15 @@ button:focus-visible {
 }
 .lock-pill.error { background: #f7dfd8; color: var(--status-abandoned); }
 
-.detail-actions {
-  display: flex; gap: 8px; margin-top: 12px;
+/* 详情底部操作条：删除（左）+ 保存（右），置于全部字段与前置编辑之后（与目标追踪一致） */
+.detail-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
-.detail-actions .spacer { flex: 1; }
+.detail-footer .spacer { flex: 1; }
 
 /* 内联编辑表单（编辑模式详情 = 表单字段，复用 .field/.field-row 样式） */
 .detail-form {

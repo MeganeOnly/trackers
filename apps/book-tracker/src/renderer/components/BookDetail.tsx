@@ -183,15 +183,6 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
         </div>
-        <div className="detail-actions">
-          <button className="btn-danger" onClick={handleDelete} disabled={busy}>
-            删除
-          </button>
-          <div className="spacer" />
-          <button className="btn-primary" onClick={handleSave} disabled={busy}>
-            {busy ? '保存中...' : saved ? '已保存' : '保存'}
-          </button>
-        </div>
       </header>
 
       {status === 'reading' && book.progress !== null && (
@@ -304,6 +295,16 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       </div>
 
       <PrereqEditor bookId={book.id} />
+
+      <footer className="detail-footer">
+        <button className="btn-danger" onClick={handleDelete} disabled={busy}>
+          删除
+        </button>
+        <div className="spacer" />
+        <button className="btn-primary" onClick={handleSave} disabled={busy}>
+          {busy ? '保存中...' : saved ? '已保存' : '保存'}
+        </button>
+      </footer>
     </article>
   )
 }
