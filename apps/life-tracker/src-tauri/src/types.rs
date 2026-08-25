@@ -48,6 +48,8 @@ pub struct Goal {
     pub status: GoalStatus,
     /// 量化进度(如"2 篇 SCI 已完成 1 篇")；`None` = 无量化目标
     pub progress: Option<Progress>,
+    /// 置顶展示：in_progress 时显示在 CleanMode 顶部『进行中』栏
+    pub pinned: bool,
     /// ISO 8601 字符串
     pub created: String,
     /// ISO 8601 字符串
@@ -63,6 +65,8 @@ pub struct GoalInput {
     pub deadline: Option<String>,
     pub status: GoalStatus,
     pub progress: Option<Progress>,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// 更新目标的 patch(全字段可选)。
@@ -86,6 +90,9 @@ pub struct GoalPatch {
     /// 三态:`None` = 不改 / `Some(None)` = 清空 / `Some(Some(p))` = 设值
     #[serde(default, deserialize_with = "double_option")]
     pub progress: Option<Option<Progress>>,
+    /// 置顶展示
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

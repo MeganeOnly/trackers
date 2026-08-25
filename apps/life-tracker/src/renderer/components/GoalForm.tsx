@@ -38,6 +38,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
       : ''
   )
   const [note, setNote] = useState(goal?.note ?? '')
+  const [pinned, setPinned] = useState(goal?.pinned ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,7 +57,8 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
         deadline: deadline.trim(),
         status,
         progress: null,
-        note: note.trim()
+        note: note.trim(),
+        pinned
       }
       // 仅当 status === 'in_progress' 且填了 current 时才把 progress 写进 input
       if (status === 'in_progress') {
@@ -170,6 +172,16 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
               />
             </label>
           </div>
+        )}
+        {status === 'in_progress' && (
+          <label className="form-checkline">
+            <input
+              type="checkbox"
+              checked={pinned}
+              onChange={(e) => setPinned(e.target.checked)}
+            />
+            <span>置顶到『进行中』栏（日常模式顶部展示）</span>
+          </label>
         )}
         <label className="field">
           <span>备注 / 描述</span>

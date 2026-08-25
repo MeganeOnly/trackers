@@ -37,7 +37,10 @@ export function CleanMode(): JSX.Element {
 
   const [openSections, setOpenSections] = useState<Set<GoalStatus>>(new Set())
 
-  const nowInProgress = useMemo(() => goals.find((g) => g.status === 'in_progress'), [goals])
+  const nowInProgress = useMemo(
+    () => goals.filter((g) => g.status === 'in_progress' && g.pinned),
+    [goals]
+  )
 
   const doableList = useMemo(() => {
     const refCount = new Map<string, number>()
@@ -99,19 +102,25 @@ export function CleanMode(): JSX.Element {
           现在能推进的目标 ({doableList.length}
           {query && doableList.length !== goals.length ? ` / ${goals.length}` : ''})
         </h2>
-        {nowInProgress && (
+        {nowInProgress.length > 0 && (
           <p className="currently-reading">
-            进行中: <strong>{nowInProgress.title}</strong>
-            {nowInProgress.deadline && ` · 截止 ${nowInProgress.deadline}`}
-            {nowInProgress.progress && (
-              <span className="currently-progress">
-                {nowInProgress.progress.total !== null
-                  ? ` · ${nowInProgress.progress.current}/${nowInProgress.progress.total}`
-                  : nowInProgress.progress.current > 0
-                    ? ` · ${nowInProgress.progress.current}`
-                    : ''}
+            <span>进行中: </span>
+            {nowInProgress.map((g, i) => (
+              <span key={g.id} className="currently-item">
+                {i > 0 && <span className="currently-sep">、</span>}
+                <strong>{g.title}</strong>
+                {g.deadline && ` · 截止 ${g.deadline}`}
+                {g.progress && (
+                  <span className="currently-progress">
+                    {g.progress.total !== null
+                      ? ` · ${g.progress.current}/${g.progress.total}`
+                      : g.progress.current > 0
+                        ? ` · ${g.progress.current}`
+                        : ''}
+                  </span>
+                )}
               </span>
-            )}
+            ))}
           </p>
         )}
       </header>

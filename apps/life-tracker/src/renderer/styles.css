@@ -319,11 +319,25 @@ button:focus-visible {
 /* progress input fields in GoalForm */
 .progress-fields { align-items: flex-start; }
 
+/* 置顶到『进行中』栏（GoalDetail 快捷开关 / GoalForm 复选框） */
+.pinned-toggle,
+.form-checkline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
 /* clean-mode currently reading 进度 */
 .currently-progress {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.currently-sep { color: var(--muted); }
 
 .detail-prereqs { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
 .detail-prereqs h3 { margin: 0 0 8px; font-size: 14px; }

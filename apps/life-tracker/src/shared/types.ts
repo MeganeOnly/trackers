@@ -39,6 +39,8 @@ export interface Goal {
   status: GoalStatus
   /** 量化进度（如"2 篇 SCI 已完成 1 篇"）；null = 无量化目标 */
   progress: Progress | null
+  /** 置顶展示：状态为进行中时，显示在 CleanMode 顶部的『进行中』栏 */
+  pinned: boolean
   /** ISO 8601 字符串 */
   created: string
   /** ISO 8601 字符串 */

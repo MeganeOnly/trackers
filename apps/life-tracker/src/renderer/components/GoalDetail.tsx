@@ -116,6 +116,17 @@ export function GoalDetail({ onEdit, goalId }: GoalDetailProps): JSX.Element {
         </section>
       )}
 
+      {goal.status === 'in_progress' && (
+        <label className="pinned-toggle">
+          <input
+            type="checkbox"
+            checked={goal.pinned}
+            onChange={(e) => void update(goal.id, { pinned: e.target.checked })}
+          />
+          <span>置顶到『进行中』栏（日常模式顶部展示）</span>
+        </label>
+      )}
+
       <dl className="detail-fields">
         <dt>分类</dt>
         <dd>{goal.category || '—'}</dd>
