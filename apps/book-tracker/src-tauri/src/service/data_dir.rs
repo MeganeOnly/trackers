@@ -30,6 +30,8 @@ where
             data_dir: chosen.to_string(),
             language: "zh-CN".to_string(),
             default_mode: crate::types::DefaultMode::Clean,
+            default_work_kind: crate::types::WorkKind::Book,
+            works_filter: "all".to_string(),
         })?;
         let books_dir = crate::data::config::paths::books_dir(chosen);
         tracker_core::files::ensure_dir(&books_dir)?;

@@ -226,8 +226,30 @@ button:focus-visible {
 }
 .book-list-group li:hover { background: var(--accent-soft); }
 .book-list-group li.selected { background: var(--accent-soft); font-weight: 500; }
-.book-list-group li .read-count { font-size: 11px; color: var(--muted); }
+.book-list-group li .title {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.book-list-group li .read-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 .book-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
+
+/* 作品类型小标签 */
+.kind-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.kind-tag.kind-book { color: #4a6a8a; border-color: #c9d8e4; background: #eef4f9; }
+.kind-tag.kind-anime { color: #8a5aa0; border-color: #dcc9e6; background: #f6eff9; }
+.kind-tag.kind-tv { color: #9a6a3a; border-color: #e2d2bd; background: #faf4ea; }
+.kind-tag.kind-movie { color: #a04a4a; border-color: #e6c9c9; background: #f9eeee; }
+.kind-tag.kind-other { color: #5a6a4a; border-color: #d0d9c4; background: #f0f4ea; }
 
 .status-dot {
   display: inline-block; width: 8px; height: 8px;
@@ -652,6 +674,28 @@ button:focus-visible {
   background: white;
 }
 .topbar-icon-btn:hover { background: var(--bg); }
+
+/* ============ Settings panel ============ */
+.settings-panel { display: flex; flex-direction: column; gap: 18px; }
+.settings-panel .field small { display: block; margin-top: 4px; }
+.seg-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.seg-chip {
+  padding: 5px 14px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  color: var(--fg);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.seg-chip:hover { border-color: var(--accent); color: var(--accent); }
+.seg-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
 
 .graph-modal-body {
   display: flex;

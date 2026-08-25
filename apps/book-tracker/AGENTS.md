@@ -268,26 +268,27 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 
 ## 十一、已实现功能清单
 
-- [x] 加书：书名 / 作者 / 国家 / 年份 / 译者
-- [x] 编辑书（Modal 复用加书表单）
-- [x] 删除书（confirm 提示）
+- [x] 加作品：作品名 / 作品类型（书、动画、电视剧、电影、其他）/ 作者·主创 / 国家 / 年份 / 译者
+- [x] 编辑作品（Modal 复用加作品表单）
+- [x] 删除作品（confirm 提示）
 - [x] 状态切换（5 种）+ 快速按钮（在详情页）
-- [x] 第 N 次读（`read_count`，仅 `reading` 时）
-- [x] **章节进度**（`progress: { current, total }`，仅 `reading` 时，详情页有 `-1 / +1 / +5 / 读完` 快速按钮）
+- [x] 第 N 次看（`read_count`，仅 `reading` 时）
+- [x] **进度**（`progress: { current, total }`，仅 `reading` 时，详情页有 `-1 / +1 / +5 / 看完` 快速按钮）
 - [x] 前置依赖编辑器（多对多）
-- [x] 解锁规则：`all` / `any_of` + threshold
+- [x] 解锁规则：`all` / `any_of` + threshold / **二选一组合 `groups`**（AND-of-ORs）
 - [x] 循环依赖检测
-- [x] 日常模式：自动列"现在能读的书"，按反向度数排序
+- [x] 日常模式：自动列"现在能看的作品"，按反向度数排序
 - [x] 日常模式：搁置/已读/弃读折叠区
 - [x] 编辑模式：按状态分组的侧边栏
-- [x] 全局搜索（书名 / 作者 / ID 模糊匹配）
-- [x] 全局快捷键：`n` 加书 / `g` 关系图 / `e`/`c` 切模式 / `Esc` 清搜索
+- [x] 设置面板：新建作品默认类型 + 展示筛选（全部/按类型，按钮式高亮）
+- [x] 全局搜索（作品名 / 作者 / ID 模糊匹配）
+- [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `e`/`c` 切模式 / `Esc` 清搜索
 - [x] 关系图（react-force-graph-2d，500 节点流畅）
 - [x] 用户数据目录 picker（首次启动）
 - [x] 数据目录结构初始化（picker 完成后同步写 `config.json` + `books/`，避免空壳）
-- [x] 配置文件 `config.json` 持久化
+- [x] 配置文件 `config.json` 持久化（含 `default_work_kind` / `works_filter`）
 - [x] vitest 单测（unlock + progress，renderer/shared）
-- [x] Rust 单元测试（progress + unlock，61 个 case 全过）
+- [x] Rust 单元测试（progress + unlock + books + config）
 - [x] Tauri 端到端接通（renderer invoke → Rust command → 文件 I/O）
 
 ## 十二、未实现 / 后续可加

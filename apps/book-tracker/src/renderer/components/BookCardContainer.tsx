@@ -18,7 +18,7 @@ export function BookCardContainer({ onClose }: BookCardContainerProps): JSX.Elem
   if (!selectedId || !bookExists) {
     return (
       <div className="book-card-empty muted">
-        <p>← 点左侧图中的节点查看这本书的详情</p>
+        <p>← 点左侧图中的节点查看这个作品的详情</p>
         <p className="hint">所有操作（状态 / 进度 / 前置 / 字段编辑）都在这里</p>
       </div>
     )

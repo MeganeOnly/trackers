@@ -14,7 +14,7 @@ use tracker_core::files::{atomic_write_file, ensure_dir};
 use tracker_core::frontmatter::{now_iso, split_frontmatter};
 use tracker_core::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
 use tracker_core::slug::make_base_id;
-use crate::types::{Book, BookInput, BookPatch, BookStatus};
+use crate::types::{Book, BookInput, BookPatch, BookStatus, WorkKind};
 
 fn is_valid_status(s: &str) -> bool {
     matches!(
@@ -65,6 +65,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
     Book {
         id: id.to_string(),
         title: data.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        kind: WorkKind::parse(data.get("kind").and_then(|v| v.as_str())),
         author: data.get("author").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         country: data.get("country").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         year: data.get("year").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
@@ -132,6 +133,7 @@ pub fn write_book(
     let book = Book {
         id,
         title: input.title.clone(),
+        kind: input.kind,
         author: input.author.clone(),
         country: input.country.clone(),
         year: input.year,
@@ -158,6 +160,7 @@ pub fn update_book(
 
     let mut merged = existing;
     if let Some(v) = &patch.title { merged.title = v.clone(); }
+    if let Some(v) = patch.kind { merged.kind = v; }
     if let Some(v) = &patch.author { merged.author = v.clone(); }
     if let Some(v) = &patch.country { merged.country = v.clone(); }
     if let Some(v) = patch.year { merged.year = v; }
@@ -207,6 +210,10 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
     let mut fm = serde_json::Map::new();
     fm.insert("id".into(), serde_json::Value::String(book.id.clone()));
     fm.insert("title".into(), serde_json::Value::String(book.title.clone()));
+    fm.insert(
+        "kind".into(),
+        serde_json::Value::String(book.kind.as_str().to_string()),
+    );
     fm.insert("author".into(), serde_json::Value::String(book.author.clone()));
     fm.insert("country".into(), serde_json::Value::String(book.country.clone()));
     fm.insert("year".into(), serde_json::Value::Number(book.year.into()));
@@ -269,7 +276,7 @@ impl BookStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Progress;
+    use crate::types::{Progress, WorkKind};
 
     fn temp_books_dir() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
@@ -280,6 +287,7 @@ mod tests {
     fn sample_input() -> BookInput {
         BookInput {
             title: "百年孤独".to_string(),
+            kind: WorkKind::Book,
             author: "加西亚·马尔克斯".to_string(),
             country: "哥伦比亚".to_string(),
             year: 1967,
@@ -445,5 +453,29 @@ mod tests {
         let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
         // 没 progress 字段时不应出现 "progress:"
         assert!(!raw.contains("progress:"), "frontmatter leaked empty progress field");
+    }
+
+    #[test]
+    fn kind_round_trip_and_legacy_default() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // anime 类型写盘 → 读回一致
+        let mut input = sample_input();
+        input.kind = WorkKind::Anime;
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"kind\": \"anime\""));
+        assert_eq!(read_book(&books_dir, &book.id).unwrap().unwrap().kind, WorkKind::Anime);
+
+        // 旧文件没有 kind 字段 → 默认 Book
+        let legacy = books_dir.join("99.md");
+        std::fs::write(&legacy, "---\n{\"id\":\"99\",\"title\":\"旧书\",\"status\":\"finished\"}\n---\n# 旧书\n").unwrap();
+        assert_eq!(read_book(&books_dir, "99").unwrap().unwrap().kind, WorkKind::Book);
+
+        // patch.kind 合并
+        let patch = BookPatch { kind: Some(WorkKind::Movie), ..Default::default() };
+        let updated = update_book(&books_dir, &book.id, &patch).unwrap();
+        assert_eq!(updated.kind, WorkKind::Movie);
     }
 }

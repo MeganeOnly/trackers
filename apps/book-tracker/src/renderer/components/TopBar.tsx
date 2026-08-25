@@ -5,9 +5,10 @@ import { useSearchStore } from '../store/search'
 interface TopBarProps {
   onAdd?: () => void
   onGraph?: () => void
+  onSettings?: () => void
 }
 
-export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onSettings }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -32,13 +33,13 @@ export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <h1 className="app-title">书架追踪</h1>
+        <h1 className="app-title">作品追踪</h1>
       </div>
       <div className="topbar-center">
         <input
           ref={inputRef}
           type="search"
-          placeholder="搜索书名 / 作者 (按 / 聚焦)"
+          placeholder="搜索作品名 / 作者 (按 / 聚焦)"
           className="search-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -51,6 +52,11 @@ export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
         />
       </div>
       <div className="topbar-right">
+        {onSettings && (
+          <button className="topbar-icon-btn" onClick={onSettings} title="设置">
+            ⚙
+          </button>
+        )}
         {onGraph && (
           <button className="topbar-icon-btn" onClick={onGraph} title="关系图 (g)">
             图
@@ -74,8 +80,8 @@ export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
             编辑模式
           </button>
         </div>
-        <button className="add-btn" onClick={onAdd} title="加书 (n)">
-          + 加书
+        <button className="add-btn" onClick={onAdd} title="加作品 (n)">
+          + 加作品
         </button>
       </div>
     </header>

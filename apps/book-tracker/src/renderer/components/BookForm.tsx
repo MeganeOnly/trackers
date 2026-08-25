@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Modal } from './Modal'
 import { useBooksStore } from '../store/books'
-import type { Book, BookStatus } from '@shared/types'
+import { useSettingsStore } from '../store/settings'
+import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
+import type { Book, BookStatus, WorkKind } from '@shared/types'
 
 interface BookFormProps {
-  /** null = 加书；非空 = 改书 */
+  /** null = 加作品；非空 = 改作品 */
   book: Book | null
   onClose: () => void
 }
@@ -21,10 +23,12 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const create = useBooksStore((s) => s.create)
   const update = useBooksStore((s) => s.update)
   const remove = useBooksStore((s) => s.remove)
+  const defaultWorkKind = useSettingsStore((s) => s.defaultWorkKind)
 
   const isEdit = book !== null
 
   const [title, setTitle] = useState(book?.title ?? '')
+  const [kind, setKind] = useState<WorkKind>(book?.kind ?? defaultWorkKind)
   const [author, setAuthor] = useState(book?.author ?? '')
   const [country, setCountry] = useState(book?.country ?? '')
   const [year, setYear] = useState<string>(book?.year ? String(book.year) : '')
@@ -54,7 +58,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     if (!title.trim() || !author.trim()) {
-      setError('书名和作者不能为空')
+      setError('作品名和作者不能为空')
       return
     }
     setBusy(true)
@@ -62,6 +66,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
     try {
       const input: Parameters<typeof create>[0] = {
         title: title.trim(),
+        kind,
         author: author.trim(),
         country: country.trim(),
         year: Number(year) || new Date().getFullYear(),
@@ -113,7 +118,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
 
   return (
     <Modal
-      title={isEdit ? `编辑《${book.title}》` : '加书'}
+      title={isEdit ? `编辑《${book.title}》` : '加作品'}
       onClose={onClose}
       width={600}
       backdropClassName="modal-backdrop--top"
@@ -136,16 +141,28 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
     >
       <form id="book-form" onSubmit={handleSubmit} className="book-form">
         <label className="field">
-          <span>书名 *</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required />
-        </label>
-        <label className="field">
-          <span>作者 *</span>
-          <input value={author} onChange={(e) => setAuthor(e.target.value)} required />
+          <span>作品名 *</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="如：百年孤独 / 进击的巨人 / 星际穿越" />
         </label>
         <div className="field-row">
           <label className="field">
-            <span>国家</span>
+            <span>作品类型</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value as WorkKind)}>
+              {WORK_KIND_ORDER.map((k) => (
+                <option key={k} value={k}>
+                  {WORK_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>作者 / 主创</span>
+            <input value={author} onChange={(e) => setAuthor(e.target.value)} required />
+          </label>
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span>国家 / 地区</span>
             <input value={country} onChange={(e) => setCountry(e.target.value)} />
           </label>
           <label className="field">
@@ -176,7 +193,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           </label>
           {status === 'reading' && (
             <label className="field">
-              <span>第 N 次读</span>
+              <span>第 N 次看</span>
               <input
                 type="number"
                 value={readCount}
@@ -189,7 +206,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         {status === 'reading' && (
           <div className="field-row progress-fields">
             <label className="field">
-              <span>当前章节</span>
+              <span>当前进度</span>
               <input
                 type="number"
                 value={progressCurrent}
@@ -199,13 +216,13 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
               />
             </label>
             <label className="field">
-              <span>总章节（连载中可留空）</span>
+              <span>总进度（连载/更新中可留空）</span>
               <input
                 type="number"
                 value={progressTotal}
                 onChange={(e) => setProgressTotal(e.target.value)}
                 min="1"
-                placeholder="如 100；空 = 连载中"
+                placeholder="如 100；空 = 连载/更新中"
               />
             </label>
           </div>

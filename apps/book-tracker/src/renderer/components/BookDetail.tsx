@@ -4,7 +4,8 @@ import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
-import type { Book, BookInput, BookStatus } from '@shared/types'
+import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
+import type { Book, BookInput, BookStatus, WorkKind } from '@shared/types'
 
 interface BookDetailProps {
   /** 显式指定显示哪本书；不传则用全局 selectedId */
@@ -45,6 +46,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const { unlocked, cycles } = useUnlocked()
 
   const [title, setTitle] = useState(book?.title ?? '')
+  const [kind, setKind] = useState<WorkKind>(book?.kind ?? 'book')
   const [author, setAuthor] = useState(book?.author ?? '')
   const [country, setCountry] = useState(book?.country ?? '')
   const [year, setYear] = useState<string>(book?.year ? String(book.year) : '')
@@ -64,6 +66,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   // 切换条目时重置草稿（未保存的输入随之丢弃，与旧「弹窗编辑」语义一致）
   useEffect(() => {
     setTitle(book?.title ?? '')
+    setKind(book?.kind ?? 'book')
     setAuthor(book?.author ?? '')
     setCountry(book?.country ?? '')
     setYear(book?.year ? String(book.year) : '')
@@ -82,7 +85,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   if (!book) {
     return (
       <div className="detail-empty">
-        <p className="muted">从左侧选一本书，或点右上角 + 加书。</p>
+        <p className="muted">从左侧选一个作品，或点右上角 + 加作品。</p>
       </div>
     )
   }
@@ -108,7 +111,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
   async function handleSave(): Promise<void> {
     if (!title.trim() || !author.trim()) {
-      setError('书名和作者不能为空')
+      setError('作品名和作者不能为空')
       return
     }
     setBusy(true)
@@ -120,6 +123,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         progress?: BookInput['progress']
       } = {
         title: title.trim(),
+        kind,
         author: author.trim(),
         country: country.trim(),
         year: Number(year) || new Date().getFullYear(),
@@ -173,7 +177,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           className="detail-title-input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="书名"
+          placeholder="作品名"
         />
         <div className="meta-row">
           <span className={`status-pill status-${status}`}>
@@ -188,7 +192,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       {status === 'reading' && book.progress !== null && (
         <section className="progress-card">
           <div className="progress-card-header">
-            <span className="progress-label">章节进度</span>
+            <span className="progress-label">进度</span>
             <span className="progress-text">{formatProgress(book.progress) || '尚未记录'}</span>
           </div>
           <div
@@ -204,14 +208,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             <button className="btn-secondary" onClick={() => void handleBump(-1)} title="回退 1 章">
               -1
             </button>
-            <button className="btn-secondary" onClick={() => void handleBump(+1)} title="读了 1 章">
+            <button className="btn-secondary" onClick={() => void handleBump(+1)} title="推进 1">
               +1
             </button>
-            <button className="btn-secondary" onClick={() => void handleBump(+5)} title="读了 5 章">
+            <button className="btn-secondary" onClick={() => void handleBump(+5)} title="推进 5">
               +5
             </button>
             <button className="quick-finish" onClick={() => void handleFinish()}>
-              读完
+              看完
             </button>
           </div>
         </section>
@@ -220,8 +224,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       <div className="detail-form">
         <div className="field-row">
           <label className="field">
-            <span>作者</span>
-            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者名" />
+            <span>作品类型</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value as WorkKind)}>
+              {WORK_KIND_ORDER.map((k) => (
+                <option key={k} value={k}>
+                  {WORK_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>年份</span>
@@ -236,8 +246,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         </div>
         <div className="field-row">
           <label className="field">
-            <span>国家</span>
-            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="如：中国" />
+            <span>作者 / 主创</span>
+            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者名" />
           </label>
           <label className="field">
             <span>译者</span>
@@ -245,6 +255,10 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           </label>
         </div>
         <div className="field-row">
+          <label className="field">
+            <span>国家 / 地区</span>
+            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="如：中国" />
+          </label>
           <label className="field">
             <span>状态</span>
             <select value={status} onChange={(e) => setStatus(e.target.value as BookStatus)}>
@@ -255,9 +269,11 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
               ))}
             </select>
           </label>
-          {status === 'reading' && (
+        </div>
+        {status === 'reading' && (
+          <div className="field-row">
             <label className="field">
-              <span>第 N 次读</span>
+              <span>第 N 次看</span>
               <input
                 type="number"
                 value={readCount}
@@ -265,12 +281,12 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                 min="1"
               />
             </label>
-          )}
-        </div>
+          </div>
+        )}
         {status === 'reading' && (
           <div className="field-row progress-fields">
             <label className="field">
-              <span>当前章节</span>
+              <span>当前进度</span>
               <input
                 type="number"
                 value={progressCurrent}
@@ -280,13 +296,13 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
               />
             </label>
             <label className="field">
-              <span>总章节（连载中可留空）</span>
+              <span>总进度（连载/更新中可留空）</span>
               <input
                 type="number"
                 value={progressTotal}
                 onChange={(e) => setProgressTotal(e.target.value)}
                 min="1"
-                placeholder="如 100；空 = 连载中"
+                placeholder="如 100；空 = 连载/更新中"
               />
             </label>
           </div>

@@ -15,6 +15,19 @@ export type {
 
 import type { Progress } from '@core'
 
+/** 作品类型：不只书，还有动画 / 电视剧 / 电影 / 其他 */
+export type WorkKind = 'book' | 'anime' | 'tv' | 'movie' | 'other'
+
+export const WORK_KIND_LABELS: Record<WorkKind, string> = {
+  book: '书',
+  anime: '动画',
+  tv: '电视剧',
+  movie: '电影',
+  other: '其他'
+}
+
+export const WORK_KIND_ORDER: WorkKind[] = ['book', 'anime', 'tv', 'movie', 'other']
+
 /** 书的阅读状态 */
 export type BookStatus =
   | 'want' // 想看
@@ -28,10 +41,12 @@ export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' |
   tags?: string[]
 }
 
-/** 一本书 */
+/** 一部作品（书 / 动画 / 电视剧 / 电影等） */
 export interface Book {
   id: string
   title: string
+  /** 作品类型 */
+  kind: WorkKind
   author: string
   country: string
   year: number
@@ -58,4 +73,8 @@ export interface Config {
   data_dir: string
   language: 'zh-CN'
   default_mode: 'clean' | 'edit'
+  /** 新建作品的默认类型 */
+  default_work_kind: WorkKind
+  /** 展示筛选："all" 或某个 WorkKind */
+  works_filter: string
 }

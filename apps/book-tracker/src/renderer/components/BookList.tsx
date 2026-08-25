@@ -1,6 +1,8 @@
 import { useGroupedByStatus } from '../store/selectors'
 import { useBooksStore } from '../store/books'
 import { useSearchStore, matchBook } from '../store/search'
+import { useSettingsStore } from '../store/settings'
+import { WORK_KIND_LABELS } from '@shared/types'
 import type { Book, BookStatus } from '@shared/types'
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -22,8 +24,12 @@ export function BookList(): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const select = useBooksStore((s) => s.select)
   const query = useSearchStore((s) => s.query)
+  const worksFilter = useSettingsStore((s) => s.worksFilter)
 
-  const filtered = (items: Book[]): Book[] => items.filter((b) => matchBook(b, query))
+  const filtered = (items: Book[]): Book[] =>
+    items
+      .filter((b) => matchBook(b, query))
+      .filter((b) => worksFilter === 'all' || b.kind === worksFilter)
 
   return (
     <div className="book-list">
@@ -49,6 +55,7 @@ export function BookList(): JSX.Element {
                     className={selectedId === b.id ? 'selected' : ''}
                     onClick={() => select(b.id)}
                   >
+                    <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
                     <span className="title">{b.title}</span>
                     {b.status === 'reading' && (
                       <span className="read-count">

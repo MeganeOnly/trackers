@@ -12,6 +12,39 @@ use serde::{Deserialize, Serialize};
 // 通用类型：来自共享内核（crates/tracker-core）
 pub use tracker_core::{Edge, Progress, RelationsFile, UnlockResult, UnlockRule};
 
+/// 作品类型。`'book' | 'anime' | 'tv' | 'movie' | 'other'`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkKind {
+    Book,
+    Anime,
+    Tv,
+    Movie,
+    Other,
+}
+
+impl WorkKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WorkKind::Book => "book",
+            WorkKind::Anime => "anime",
+            WorkKind::Tv => "tv",
+            WorkKind::Movie => "movie",
+            WorkKind::Other => "other",
+        }
+    }
+
+    pub fn parse(s: Option<&str>) -> WorkKind {
+        match s {
+            Some("anime") => WorkKind::Anime,
+            Some("tv") => WorkKind::Tv,
+            Some("movie") => WorkKind::Movie,
+            Some("other") => WorkKind::Other,
+            _ => WorkKind::Book,
+        }
+    }
+}
+
 /// 阅读状态。`'want' | 'shelved' | 'reading' | 'finished' | 'abandoned'`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,11 +56,13 @@ pub enum BookStatus {
     Abandoned,
 }
 
-/// 一本书的完整结构(后端 ↔ 前端通信载体)
+/// 一部作品的完整结构(后端 ↔ 前端通信载体)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Book {
     pub id: String,
     pub title: String,
+    /// 作品类型（书 / 动画 / 电视剧 / 电影 / 其他）
+    pub kind: WorkKind,
     pub author: String,
     pub country: String,
     /// 出版年份;`i32` 涵盖 BC(公元前负数)
@@ -45,10 +80,11 @@ pub struct Book {
     pub tags: Vec<String>,
 }
 
-/// 创建书的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'>`
+/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'>`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookInput {
     pub title: String,
+    pub kind: WorkKind,
     pub author: String,
     pub country: String,
     pub year: i32,
@@ -69,6 +105,8 @@ pub struct BookInput {
 pub struct BookPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<WorkKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,6 +146,16 @@ pub struct Config {
     pub data_dir: String,
     pub language: String,
     pub default_mode: DefaultMode,
+    /// 新建作品的默认类型
+    #[serde(default = "default_work_kind")]
+    pub default_work_kind: WorkKind,
+    /// 展示筛选："all" 或某个作品类型的字符串
+    #[serde(default)]
+    pub works_filter: String,
+}
+
+fn default_work_kind() -> WorkKind {
+    WorkKind::Book
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::types::{Config, DefaultMode};
+use crate::types::{Config, DefaultMode, WorkKind};
 
 /// 默认 Config。`data_dir` 为空字符串表示未设置。
 pub fn default_config() -> Config {
@@ -17,6 +17,8 @@ pub fn default_config() -> Config {
         data_dir: String::new(),
         language: "zh-CN".to_string(),
         default_mode: DefaultMode::Clean,
+        default_work_kind: WorkKind::Book,
+        works_filter: "all".to_string(),
     }
 }
 
@@ -54,6 +56,13 @@ fn normalize(raw: serde_json::Value) -> Config {
                 .unwrap_or("clean");
             if m == "edit" { DefaultMode::Edit } else { DefaultMode::Clean }
         },
+        default_work_kind: WorkKind::parse(
+            obj.and_then(|o| o.get("default_work_kind")).and_then(|v| v.as_str()),
+        ),
+        works_filter: {
+            let f = get_str("works_filter").unwrap_or_default();
+            if f.is_empty() { "all".to_string() } else { f }
+        },
     }
 }
 
@@ -87,12 +96,16 @@ mod tests {
             data_dir: dir.path().to_string_lossy().to_string(),
             language: "zh-CN".to_string(),
             default_mode: DefaultMode::Edit,
+            default_work_kind: WorkKind::Anime,
+            works_filter: "movie".to_string(),
         };
         write_config(&cfg).unwrap();
         let got = read_config(&cfg.data_dir).unwrap();
         assert_eq!(got.data_dir, cfg.data_dir);
         assert_eq!(got.language, cfg.language);
         assert_eq!(got.default_mode, DefaultMode::Edit);
+        assert_eq!(got.default_work_kind, WorkKind::Anime);
+        assert_eq!(got.works_filter, "movie");
     }
 
     #[test]
@@ -103,6 +116,8 @@ mod tests {
         assert_eq!(got.data_dir, "");
         assert_eq!(got.language, "zh-CN");
         assert_eq!(got.default_mode, DefaultMode::Clean);
+        assert_eq!(got.default_work_kind, WorkKind::Book);
+        assert_eq!(got.works_filter, "all");
     }
 
     #[test]

@@ -4,10 +4,12 @@ import { EditMode } from './pages/EditMode'
 import { CleanMode } from './pages/CleanMode'
 import { BookForm } from './components/BookForm'
 import { GraphModal } from './components/GraphModal'
+import { SettingsPanel } from './components/SettingsPanel'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
 import { useSearchStore } from './store/search'
+import { useSettingsStore } from './store/settings'
 import { api } from './lib/api'
 
 export default function App(): JSX.Element {
@@ -15,9 +17,11 @@ export default function App(): JSX.Element {
   const loadRelations = useRelationsStore((s) => s.load)
   const select = useBooksStore((s) => s.select)
   const clearSearch = useSearchStore((s) => s.clear)
+  const hydrateSettings = useSettingsStore((s) => s.hydrate)
 
   const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
@@ -37,6 +41,7 @@ export default function App(): JSX.Element {
       try {
         const cfg = await api.config.get()
         useModeStore.getState().hydrate(cfg)
+        hydrateSettings(cfg)
         await Promise.all([loadBooks(), loadRelations()])
       } catch (e) {
         console.error('init load failed:', e)
@@ -45,7 +50,7 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [loadBooks, loadRelations])
+  }, [loadBooks, loadRelations, hydrateSettings])
 
   function openAdd(): void {
     select(null)
@@ -82,12 +87,17 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} />
+      <TopBar
+        onAdd={openAdd}
+        onGraph={() => setGraphOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+      />
       <div className="app-body">
         <EditModeWrapper />
       </div>
       {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
       {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

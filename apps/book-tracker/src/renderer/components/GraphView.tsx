@@ -129,7 +129,7 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
   return (
     <div ref={wrapRef} className="graph-view">
       {data.nodes.length === 0 ? (
-        <p className="muted empty-hint">还没有书。加几本试试。</p>
+        <p className="muted empty-hint">还没有作品。加几部试试。</p>
       ) : (
         <ForceGraph2D<GraphNode, GraphLink>
           ref={fgRef}
