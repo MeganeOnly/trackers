@@ -8,7 +8,10 @@ license = "MIT"
 
 [lib]
 name = "book_tracker_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# 只桌面端:仅 rlib(供二进制链接)。cdylib / staticlib 是给移动端(iOS .a / Android .so)的,
+# 但 cdylib 在 Windows GNU 链接大项目时会撞 export ordinal 上限(>65535)。
+# 如果将来要做 iOS/Android,再加 cdylib + staticlib。
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
