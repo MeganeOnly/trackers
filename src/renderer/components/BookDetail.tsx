@@ -1,6 +1,7 @@
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
+import { formatProgress, progressPercent } from '@shared/progress'
 import type { Book } from '@shared/types'
 
 interface BookDetailProps {
@@ -19,6 +20,7 @@ export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const books = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
+  const bumpProgress = useBooksStore((s) => s.bumpProgress)
   const book = books.find((b) => b.id === selectedId)
   const { unlocked, cycles } = useUnlocked()
 
@@ -32,10 +34,16 @@ export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
 
   const isUnlocked = unlocked.get(book.id) ?? true
   const cycle = cycles.find((c) => c.includes(book.id))
+  const pct = progressPercent(book.progress)
 
   async function quickSetStatus(status: Book['status']): Promise<void> {
     if (!book) return
     await update(book.id, { status })
+  }
+
+  async function handleBump(delta: number): Promise<void> {
+    if (!book) return
+    await bumpProgress(book.id, delta)
   }
 
   return (
@@ -64,6 +72,38 @@ export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
           )}
         </div>
       </header>
+
+      {book.status === 'reading' && (
+        <section className="progress-card">
+          <div className="progress-card-header">
+            <span className="progress-label">章节进度</span>
+            <span className="progress-text">{formatProgress(book.progress) || '尚未记录'}</span>
+          </div>
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(pct)}
+          >
+            <div className="progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="progress-actions">
+            <button className="btn-secondary" onClick={() => handleBump(-1)} title="回退 1 章">
+              -1
+            </button>
+            <button className="btn-secondary" onClick={() => handleBump(+1)} title="读了 1 章">
+              +1
+            </button>
+            <button className="btn-secondary" onClick={() => handleBump(+5)} title="读了 5 章">
+              +5
+            </button>
+            <button className="quick-finish" onClick={() => quickSetStatus('finished')}>
+              读完
+            </button>
+          </div>
+        </section>
+      )}
 
       <dl className="detail-fields">
         <dt>作者</dt>

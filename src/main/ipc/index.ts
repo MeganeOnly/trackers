@@ -11,6 +11,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.booksGet, (_e, id: string) => booksSvc.getBook(id))
   ipcMain.handle(IPC.booksCreate, (_e, input) => booksSvc.createBook(input))
   ipcMain.handle(IPC.booksUpdate, (_e, id: string, patch) => booksSvc.updateBook(id, patch))
+  ipcMain.handle(IPC.booksProgressBump, (_e, id: string, delta: number) => booksSvc.bumpProgress(id, delta))
   ipcMain.handle(IPC.booksDelete, (_e, id: string) => booksSvc.deleteBook(id))
 
   ipcMain.handle(IPC.relationsGet, () => relSvc.getRelations())

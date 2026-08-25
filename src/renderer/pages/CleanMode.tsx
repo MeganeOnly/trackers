@@ -77,6 +77,15 @@ export function CleanMode(): JSX.Element {
           <p className="currently-reading">
             正在读: <strong>{nowReading.title}</strong>
             {nowReading.read_count > 1 && ` · 第 ${nowReading.read_count} 次`}
+            {nowReading.progress && (
+              <span className="currently-progress">
+                {nowReading.progress.total !== null
+                  ? ` · ${nowReading.progress.current}/${nowReading.progress.total} 章`
+                  : nowReading.progress.current > 0
+                    ? ` · ${nowReading.progress.current} 章 (连载中)`
+                    : ''}
+              </span>
+            )}
           </p>
         )}
       </header>

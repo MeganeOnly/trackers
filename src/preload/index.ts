@@ -8,6 +8,7 @@ const api: ElectronAPI = {
     get: (id) => ipcRenderer.invoke(IPC.booksGet, id),
     create: (input) => ipcRenderer.invoke(IPC.booksCreate, input),
     update: (id, patch) => ipcRenderer.invoke(IPC.booksUpdate, id, patch),
+    progressBump: (id, delta) => ipcRenderer.invoke(IPC.booksProgressBump, id, delta),
     delete: (id) => ipcRenderer.invoke(IPC.booksDelete, id)
   },
   relations: {

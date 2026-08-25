@@ -13,6 +13,14 @@ export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' |
   tags?: string[]
 }
 
+/** 阅读进度（用于连载小说等带"第 N / 总 M 章"的场景） */
+export interface Progress {
+  /** 当前已读到的章节数（≥1） */
+  current: number
+  /** 总章节数；null = 连载中/未知 */
+  total: number | null
+}
+
 /** 一本书 */
 export interface Book {
   id: string
@@ -24,6 +32,11 @@ export interface Book {
   status: BookStatus
   /** 第 N 次读；仅 status === 'reading' 时有意义 */
   read_count: number
+  /**
+   * 章节进度；典型用于 status === 'reading' 的连载小说。
+   * 未设置（null/undefined）= 没有进度记录。允许 status 切换时保留旧值以便续读。
+   */
+  progress: Progress | null
   /** ISO 8601 字符串 */
   created: string
   /** ISO 8601 字符串 */
@@ -73,6 +86,8 @@ export const IPC = {
   booksCreate: 'books:create',
   booksUpdate: 'books:update',
   booksDelete: 'books:delete',
+  /** 单字段快速更新进度（避免传整个 patch 走完整 patch 合并） */
+  booksProgressBump: 'books:progressBump',
   relationsGet: 'relations:get',
   relationsSet: 'relations:set',
   configGet: 'config:get',

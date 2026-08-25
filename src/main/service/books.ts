@@ -6,6 +6,7 @@ import {
   readBook,
   writeBook as ioWriteBook,
   updateBook as ioUpdateBook,
+  bumpProgress as ioBumpProgress,
   deleteBook as ioDeleteBook
 } from '../data/books'
 
@@ -30,10 +31,15 @@ export async function createBook(input: BookInput): Promise<Book> {
 
 export async function updateBook(
   id: string,
-  patch: Partial<BookInput> & { read_count?: number; tags?: string[] }
+  patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress'] }
 ): Promise<Book> {
   const dir = getDataDir()
   return ioUpdateBook(`${dir}/books`, id, patch)
+}
+
+export async function bumpProgress(id: string, delta: number): Promise<Book> {
+  const dir = getDataDir()
+  return ioBumpProgress(`${dir}/books`, id, delta)
 }
 
 export async function deleteBook(id: string): Promise<void> {

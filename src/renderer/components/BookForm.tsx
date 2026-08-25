@@ -31,6 +31,15 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const [translator, setTranslator] = useState(book?.translator ?? '')
   const [status, setStatus] = useState<BookStatus>(book?.status ?? 'want')
   const [readCount, setReadCount] = useState<number>(book?.read_count ?? 1)
+  // 章节进度（仅 status === 'reading' 时提交到 input）
+  const [progressCurrent, setProgressCurrent] = useState<string>(
+    book?.progress?.current !== undefined ? String(book.progress.current) : ''
+  )
+  const [progressTotal, setProgressTotal] = useState<string>(
+    book?.progress?.total !== undefined && book.progress.total !== null
+      ? String(book.progress.total)
+      : ''
+  )
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,17 +60,33 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
     setBusy(true)
     setError(null)
     try {
-      const input = {
+      const input: Parameters<typeof create>[0] = {
         title: title.trim(),
         author: author.trim(),
         country: country.trim(),
         year: Number(year) || new Date().getFullYear(),
         translator: translator.trim(),
         status,
+        progress: null,
         tags: []
       }
+      // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 input
+      if (status === 'reading') {
+        const c = Number(progressCurrent)
+        if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
+          const tRaw = progressTotal.trim()
+          const t = tRaw === '' ? null : Number(tRaw)
+          input.progress = {
+            current: Math.floor(c),
+            total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
+          }
+        }
+      }
       if (isEdit && book) {
-        await update(book.id, { ...input, read_count: readCount })
+        const patch: Parameters<typeof update>[1] = { ...input, read_count: readCount }
+        // 编辑模式下，如果 status 不是 reading，主动清空 progress（用户主动清除意图）
+        if (status !== 'reading') patch.progress = null
+        await update(book.id, patch)
       } else {
         await create(input)
       }
@@ -160,6 +185,30 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             </label>
           )}
         </div>
+        {status === 'reading' && (
+          <div className="field-row progress-fields">
+            <label className="field">
+              <span>当前章节</span>
+              <input
+                type="number"
+                value={progressCurrent}
+                onChange={(e) => setProgressCurrent(e.target.value)}
+                min="0"
+                placeholder="如 12"
+              />
+            </label>
+            <label className="field">
+              <span>总章节（连载中可留空）</span>
+              <input
+                type="number"
+                value={progressTotal}
+                onChange={(e) => setProgressTotal(e.target.value)}
+                min="1"
+                placeholder="如 100；空 = 连载中"
+              />
+            </label>
+          </div>
+        )}
         <label className="field">
           <span>笔记 (Markdown)</span>
           <textarea

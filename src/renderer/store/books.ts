@@ -9,7 +9,8 @@ interface BooksState {
   load: () => Promise<void>
   select: (id: string | null) => void
   create: (input: BookInput) => Promise<Book>
-  update: (id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[] }) => Promise<Book>
+  update: (id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress'] }) => Promise<Book>
+  bumpProgress: (id: string, delta: number) => Promise<Book>
   remove: (id: string) => Promise<void>
 }
 
@@ -36,6 +37,11 @@ export const useBooksStore = create<BooksState>((set, get) => ({
   },
   update: async (id, patch) => {
     const book = await window.electron.books.update(id, patch)
+    set((s) => ({ books: s.books.map((b) => (b.id === id ? book : b)) }))
+    return book
+  },
+  bumpProgress: async (id, delta) => {
+    const book = await window.electron.books.progressBump(id, delta)
     set((s) => ({ books: s.books.map((b) => (b.id === id ? book : b)) }))
     return book
   },

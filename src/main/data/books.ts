@@ -3,7 +3,12 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile, ensureDir } from './files'
 import { makeBaseSlug } from './slug'
-import type { Book, BookInput, BookStatus } from '@shared/types'
+import {
+  bumpProgress as bumpProgressHelper,
+  normalizeProgressInput,
+  parseProgress
+} from '@shared/progress'
+import type { Book, BookInput, BookStatus, Progress } from '@shared/types'
 
 const VALID_STATUS: BookStatus[] = ['want', 'shelved', 'reading', 'finished', 'abandoned']
 
@@ -65,6 +70,7 @@ function normalizeBook(id: string, data: Record<string, unknown>): Book {
     translator: String(data.translator ?? ''),
     status: data.status as BookStatus,
     read_count: Number(data.read_count ?? 1),
+    progress: parseProgress(data.progress),
     created: String(data.created ?? nowIso()),
     updated: String(data.updated ?? nowIso()),
     tags: Array.isArray(data.tags) ? data.tags.map(String) : []
@@ -89,6 +95,7 @@ export async function writeBook(
     translator: input.translator,
     status: input.status,
     read_count: 1,
+    progress: normalizeProgressInput(input.progress),
     created: now,
     updated: now,
     tags: input.tags ?? []
@@ -101,7 +108,7 @@ export async function writeBook(
 export async function updateBook(
   booksDir: string,
   id: string,
-  patch: Partial<BookInput> & { read_count?: number; tags?: string[] }
+  patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress'] }
 ): Promise<Book> {
   const existing = await readBook(booksDir, id)
   if (!existing) throw new Error(`book not found: ${id}`)
@@ -109,11 +116,30 @@ export async function updateBook(
     ...existing,
     ...patch,
     id,
+    progress: 'progress' in patch ? normalizeProgressInput(patch.progress) : existing.progress,
     created: existing.created,
     updated: nowIso()
   }
   await persist(booksDir, merged)
   return merged
+}
+
+/**
+ * 快速调整 progress.current：service 层使用。
+ * - 当前没有 progress：初始化为 { current: max(delta, 1), total: null }
+ * - delta > 0：递增 current
+ * - delta < 0：递减 current，下限 0（0 表示刚开始读 / 还没读）
+ * - 读不到书：抛错
+ */
+export async function bumpProgress(
+  booksDir: string,
+  id: string,
+  delta: number
+): Promise<Book> {
+  const existing = await readBook(booksDir, id)
+  if (!existing) throw new Error(`book not found: ${id}`)
+  const next = bumpProgressHelper(existing.progress, delta)
+  return updateBook(booksDir, id, { progress: next })
 }
 
 /** 删除一本书 */
@@ -131,7 +157,7 @@ function resolveCollision(base: string, existing: Set<string>): string {
 
 async function persist(booksDir: string, book: Book): Promise<void> {
   const body = `# ${book.title}\n\n## 笔记\n\n## 摘录\n`
-  const fm = {
+  const fm: Record<string, unknown> = {
     id: book.id,
     title: book.title,
     author: book.author,
@@ -144,6 +170,8 @@ async function persist(booksDir: string, book: Book): Promise<void> {
     updated: book.updated,
     tags: book.tags
   }
+  // 只在有 progress 时写——避免无意义字段污染 frontmatter
+  if (book.progress) fm.progress = book.progress
   const content = matter.stringify(body, fm)
   await atomicWriteFile(path.join(booksDir, `${book.id}.md`), content)
 }

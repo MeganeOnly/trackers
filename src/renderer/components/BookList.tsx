@@ -51,7 +51,12 @@ export function BookList(): JSX.Element {
                   >
                     <span className="title">{b.title}</span>
                     {b.status === 'reading' && (
-                      <span className="read-count">第 {b.read_count} 次</span>
+                      <span className="read-count">
+                        {b.progress
+                          ? `${b.progress.current}${b.progress.total ? `/${b.progress.total}` : '+'}`
+                          : '—'}
+                        {b.read_count > 1 && ` · 第 ${b.read_count} 次`}
+                      </span>
                     )}
                   </li>
                 ))}

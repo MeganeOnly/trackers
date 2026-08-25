@@ -253,6 +253,57 @@ button:focus-visible {
   padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border);
 }
 
+/* ============ Reading progress (BookDetail) ============ */
+.progress-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.progress-card-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px;
+}
+.progress-card-header .progress-label {
+  color: var(--muted); font-weight: 500;
+}
+.progress-card-header .progress-text {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--fg);
+}
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+}
+.progress-actions {
+  display: flex; gap: 8px; align-items: center;
+}
+.progress-actions .btn-secondary { font-variant-numeric: tabular-nums; }
+.progress-actions .quick-finish { margin-left: auto; }
+
+/* progress input fields in BookForm */
+.progress-fields { align-items: flex-start; }
+
+/* clean-mode currently reading 进度 */
+.currently-progress {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .detail-prereqs { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
 .detail-prereqs h3 { margin: 0 0 8px; font-size: 14px; }
 .rule-tag { margin: 0 0 8px; font-size: 12px; color: var(--muted); }

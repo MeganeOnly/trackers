@@ -12,6 +12,7 @@ function mkBook(id: string, status: Book['status'] = 'want'): Book {
     translator: '',
     status,
     read_count: 1,
+    progress: null,
     created: '2024-01-01T00:00:00.000Z',
     updated: '2024-01-01T00:00:00.000Z',
     tags: []
