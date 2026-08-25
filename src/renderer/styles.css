@@ -397,15 +397,26 @@ button:focus-visible {
   display: flex; gap: 6px;
   margin-left: auto;            /* 推到行末；ref-badge 留在 left 组右侧紧贴 */
 }
+.clean-item .quick-actions button {
+  flex: 1 1 0;                  /* 搁置/读完 等宽，按最长那个走 */
+  min-width: 56px;
+  text-align: center;
+}
 
 .collapsed-sections {
   margin-top: 32px;
   display: flex; flex-direction: column;
   gap: 6px;
+  align-items: flex-start;      /* 块按内容收缩，不铺满整页 */
+}
+.collapsed-section {
+  width: fit-content;           /* 跟 .clean-item 一致：按内容收缩 */
+  max-width: 100%;
+  display: flex; flex-direction: column;
+  gap: 4px;
 }
 .collapsed-header {
   display: flex; align-items: center; gap: 8px;
-  width: 100%;
   padding: 8px 12px;
   background: white;
   border: 1px solid var(--border);
@@ -417,16 +428,32 @@ button:focus-visible {
 .collapsed-header .label { font-weight: 500; }
 .collapsed-header .caret { margin-left: auto; color: var(--muted); }
 .collapsed-list {
-  list-style: none; padding: 4px 0 0 22px; margin: 0;
-  display: flex; flex-direction: column; gap: 2px;
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 4px;
 }
 .collapsed-item {
-  display: flex; gap: 12px;
-  padding: 4px 8px;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 10px;
   font-size: 13px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
-.collapsed-item .title { color: var(--fg); }
-.collapsed-item .author { font-size: 12px; }
+.collapsed-item .title {
+  color: var(--fg);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.collapsed-item .author {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 /* ============ Prereq editor ============ */
 .rule-row {
