@@ -23,7 +23,7 @@
 | 状态 | zustand 5 | 无 Provider / 无 Redux 模板代码 |
 | 文件存储 | 每本书一个 `.md` + `relations.json` | 用户数据可直接 `git init` 进 GitHub |
 | frontmatter | gray-matter | YAML frontmatter + Markdown body |
-| slug | pinyin-pro | 中文文件名转拼音 slug |
+| ID 生成 | 纯递增数字（`makeBaseId` 取 max+1） | 简洁、文件名短、天然唯一 |
 | 关系图 | react-force-graph-2d | 力导向，500 节点流畅 |
 | 测试 | vitest 4 | 与 Vite 同源，单测友好 |
 
@@ -46,7 +46,7 @@ src/
 │       ├── relations.ts      # relations.json
 │       ├── config.ts         # config.json
 │       ├── files.ts          # atomicWriteFile / ensureDir / readJson
-│       ├── slug.ts           # makeBaseSlug（拼音）
+│       ├── slug.ts           # makeBaseId（纯数字 ID；文件名沿用 slug.ts）
 │       └── pick-dir.ts       # 系统文件夹 picker dialog
 │
 ├── preload/                  # 预加载脚本（contextBridge 暴露 API 到 renderer）
@@ -108,7 +108,7 @@ shared  ←  main  ←  preload
 
 ```markdown
 ---
-id: bai-nian-gu-du
+id: 1
 title: 百年孤独
 author: 加西亚·马尔克斯
 country: 哥伦比亚
@@ -145,8 +145,8 @@ tags: []
 {
   "version": 1,
   "edges": [
-    { "to": "book-c", "prerequisites": ["book-a", "book-b"], "rule": "all" },
-    { "to": "book-d", "prerequisites": ["book-a", "book-b", "book-c"], "rule": "any_of", "threshold": 2 }
+    { "to": "3", "prerequisites": ["1", "2"], "rule": "all" },
+    { "to": "4", "prerequisites": ["1", "2", "3"], "rule": "any_of", "threshold": 2 }
   ]
 }
 ```
@@ -235,7 +235,7 @@ npm run dist:win       # 仅 Windows x64
 5. **状态切走时清 progress**：编辑表单里如果 status 从 `reading` 切到其他，要主动设 `patch.progress = null`，否则旧的 progress 会留着误导用户
 6. **快速按钮走专用 IPC**：`+1 / -1 / +5` 不要走完整的 `books:update` patch 合并，专用 `books:progressBump` 通道，避免读 100 本同时点 +1 时每次都序列化整个 Book 对象
 7. **cycle detection 不能漏**：`computeUnlocked` 必须先用 DFS 找出所有环，环上节点**全部置为不解锁**；漏了会让死循环里的书永远解锁（逻辑 bug）
-8. **slug 碰撞**：`writeBook` 用 `author + title + year` 做 baseSlug，碰撞时追加 `-2`, `-3`...；不要直接用原 slug 覆盖
+8. **ID 唯一性**：`writeBook` 调 `makeBaseId` 取现有最大数字 ID +1 写入；忽略非数字 ID（防止老 pinyin 残留混入）。**不要**改回带后缀的 collision 方案（`-2`/`-3`）——数字 ID 之间天然唯一，无需额外处理
 9. **renderer 不能 import `node:fs`**——vite 会编译失败；如果要在 renderer 用工具函数，提炼到 `src/shared/` 并确保不引 Node API
 10. **`useEffect` 依赖数组**：如果用了 `useBooksStore((s) => s.x)` 这种 selector，要么确保 selector 返回稳定引用，要么用 `useShallow` 包一下——否则无限循环
 11. **首次 picker 后必须初始化 data_dir**：原先 `initDataDir` 只写 userData 层 config.json，data_dir 自己的 `config.json` / `books/` / `relations.json` 全是空壳。后果：① 用户从外部探查目录看到空目录以为 app 没工作；② 配置面板 `configGet` 读不到 data_dir/config.json → fallback DEFAULT → "数据目录"字段显示空字符串。修复：首次 picker 完成后**同步**调 `writeConfig({...DEFAULT, data_dir: picked})` + `ensureDir(PATHS.booksDir(picked))`。`relations.json` 保持懒创建（空 relations 与文件不存在行为一致）
@@ -296,7 +296,7 @@ npm run dist:win       # 仅 Windows x64
 
 ```
 <data_dir>/
-├── books/<slug>.md       # 每本书一个文件
+├── books/<id>.md          # 每本书一个文件，id 为纯数字
 ├── relations.json        # 前置关系图（懒创建）
 └── config.json           # 用户配置（含 data_dir 自身）
 ```
