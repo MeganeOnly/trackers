@@ -6,6 +6,8 @@ import type { Book } from '@shared/types'
 
 interface BookDetailProps {
   onEdit: () => void
+  /** 显式指定显示哪本书；不传则用全局 selectedId */
+  bookId?: string
 }
 
 const STATUS_LABELS = {
@@ -16,12 +18,13 @@ const STATUS_LABELS = {
   abandoned: '弃读'
 } as const
 
-export function BookDetail({ onEdit }: BookDetailProps): JSX.Element {
+export function BookDetail({ onEdit, bookId }: BookDetailProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const books = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
   const bumpProgress = useBooksStore((s) => s.bumpProgress)
-  const book = books.find((b) => b.id === selectedId)
+  const effectiveId = bookId ?? selectedId
+  const book = books.find((b) => b.id === effectiveId)
   const { unlocked, cycles } = useUnlocked()
 
   if (!book) {

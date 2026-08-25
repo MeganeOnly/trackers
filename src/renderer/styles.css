@@ -532,3 +532,38 @@ button:focus-visible {
   background: var(--border);
   margin: 0 4px;
 }
+
+/* ============ BookCard（图内嵌的书详情卡片） ============ */
+.book-card {
+  display: flex;
+  flex-direction: column;
+  /* 比 graph-view 更紧凑的高度，给 modal 留标题与关闭按钮 */
+  height: 70vh;
+  min-height: 480px;
+}
+.book-card-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.book-card-toolbar .btn-back {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.book-card-toolbar .btn-back:hover {
+  color: var(--fg);
+  background: var(--bg);
+}
+.book-card .book-detail {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  max-width: none;
+}
