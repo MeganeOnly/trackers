@@ -80,7 +80,17 @@ export default function App(): JSX.Element {
       {form && (
         <BookForm book={form.mode === 'edit' ? form.book : null} onClose={() => setForm(null)} />
       )}
-      {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
+      {graphOpen && (
+        <GraphModal
+          onClose={() => setGraphOpen(false)}
+          onSelect={() => {
+            // 节点点击后：GraphView 已经 set 了 selectedId，这里关 modal + 切到 edit 模式，
+            // 让 EditMode 里的 BookDetail 渲染这本书
+            setGraphOpen(false)
+            useModeStore.getState().setMode('edit')
+          }}
+        />
+      )}
     </div>
   )
 }
