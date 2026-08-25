@@ -9,20 +9,14 @@ import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
 import { useSearchStore } from './store/search'
 import { api } from './lib/api'
-import type { Book } from '@shared/types'
-
-type FormState = { mode: 'add' } | { mode: 'edit'; book: Book } | null
 
 export default function App(): JSX.Element {
-  const mode = useModeStore((s) => s.mode)
   const loadBooks = useBooksStore((s) => s.load)
   const loadRelations = useRelationsStore((s) => s.load)
-  const selectedId = useBooksStore((s) => s.selectedId)
-  const books = useBooksStore((s) => s.books)
   const select = useBooksStore((s) => s.select)
   const clearSearch = useSearchStore((s) => s.clear)
 
-  const [form, setForm] = useState<FormState>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
 
   useEffect(() => {
@@ -55,12 +49,7 @@ export default function App(): JSX.Element {
 
   function openAdd(): void {
     select(null)
-    setForm({ mode: 'add' })
-  }
-  function openEdit(): void {
-    const b = books.find((x) => x.id === selectedId)
-    if (!b) return
-    setForm({ mode: 'edit', book: b })
+    setFormOpen(true)
   }
 
   // 全局快捷键（input/textarea 焦点时不触发）
@@ -89,23 +78,21 @@ export default function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [books, selectedId])
+  }, [loadBooks])
 
   return (
     <div className="app-shell">
       <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} />
       <div className="app-body">
-        <EditModeWrapper onEdit={openEdit} />
+        <EditModeWrapper />
       </div>
-      {form && (
-        <BookForm book={form.mode === 'edit' ? form.book : null} onClose={() => setForm(null)} />
-      )}
-      {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} onEdit={openEdit} />}
+      {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
+      {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
     </div>
   )
 }
 
-function EditModeWrapper({ onEdit }: { onEdit: () => void }): JSX.Element {
+function EditModeWrapper(): JSX.Element {
   const mode = useModeStore((s) => s.mode)
-  return mode === 'edit' ? <EditMode onEdit={onEdit} /> : <CleanMode />
+  return mode === 'edit' ? <EditMode /> : <CleanMode />
 }

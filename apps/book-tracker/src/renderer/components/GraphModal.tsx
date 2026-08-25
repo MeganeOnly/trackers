@@ -6,8 +6,6 @@ import { useBooksStore } from '../store/books'
 
 interface GraphModalProps {
   onClose: () => void
-  /** BookCard 里点"编辑"时调，用于打开全局 BookForm */
-  onEdit: () => void
 }
 
 /**
@@ -22,7 +20,7 @@ interface GraphModalProps {
 const SPLIT_WIDTH = 1200
 const GRAPH_WIDTH = 880
 
-export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
+export function GraphModal({ onClose }: GraphModalProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const bookExists = useBooksStore(
     (s) => (selectedId ? s.books.some((b) => b.id === selectedId) : false)
@@ -50,7 +48,7 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
             <GraphView highlightId={selectedId} />
           </div>
           <div className="graph-modal-pane-right">
-            <BookCardContainer onEdit={onEdit} onClose={() => select(null)} />
+            <BookCardContainer onClose={() => select(null)} />
           </div>
         </div>
       ) : (
