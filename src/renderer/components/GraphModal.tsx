@@ -38,7 +38,12 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
   }, [])
 
   return (
-    <Modal title="关系图" onClose={onClose} width={showSplit ? SPLIT_WIDTH : GRAPH_WIDTH}>
+    <Modal
+      title="关系图"
+      onClose={onClose}
+      width={showSplit ? SPLIT_WIDTH : GRAPH_WIDTH}
+      className="modal-card--graph"
+    >
       {showSplit ? (
         <div className="graph-modal-split">
           <div className="graph-modal-pane-left">

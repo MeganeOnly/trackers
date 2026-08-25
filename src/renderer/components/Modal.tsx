@@ -6,9 +6,11 @@ interface ModalProps {
   children: React.ReactNode
   footer?: React.ReactNode
   width?: number
+  /** 附加到 .modal-card 上的类名（如需要确定高度/特殊布局时用） */
+  className?: string
 }
 
-export function Modal({ title, onClose, children, footer, width = 560 }: ModalProps): JSX.Element {
+export function Modal({ title, onClose, children, footer, width = 560, className }: ModalProps): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
@@ -19,7 +21,11 @@ export function Modal({ title, onClose, children, footer, width = 560 }: ModalPr
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" style={{ maxWidth: width }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`modal-card${className ? ` ${className}` : ''}`}
+        style={{ maxWidth: width }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="modal-header">
           <h3>{title}</h3>
           <button className="modal-close" onClick={onClose} aria-label="关闭">

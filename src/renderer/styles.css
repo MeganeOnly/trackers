@@ -142,6 +142,11 @@ button:focus-visible {
   max-height: 85vh;
   display: flex; flex-direction: column;
 }
+/* 关系图弹窗：高度改为确定值（85vh），让内部 height:100% 链正确解析，
+   避免 modal-body 溢出 16px 出现多余垂直滚动条 */
+.modal-card--graph {
+  height: 85vh;
+}
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px;
@@ -353,7 +358,7 @@ button:focus-visible {
   list-style: none;
   padding: 0; margin: 16px 0;
   display: flex; flex-direction: column; gap: 4px;
-  max-width: 640px;          /* 所有条目同一宽度 → 搁置/读完 左对齐一致 */
+  /* 铺满页面内容宽度，不浪费右侧空白 */
 }
 .clean-item {
   display: flex;
@@ -424,7 +429,7 @@ button:focus-visible {
   margin-top: 32px;
   display: flex; flex-direction: column;
   gap: 6px;
-  max-width: 640px;          /* 跟 .clean-list 同一宽度 */
+  /* 与 .clean-list 同宽，铺满页面内容宽度 */
 }
 .collapsed-section {
   width: 100%;                 /* 撑满 .collapsed-sections（与 clean-item 同宽） */
@@ -649,7 +654,7 @@ button:focus-visible {
 }
 .book-card .book-detail {
   flex: 1;
-  overflow: visible;
+  overflow-y: auto;          /* 详情内容超过卡片高度时内部滚动，避免被 overflow:hidden 裁剪 */
   padding-right: 0;
   max-width: none;
 }
