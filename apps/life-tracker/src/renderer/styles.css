@@ -241,7 +241,20 @@ button:focus-visible {
 
 .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 .goal-detail { max-width: 720px; }
-.detail-header h2 { margin: 0 0 8px; font-size: 22px; font-weight: 600; }
+/* 编辑模式下详情标题直接是输入框（不再需要额外的「编辑」弹窗） */
+.detail-title-input {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 22px;
+  font-weight: 600;
+  font: inherit;
+  color: var(--fg);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.detail-title-input:focus { outline: none; border-color: var(--accent); }
 .meta-row { display: flex; gap: 8px; align-items: center; }
 .status-pill {
   display: inline-block; padding: 3px 10px;
@@ -260,6 +273,13 @@ button:focus-visible {
 
 .detail-actions {
   display: flex; gap: 8px; margin-top: 12px;
+}
+.detail-actions .spacer { flex: 1; }
+
+/* 内联编辑表单（编辑模式详情 = 表单字段，复用 .field/.field-row 样式） */
+.detail-form {
+  margin-top: 20px;
+  display: flex; flex-direction: column; gap: 14px;
 }
 
 .detail-fields {
@@ -694,7 +714,7 @@ button:focus-visible {
 }
 .goal-card-close:hover { color: var(--fg); background: white; }
 /* 给卡片内标题预留 × 的空间，长标题换行也不会被盖住 */
-.goal-card .detail-header h2 { padding-right: 28px; }
+.goal-card .detail-title-input { padding-right: 28px; }
 .goal-card .goal-detail {
   flex: 1;
   overflow-y: auto;          /* 详情内容超过卡片高度时内部滚动，避免被 overflow:hidden 裁剪 */

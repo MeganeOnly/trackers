@@ -6,8 +6,6 @@ import { useGoalsStore } from '../store/goals'
 
 interface GraphModalProps {
   onClose: () => void
-  /** GoalCard 里点"编辑"时调，用于打开全局 GoalForm */
-  onEdit: () => void
 }
 
 /**
@@ -22,7 +20,7 @@ interface GraphModalProps {
 const SPLIT_WIDTH = 1200
 const GRAPH_WIDTH = 880
 
-export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
+export function GraphModal({ onClose }: GraphModalProps): JSX.Element {
   const selectedId = useGoalsStore((s) => s.selectedId)
   const goalExists = useGoalsStore(
     (s) => (selectedId ? s.goals.some((b) => b.id === selectedId) : false)
@@ -50,7 +48,7 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
             <GraphView highlightId={selectedId} />
           </div>
           <div className="graph-modal-pane-right">
-            <GoalCardContainer onEdit={onEdit} onClose={() => select(null)} />
+            <GoalCardContainer onClose={() => select(null)} />
           </div>
         </div>
       ) : (
