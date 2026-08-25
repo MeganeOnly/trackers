@@ -59,11 +59,21 @@ fn normalize_edge(raw: Edge) -> Edge {
         (UnlockRule::AnyOf, Some(t)) if t >= 1 => Some(t.min(prerequisites.len() as u32)),
         _ => None,
     };
+    // 二选一组合：过滤空成员与空组；全空 → None（回退到整组规则）
+    let groups = raw.groups.map(|groups| {
+        groups
+            .into_iter()
+            .map(|g| g.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>())
+            .filter(|g| !g.is_empty())
+            .collect::<Vec<_>>()
+    });
+    let groups = groups.filter(|g| !g.is_empty());
     Edge {
         to: raw.to,
         prerequisites,
         rule,
         threshold,
+        groups,
     }
 }
 
@@ -80,6 +90,7 @@ mod tests {
             prerequisites: prereqs.iter().map(|s| s.to_string()).collect(),
             rule,
             threshold: None,
+            groups: None,
         }
     }
 
@@ -140,5 +151,27 @@ mod tests {
         let res = write_relations(dir.path(), &edges, Some(&validate));
         assert!(res.is_err());
         assert!(!dir.path().join("relations.json").exists());
+    }
+
+    #[test]
+    fn groups_round_trip_and_empty_groups_dropped() {
+        let dir = tempdir().unwrap();
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: vec!["a".into(), "b".into(), "c".into()],
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![vec!["a".into(), "b".into()]]),
+        }];
+        write_relations(dir.path(), &edges, None).unwrap();
+        let r = read_relations(dir.path()).unwrap();
+        assert_eq!(r.edges[0].groups.as_ref().unwrap().len(), 1);
+        assert_eq!(r.edges[0].groups.as_ref().unwrap()[0], vec!["a".to_string(), "b".to_string()]);
+
+        // 空字符串成员被过滤；全空组被丢弃 → groups 变 None
+        let raw = r#"{"version":1,"edges":[{"to":"x","prerequisites":["a"],"rule":"all","groups":[["",""]]}]}"#;
+        std::fs::write(dir.path().join("relations.json"), raw).unwrap();
+        let r2 = read_relations(dir.path()).unwrap();
+        assert!(r2.edges[0].groups.is_none());
     }
 }

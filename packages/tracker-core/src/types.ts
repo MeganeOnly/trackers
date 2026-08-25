@@ -21,6 +21,13 @@ export interface Edge {
   rule: UnlockRule
   /** 仅 rule === 'any_of' 时使用 */
   threshold?: number
+  /**
+   * 二选一/N选一组合（AND-of-ORs）：
+   * 每个内层数组是一组「互斥选一」的成员 id（任一个 done 即满足该组）；
+   * 组与组之间、以及「不在任何组里的前置」均为「全部必须 done」。
+   * 缺省 / 空数组时回退到 `rule` + `threshold` 的整组逻辑（向后兼容）。
+   */
+  groups?: string[][]
 }
 
 /** relations.json 文件结构 */

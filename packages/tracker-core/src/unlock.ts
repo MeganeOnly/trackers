@@ -41,11 +41,22 @@ export function computeUnlocked(
       unlocked.set(id, true)
       return true
     }
-    const done = edge.prerequisites.filter(isDone).length
-    const ok =
-      edge.rule === 'all'
-        ? done === edge.prerequisites.length
-        : done >= (edge.threshold ?? edge.prerequisites.length)
+    let ok: boolean
+    // 优先二选一组合语义：必选项全部 done 且 每个组至少一个 done
+    if (edge.groups && edge.groups.length > 0) {
+      const inGroup = new Set(edge.groups.flat())
+      const mandatoryOk = edge.prerequisites
+        .filter((p) => !inGroup.has(p))
+        .every(isDone)
+      const groupsOk = edge.groups.every((g) => g.some(isDone))
+      ok = mandatoryOk && groupsOk
+    } else {
+      const done = edge.prerequisites.filter(isDone).length
+      ok =
+        edge.rule === 'all'
+          ? done === edge.prerequisites.length
+          : done >= (edge.threshold ?? edge.prerequisites.length)
+    }
     unlocked.set(id, ok)
     return ok
   }

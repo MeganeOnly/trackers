@@ -43,6 +43,7 @@ pub fn compute_unlocked(
                 prerequisites: prereqs,
                 rule: e.rule,
                 threshold: e.threshold,
+                groups: e.groups.clone(),
             },
         );
     }
@@ -76,12 +77,27 @@ pub fn compute_unlocked(
             .iter()
             .filter(|p| done.get(*p).copied().unwrap_or(false))
             .count();
-        let ok = match edge.rule {
-            UnlockRule::All => done_count == edge.prerequisites.len(),
-            UnlockRule::AnyOf => {
-                let need = edge.threshold.unwrap_or(edge.prerequisites.len() as u32);
-                done_count as u32 >= need
+        let ok = match &edge.groups {
+            // 二选一组合语义：必选项全部 done 且 每个组至少一个 done
+            Some(groups) if !groups.is_empty() => {
+                let in_group: HashSet<&String> = groups.iter().flatten().collect();
+                let mandatory_ok = edge
+                    .prerequisites
+                    .iter()
+                    .filter(|p| !in_group.contains(p))
+                    .all(|p| done.get(p).copied().unwrap_or(false));
+                let groups_ok = groups
+                    .iter()
+                    .all(|g| g.iter().any(|p| done.get(p).copied().unwrap_or(false)));
+                mandatory_ok && groups_ok
             }
+            _ => match edge.rule {
+                UnlockRule::All => done_count == edge.prerequisites.len(),
+                UnlockRule::AnyOf => {
+                    let need = edge.threshold.unwrap_or(edge.prerequisites.len() as u32);
+                    done_count as u32 >= need
+                }
+            },
         };
         unlocked.insert(id.to_string(), ok);
         ok
@@ -178,6 +194,7 @@ mod tests {
             prerequisites: prereqs.iter().map(|s| s.to_string()).collect(),
             rule,
             threshold: None,
+            groups: None,
         }
     }
 
@@ -206,6 +223,7 @@ mod tests {
             prerequisites: ids(&["a", "b", "c"]),
             rule: UnlockRule::AnyOf,
             threshold: Some(2),
+            groups: None,
         }];
         let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "b"]));
         assert_eq!(r.unlocked.get("target"), Some(&true));
@@ -248,5 +266,86 @@ mod tests {
     fn detect_cycles_self_loop_detected() {
         let edges = vec![edge("a", &["a"], UnlockRule::All)];
         assert!(!detect_cycles(&edges).is_empty());
+    }
+
+    #[test]
+    fn groups_or_choose_one_plus_mandatory() {
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a", "b", "c"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![ids(&["a", "b"])]),
+        }];
+        // c 必须 + a/b 二选一
+        let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "c"]));
+        assert!(ok(&r));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["b", "c"]));
+        assert!(ok(&r));
+        // 缺 c → 锁
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a"]));
+        assert!(!ok(&r));
+        // 组内一个都没完成 → 锁
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["c"]));
+        assert!(!ok(&r));
+    }
+
+    #[test]
+    fn groups_multiple_all_required() {
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a", "b", "c", "d"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![ids(&["a", "b"]), ids(&["c", "d"])]),
+        }];
+        let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_map(&["a", "c"]));
+        assert!(ok(&r));
+        // 只满足第一组 → 锁
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_map(&["a"]));
+        assert!(!ok(&r));
+    }
+
+    #[test]
+    fn groups_empty_falls_back_to_all() {
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a", "b"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![]),
+        }];
+        let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
+        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_map(&["a"]));
+        assert!(!ok(&r));
+        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_map(&["a", "b"]));
+        assert!(ok(&r));
+    }
+
+    #[test]
+    fn groups_dangling_member_ok_but_all_dangling_locks() {
+        // 组内有真实成员完成即满足；悬空成员不阻塞
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![ids(&["a", "ghost"])]),
+        }];
+        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("target"), Some(&true));
+
+        // 组全悬空 → 永不满足 → 锁
+        let edges2 = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: Some(vec![ids(&["ghost1", "ghost2"])]),
+        }];
+        let r2 = compute_unlocked(&ids(&["a", "target"]), &edges2, &done_map(&[]));
+        assert_eq!(r2.unlocked.get("target"), Some(&false));
     }
 }

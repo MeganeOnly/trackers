@@ -55,6 +55,68 @@ describe('computeUnlocked', () => {
     const r = computeUnlocked(['a', 'target'], edges, (id) => id === 'a')
     expect(r.unlocked.get('target')).toBe(true)
   })
+
+  it('groups 二选一组合：必选项全部 done 且每组至少一个 done', () => {
+    const edges: Edge[] = [
+      { to: 'target', prerequisites: ['a', 'b', 'c'], rule: 'all', groups: [['a', 'b']] }
+    ]
+    // c 必须；a/b 二选一
+    const r1 = computeUnlocked(['a', 'b', 'c', 'target'], edges, (id) => id === 'a' || id === 'c')
+    expect(r1.unlocked.get('target')).toBe(true)
+    const r2 = computeUnlocked(['a', 'b', 'c', 'target'], edges, (id) => id === 'b' || id === 'c')
+    expect(r2.unlocked.get('target')).toBe(true)
+    // 只有 a（缺 c）→ 不解锁
+    const r3 = computeUnlocked(['a', 'b', 'c', 'target'], edges, (id) => id === 'a')
+    expect(r3.unlocked.get('target')).toBe(false)
+    // 只有 c（组内一个都没完成）→ 不解锁
+    const r4 = computeUnlocked(['a', 'b', 'c', 'target'], edges, (id) => id === 'c')
+    expect(r4.unlocked.get('target')).toBe(false)
+  })
+
+  it('groups 多组：所有组都要至少一个 done', () => {
+    const edges: Edge[] = [
+      {
+        to: 'target',
+        prerequisites: ['a', 'b', 'c', 'd'],
+        rule: 'all',
+        groups: [
+          ['a', 'b'],
+          ['c', 'd']
+        ]
+      }
+    ]
+    const r1 = computeUnlocked(['a', 'b', 'c', 'd', 'target'], edges, (id) => id === 'a' || id === 'c')
+    expect(r1.unlocked.get('target')).toBe(true)
+    // 只完成第一组 → 第二组没满足 → 不解锁
+    const r2 = computeUnlocked(['a', 'b', 'c', 'd', 'target'], edges, (id) => id === 'a')
+    expect(r2.unlocked.get('target')).toBe(false)
+  })
+
+  it('groups 空数组回退到 rule=all 语义', () => {
+    const edges: Edge[] = [
+      { to: 'target', prerequisites: ['a', 'b'], rule: 'all', groups: [] }
+    ]
+    const r1 = computeUnlocked(['a', 'b', 'target'], edges, (id) => id === 'a')
+    expect(r1.unlocked.get('target')).toBe(false)
+    const r2 = computeUnlocked(['a', 'b', 'target'], edges, (id) => id === 'a' || id === 'b')
+    expect(r2.unlocked.get('target')).toBe(true)
+  })
+
+  it('groups 引用悬空成员：组内有真实成员完成即可解锁；全悬空组不解锁', () => {
+    // 组内 a 完成即满足该组，ghost 悬空不阻塞
+    const edges1: Edge[] = [
+      { to: 'target', prerequisites: ['a', 'ghost'], rule: 'all', groups: [['a', 'ghost']] }
+    ]
+    const r1 = computeUnlocked(['a', 'target'], edges1, (id) => id === 'a')
+    expect(r1.unlocked.get('target')).toBe(true)
+
+    // 组全悬空 → 该组永远不满足 → 不解锁
+    const edges2: Edge[] = [
+      { to: 'target', prerequisites: ['a'], rule: 'all', groups: [['ghost1', 'ghost2']] }
+    ]
+    const r2 = computeUnlocked(['a', 'target'], edges2, () => false)
+    expect(r2.unlocked.get('target')).toBe(false)
+  })
 })
 
 describe('detectCycles', () => {

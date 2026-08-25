@@ -34,6 +34,11 @@ pub struct Edge {
     /// 仅 `rule == AnyOf` 时使用
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold: Option<u32>,
+    /// 二选一/N选一组合（AND-of-ORs）：每个内层数组是一组「互斥选一」成员，
+    /// 组之间以及「不在任何组里的前置」均为必须 done。
+    /// 缺省 / 空数组时回退到 `rule` + `threshold` 的整组逻辑（向后兼容）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<Vec<String>>>,
 }
 
 /// `relations.json` 文件结构
