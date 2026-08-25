@@ -98,8 +98,10 @@ export function CleanMode(): JSX.Element {
         <ul className="clean-list">
           {readableList.map(({ book, refCount }) => (
             <li key={book.id} className="clean-item">
-              <span className="title">{book.title}</span>
-              <span className="author muted">{book.author}</span>
+              <div className="clean-item-meta">
+                <span className="title">{book.title}</span>
+                <span className="author muted">{book.author}</span>
+              </div>
               {refCount > 0 && <span className="ref-badge">解锁 {refCount} 本</span>}
               <div className="quick-actions">
                 <button className="btn-secondary" onClick={() => shelve(book.id)} title="搁置">
