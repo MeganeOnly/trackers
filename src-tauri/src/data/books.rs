@@ -1,7 +1,6 @@
-//! book.md 读写(frontmatter via matter)。
+//! book.md 读写(frontmatter via 手写 JSON parser)。
 //!
-//! 与 `src/main/data/books.ts` 1:1 对应:
-//! - 每本书一个 `<id>.md`,frontmatter 是 YAML,正文是 Markdown
+//! - 每本书一个 `<id>.md`,frontmatter 是单行 JSON,正文是 Markdown
 //! - `progress` 字段只在有值时写入,避免污染 frontmatter
 //! - 损坏文件不阻塞其他书加载,返回 broken 列表
 
@@ -12,14 +11,6 @@ use crate::data::files::{atomic_write_file, ensure_dir};
 use crate::data::slug::make_base_id;
 use crate::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
 use crate::types::{Book, BookInput, BookPatch, BookStatus};
-
-const VALID_STATUSES: &[BookStatus] = &[
-    BookStatus::Want,
-    BookStatus::Shelved,
-    BookStatus::Reading,
-    BookStatus::Finished,
-    BookStatus::Abandoned,
-];
 
 fn is_valid_status(s: &str) -> bool {
     matches!(
