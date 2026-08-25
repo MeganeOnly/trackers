@@ -45,6 +45,22 @@ cd src-tauri && cargo test    # 61/61 单元测试
 cd src-tauri && cargo build   # 全量编译
 ```
 
+## 发布
+
+推送形如 `v0.1.0` 的 tag 即可触发 `.github/workflows/release.yml`，自动构建 Windows NSIS installer 并创建 draft GitHub Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# → GitHub Actions 跑完后到 repo 的 Releases 页 review draft 并 publish
+```
+
+工作流特性：
+
+- **Windows 单矩阵** + MSVC 工具链（local dev 用 GNU，CI 用 MSVC 是 Tauri 官方推荐组合）
+- 使用 [`tauri-apps/tauri-action@v0`](https://github.com/tauri-apps/tauri-action) 一站式处理 Rust / webview2 / 构建 / 上传
+- 默认 draft，需要手动 review 后再 publish，避免误发
+
 ## 数据
 
 应用数据和应用代码**分离**：
