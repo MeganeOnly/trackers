@@ -238,6 +238,7 @@ npm run dist:win       # 仅 Windows x64
 8. **slug 碰撞**：`writeBook` 用 `author + title + year` 做 baseSlug，碰撞时追加 `-2`, `-3`...；不要直接用原 slug 覆盖
 9. **renderer 不能 import `node:fs`**——vite 会编译失败；如果要在 renderer 用工具函数，提炼到 `src/shared/` 并确保不引 Node API
 10. **`useEffect` 依赖数组**：如果用了 `useBooksStore((s) => s.x)` 这种 selector，要么确保 selector 返回稳定引用，要么用 `useShallow` 包一下——否则无限循环
+11. **首次 picker 后必须初始化 data_dir**：原先 `initDataDir` 只写 userData 层 config.json，data_dir 自己的 `config.json` / `books/` / `relations.json` 全是空壳。后果：① 用户从外部探查目录看到空目录以为 app 没工作；② 配置面板 `configGet` 读不到 data_dir/config.json → fallback DEFAULT → "数据目录"字段显示空字符串。修复：首次 picker 完成后**同步**调 `writeConfig({...DEFAULT, data_dir: picked})` + `ensureDir(PATHS.booksDir(picked))`。`relations.json` 保持懒创建（空 relations 与文件不存在行为一致）
 
 ## 十一、已实现功能清单
 
@@ -257,6 +258,7 @@ npm run dist:win       # 仅 Windows x64
 - [x] 全局快捷键：`n` 加书 / `g` 关系图 / `e`/`c` 切模式 / `Esc` 清搜索
 - [x] 关系图（react-force-graph-2d，500 节点流畅）
 - [x] 用户数据目录 picker（首次启动）
+- [x] 数据目录结构初始化（picker 完成后同步写 `config.json` + `books/`，避免空壳）
 - [x] 配置文件 `config.json` 持久化
 - [x] vitest 单测（unlock + progress）
 
@@ -280,17 +282,22 @@ npm run dist:win       # 仅 Windows x64
 
 ## 十四、数据目录约定
 
-应用启动时检查 `config.json`：
+应用启动时检查 `userData` 层的 `config.json`：
 
-- 存在 → 用里面的 `data_dir`
-- 不存在 → 弹原生文件夹 picker 让用户选 → 写入 config
+- `data_dir` 存在且目录存在 → 用之
+- 不存在 → 弹原生文件夹 picker 让用户选 → 写入 `userData` 层 + **同步**初始化 `data_dir` 自带结构（见第十节第 11 条坑）
+
+**两层 config 的区别**：
+
+- `userData/config.json`（`%APPDATA%\book-tracker\config.json`）→ 只存 `data_dir` 一个字段，是应用启动入口
+- `<data_dir>/config.json` → 完整 `Config`（`data_dir` / `language` / `default_mode`），用于设置面板读写和"切换数据目录"逻辑
 
 **用户数据目录结构**：
 
 ```
 <data_dir>/
 ├── books/<slug>.md       # 每本书一个文件
-├── relations.json        # 前置关系图
+├── relations.json        # 前置关系图（懒创建）
 └── config.json           # 用户配置（含 data_dir 自身）
 ```
 

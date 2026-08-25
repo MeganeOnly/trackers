@@ -2,6 +2,8 @@ import { app } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { pickDataDir } from '../data/pick-dir'
+import { PATHS, writeConfig } from '../data/config'
+import { ensureDir } from '../data/files'
 
 interface AppConfig {
   version: number
@@ -50,6 +52,16 @@ export async function initDataDir(): Promise<string> {
     return ''
   }
   await writeAppConfig({ version: 1, data_dir: picked })
+  // 首次 picker 后初始化 data_dir 自带文件，避免空壳目录导致：
+  // - 设置面板读不到 data_dir/config.json → fallback DEFAULT → 显示空字符串
+  // - 加第一本书前 books/ 还不存在，用户从外部探查以为 app 没工作
+  await writeConfig({
+    version: 1,
+    data_dir: picked,
+    language: 'zh-CN',
+    default_mode: 'clean'
+  })
+  await ensureDir(PATHS.booksDir(picked))
   cached = picked
   return cached
 }
