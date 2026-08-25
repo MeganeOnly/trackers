@@ -464,6 +464,7 @@ button:focus-visible {
   font-weight: 500;
 }
 .quick-finish:hover { filter: brightness(0.95); }
+.quick-abandon:hover { color: var(--danger); border-color: var(--danger); }
 
 .clean-item .quick-actions {
   display: flex; gap: 6px;

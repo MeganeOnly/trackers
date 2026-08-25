@@ -104,6 +104,9 @@ export function CleanMode(): JSX.Element {
   async function shelve(id: string): Promise<void> {
     await update(id, { status: 'shelved' })
   }
+  async function abandon(id: string): Promise<void> {
+    await update(id, { status: 'abandoned' })
+  }
   async function restore(g: Goal): Promise<void> {
     await update(g.id, { status: RESTORE_TO[g.status] })
   }
@@ -206,6 +209,13 @@ export function CleanMode(): JSX.Element {
                       title="标记为已达成"
                     >
                       达成
+                    </button>
+                    <button
+                      className="btn-secondary quick-abandon"
+                      onClick={() => abandon(goal.id)}
+                      title="放弃（从可推进列表移除，可恢复）"
+                    >
+                      放弃
                     </button>
                   </div>
                 </div>

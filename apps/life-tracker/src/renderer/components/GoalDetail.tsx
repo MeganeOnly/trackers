@@ -119,13 +119,18 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
       setError('目标名称不能为空')
       return
     }
+    const d = deadline.trim()
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      setError('截止日期格式应为 YYYY-MM-DD，如 2025-06-30')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const patch: Partial<GoalInput> = {
         title: title.trim(),
         category: category.trim(),
-        deadline: deadline.trim(),
+        deadline: d,
         status,
         progress: null,
         note: note.trim(),
@@ -229,7 +234,12 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           </label>
           <label className="field">
             <span>截止日期</span>
-            <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            <input
+              type="text"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              placeholder="留空 = 无截止（格式：2025-06-30）"
+            />
             {overdue && <span className="deadline-overdue">已逾期</span>}
           </label>
         </div>
