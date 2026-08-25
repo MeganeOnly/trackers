@@ -50,17 +50,7 @@ export function GraphModal({ onClose, onEdit }: GraphModalProps): JSX.Element {
             <GraphView />
           </div>
           <div className="graph-modal-pane-right">
-            <div className="graph-modal-pane-header">
-              <button
-                className="graph-modal-pane-close"
-                onClick={() => select(null)}
-                aria-label="关闭右侧详情"
-                title="关闭右侧详情"
-              >
-                ×
-              </button>
-            </div>
-            <BookCardContainer onEdit={onEdit} />
+            <BookCardContainer onEdit={onEdit} onClose={() => select(null)} />
           </div>
         </div>
       ) : (

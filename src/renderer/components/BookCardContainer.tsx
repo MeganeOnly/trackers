@@ -4,6 +4,8 @@ import { BookCard } from './BookCard'
 interface BookCardContainerProps {
   /** BookCard 内点"编辑"时调，打开全局 BookForm */
   onEdit: () => void
+  /** 关闭右侧详情（回到纯图），由 GraphModal 传入 select(null) */
+  onClose?: () => void
 }
 
 /**
@@ -11,7 +13,7 @@ interface BookCardContainerProps {
  * - 已选中 → 渲染 BookCard
  * - 未选中 → 显示提示（让用户知道怎么用）
  */
-export function BookCardContainer({ onEdit }: BookCardContainerProps): JSX.Element {
+export function BookCardContainer({ onEdit, onClose }: BookCardContainerProps): JSX.Element {
   const selectedId = useBooksStore((s) => s.selectedId)
   const bookExists = useBooksStore((s) => (selectedId ? s.books.some((b) => b.id === selectedId) : false))
 
@@ -24,5 +26,5 @@ export function BookCardContainer({ onEdit }: BookCardContainerProps): JSX.Eleme
     )
   }
 
-  return <BookCard bookId={selectedId} onEdit={onEdit} />
+  return <BookCard bookId={selectedId} onEdit={onEdit} onClose={onClose} />
 }

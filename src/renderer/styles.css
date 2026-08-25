@@ -81,6 +81,7 @@ button:focus-visible {
 .topbar-right {
   display: flex; align-items: center; gap: 12px;
   flex-shrink: 0;
+  margin-left: auto;           /* 按钮组靠右贴边，空白落在搜索框与按钮组之间 */
 }
 .mode-toggle {
   display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
@@ -449,18 +450,40 @@ button:focus-visible {
 .collapsed-header:hover { background: var(--bg); }
 .collapsed-header .label { font-weight: 500; }
 .collapsed-header .caret { margin-left: auto; color: var(--muted); }
+/* 分类条按状态轻微着色，与大段白色条目区分开 */
+.collapsed-section.status-shelved .collapsed-header {
+  background: #faf1e3; border-color: #eed9b8;
+}
+.collapsed-section.status-finished .collapsed-header {
+  background: #eef5f0; border-color: #d3e5d8;
+}
+.collapsed-section.status-abandoned .collapsed-header {
+  background: #fbf0ed; border-color: #f0d2c8;
+}
 .collapsed-list {
-  list-style: none; padding: 0; margin: 0;
+  list-style: none; padding: 0 0 0 24px; margin: 0;
   display: flex; flex-direction: column; gap: 4px;
+  /* 左侧缩进：让条目与"搁置/已读"大分类条拉开层级 */
 }
 .collapsed-item {
-  display: flex; align-items: baseline; gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
   font-size: 13px;
   background: white;
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+.collapsed-item .restore-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.collapsed-item .restore-btn:hover { color: var(--accent); border-color: var(--accent); background: white; }
 .collapsed-item .title {
   color: var(--fg);
   font-weight: 500;
@@ -575,21 +598,6 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
 }
-.graph-modal-pane-header {
-  display: flex;
-  justify-content: flex-end;
-  padding-bottom: 8px;
-}
-.graph-modal-pane-close {
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 10px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-}
-.graph-modal-pane-close:hover { color: var(--fg); background: var(--bg); }
 .graph-modal-pane-left {
   flex: 2;
   min-width: 0;          /* 防止 flex 子项被 canvas 撑爆 */
@@ -643,6 +651,7 @@ button:focus-visible {
 /* ============ BookCard（关系图右侧的书详情卡片） ============ */
 .book-card {
   flex: 1;
+  position: relative;     /* × 按钮定位基准 */
   display: flex;
   flex-direction: column;
   min-height: 0;          /* 允许内部滚动 */
@@ -652,6 +661,22 @@ button:focus-visible {
   padding: 16px;
   overflow: hidden;
 }
+/* 关闭右侧详情的 ×：放在卡片右上角（与卡片一体） */
+.book-card-close {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 2;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.book-card-close:hover { color: var(--fg); background: white; }
+/* 给卡片内标题预留 × 的空间，长标题换行也不会被盖住 */
+.book-card .detail-header h2 { padding-right: 28px; }
 .book-card .book-detail {
   flex: 1;
   overflow-y: auto;          /* 详情内容超过卡片高度时内部滚动，避免被 overflow:hidden 裁剪 */

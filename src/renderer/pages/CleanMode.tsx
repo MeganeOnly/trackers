@@ -11,6 +11,15 @@ const COLLAPSED_SECTIONS: { key: BookStatus; label: string }[] = [
   { key: 'abandoned', label: '弃读' }
 ]
 
+/** 折叠区条目"恢复"的目标状态：搁置/弃读 → 想看，已读 → 在读 */
+const RESTORE_TO: Record<BookStatus, BookStatus> = {
+  want: 'want',
+  reading: 'reading',
+  shelved: 'want',
+  finished: 'reading',
+  abandoned: 'want'
+}
+
 export function CleanMode(): JSX.Element {
   const books = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
@@ -55,6 +64,9 @@ export function CleanMode(): JSX.Element {
   }
   async function shelve(id: string): Promise<void> {
     await update(id, { status: 'shelved' })
+  }
+  async function restore(b: Book): Promise<void> {
+    await update(b.id, { status: RESTORE_TO[b.status] })
   }
 
   function toggle(key: BookStatus): void {
@@ -149,6 +161,9 @@ export function CleanMode(): JSX.Element {
                       <li key={b.id} className="collapsed-item">
                         <span className="title">{b.title}</span>
                         <span className="author muted">{b.author}</span>
+                        <button className="restore-btn" onClick={() => restore(b)} title="恢复">
+                          恢复
+                        </button>
                       </li>
                     ))
                   )}
