@@ -191,9 +191,7 @@ fn parse_status(v: Option<&serde_json::Value>) -> BookStatus {
 }
 
 /// 批量读所有书,跳过损坏文件,返回损坏列表。
-pub fn read_all_books(
-    books_dir: impl AsRef<Path>,
-) -> std::io::Result<(Vec<Book>, Vec<BrokenEntry>)> {
+pub fn read_all_books(books_dir: impl AsRef<Path>) -> std::io::Result<BookListResult> {
     let ids = list_book_ids(&books_dir)?;
     let mut books = Vec::new();
     let mut broken = Vec::new();
@@ -204,13 +202,20 @@ pub fn read_all_books(
             Err(e) => broken.push(BrokenEntry { id, error: e.to_string() }),
         }
     }
-    Ok((books, broken))
+    Ok(BookListResult { books, broken })
 }
 
 #[derive(Debug, Clone)]
 pub struct BrokenEntry {
     pub id: String,
     pub error: String,
+}
+
+/// `read_all_books` 的返回结构(books + broken 列表)。
+#[derive(Debug, Clone)]
+pub struct BookListResult {
+    pub books: Vec<Book>,
+    pub broken: Vec<BrokenEntry>,
 }
 
 /// 写入一本书(新建)。返回写入后的 Book(含 id)。
@@ -431,10 +436,10 @@ mod tests {
             "---\nstatus: invalid_status\n---\n# x\n",
         )
         .unwrap();
-        let (books, broken) = read_all_books(&books_dir).unwrap();
-        assert!(books.is_empty());
-        assert_eq!(broken.len(), 1);
-        assert_eq!(broken[0].id, "bad");
+        let result = read_all_books(&books_dir).unwrap();
+        assert!(result.books.is_empty());
+        assert_eq!(result.broken.len(), 1);
+        assert_eq!(result.broken[0].id, "bad");
     }
 
     #[test]
