@@ -571,8 +571,8 @@ button:focus-visible {
 }
 .book-card .book-detail {
   flex: 1;
-  overflow-y: auto;
-  padding-right: 4px;
+  overflow: visible;
+  padding-right: 0;
   max-width: none;
 }
 .book-card-empty {
