@@ -370,15 +370,20 @@ button:focus-visible {
 .detail-prereqs ul { list-style: none; padding: 0; margin: 0; }
 .prereq {
   padding: 6px 10px; border-radius: 4px;
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--border); margin-bottom: 4px;
   cursor: pointer;
 }
 .prereq:hover { background: var(--accent-soft); }
 .prereq-missing { cursor: default; opacity: 0.6; }
+.prereq .title {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .status-tag {
   font-size: 11px; padding: 2px 8px;
   border-radius: 8px; background: var(--bg);
+  flex-shrink: 0;
 }
 .status-tag.status-done { color: var(--status-done); }
 .status-tag.status-in_progress { color: var(--status-in_progress); }
@@ -573,8 +578,46 @@ button:focus-visible {
   line-height: 1;
   color: var(--muted);
   padding: 0 6px;
+  flex-shrink: 0;
 }
 .prereq .prereq-remove:hover { color: var(--danger); }
+.prereq .prereq-remove:disabled { opacity: 0.4; cursor: default; }
+
+/* 二选一组合（AND-of-ORs） */
+.rule-hint {
+  margin: 0 0 8px; font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.rule-hint .link-btn {
+  font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.rule-hint .link-btn:hover { filter: brightness(0.85); }
+.or-groups { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.or-group {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border: 1px dashed var(--accent); border-radius: 4px;
+  background: var(--accent-soft);
+}
+.or-group-label { font-size: 11px; color: var(--accent); flex-shrink: 0; font-weight: 500; }
+.or-group-members {
+  font-size: 13px; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.or-group-remove { font-size: 14px; line-height: 1; color: var(--muted); padding: 0 4px; flex-shrink: 0; }
+.or-group-remove:hover { color: var(--danger); }
+.prereq.grouping { cursor: pointer; }
+.prereq.group-sel { border-color: var(--accent); background: var(--accent-soft); }
+.group-pick {
+  width: 16px; height: 16px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 50%;
+  font-size: 11px; color: white; background: white;
+}
+.group-pick.picked { background: var(--accent); border-color: var(--accent); }
+.prereq-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prereq-actions .add-prereq { margin-top: 8px; }
+.group-bar { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; }
 
 .add-prereq {
   margin-top: 8px;

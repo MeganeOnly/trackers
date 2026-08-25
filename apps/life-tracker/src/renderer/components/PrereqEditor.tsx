@@ -26,14 +26,19 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   const prereqIds = myEdge?.prerequisites ?? []
   const rule: UnlockRule = myEdge?.rule ?? 'all'
   const threshold = myEdge?.threshold ?? prereqIds.length
+  const groups: string[][] = myEdge?.groups ?? []
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState('')
+  const [grouping, setGrouping] = useState(false)
+  const [groupSel, setGroupSel] = useState<Set<string>>(new Set())
 
   const prereqGoals = prereqIds
     .map((id) => goals.find((b) => b.id === id))
     .filter((b): b is Goal => Boolean(b))
   const missingIds = prereqIds.filter((id) => !goals.some((b) => b.id === id))
+
+  const inAnyGroup = useMemo(() => new Set(groups.flat()), [groups])
 
   const candidates = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase()
@@ -44,16 +49,29 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       .slice(0, 12)
   }, [goals, goalId, prereqIds, pickerQuery])
 
-  async function persist(next: { prerequisites: string[]; rule: UnlockRule; threshold?: number }): Promise<void> {
+  function nameOf(id: string): string {
+    return prereqGoals.find((b) => b.id === id)?.title ?? id
+  }
+
+  async function persist(next: {
+    prerequisites: string[]
+    rule: UnlockRule
+    threshold?: number
+    groups?: string[][]
+  }): Promise<void> {
     const others = edges.filter((e) => e.to !== goalId)
+    const hasGroups = (next.groups?.length ?? 0) > 0
     const newEdge: Edge | null =
-      next.prerequisites.length === 0 && next.rule === 'all'
+      next.prerequisites.length === 0 && !hasGroups && next.rule === 'all'
         ? null
         : {
             to: goalId,
             prerequisites: next.prerequisites,
-            rule: next.rule,
-            ...(next.rule === 'any_of' ? { threshold: next.threshold ?? next.prerequisites.length } : {})
+            rule: hasGroups ? 'all' : next.rule,
+            ...(hasGroups ? { groups: next.groups } : {}),
+            ...(!hasGroups && next.rule === 'any_of'
+              ? { threshold: next.threshold ?? next.prerequisites.length }
+              : {})
           }
     const updated = newEdge ? [...others, newEdge] : others
 
@@ -68,10 +86,15 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   }
 
   async function remove(id: string): Promise<void> {
+    // 移除的前置若在组合里，同步从对应组剔除
+    const nextGroups = groups
+      .map((g) => g.filter((p) => p !== id))
+      .filter((g) => g.length > 0)
     await persist({
       prerequisites: prereqIds.filter((p) => p !== id),
       rule,
-      threshold
+      threshold,
+      groups: nextGroups
     })
   }
 
@@ -81,7 +104,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     await persist({
       prerequisites: [...prereqIds, id],
       rule,
-      threshold
+      threshold,
+      groups
     })
   }
 
@@ -89,7 +113,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     await persist({
       prerequisites: prereqIds,
       rule: r,
-      threshold: r === 'any_of' ? Math.max(1, threshold) : undefined
+      threshold: r === 'any_of' ? Math.max(1, threshold) : undefined,
+      groups
     })
   }
 
@@ -97,8 +122,63 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     await persist({
       prerequisites: prereqIds,
       rule: 'any_of',
-      threshold: n
+      threshold: n,
+      groups
     })
+  }
+
+  async function removeGroup(group: string[]): Promise<void> {
+    await persist({
+      prerequisites: prereqIds,
+      rule,
+      threshold,
+      groups: groups.filter((g) => g !== group)
+    })
+  }
+
+  async function clearGroups(): Promise<void> {
+    await persist({
+      prerequisites: prereqIds,
+      rule: 'all',
+      threshold,
+      groups: []
+    })
+  }
+
+  function enterGrouping(): void {
+    setGrouping(true)
+    setGroupSel(new Set())
+  }
+
+  function cancelGrouping(): void {
+    setGrouping(false)
+    setGroupSel(new Set())
+  }
+
+  function toggleGroupSel(id: string): void {
+    setGroupSel((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function confirmGroup(): Promise<void> {
+    const members = prereqIds.filter((id) => groupSel.has(id))
+    if (members.length < 2) return
+    const dup = members.filter((m) => inAnyGroup.has(m))
+    if (dup.length > 0) {
+      alert('所选前置里已有成员属于其他组合，请先移除再组合。')
+      return
+    }
+    await persist({
+      prerequisites: prereqIds,
+      rule,
+      threshold,
+      groups: [...groups, members]
+    })
+    cancelGrouping()
   }
 
   return (
@@ -107,7 +187,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         前置依赖 <span className="muted">({prereqIds.length} 个)</span>
       </h3>
 
-      {prereqIds.length > 0 && (
+      {prereqIds.length > 0 && groups.length === 0 && (
         <div className="rule-row">
           <label>
             <input
@@ -140,12 +220,51 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         </div>
       )}
 
+      {groups.length > 0 && (
+        <p className="rule-hint">
+          规则：二选一组合（<strong>{groups.length}</strong> 组）各任选其一，其余前置全部必须完成。
+          <button className="link-btn" onClick={() => void clearGroups()} title="清空所有组合，回到整组规则">
+            清除组合
+          </button>
+        </p>
+      )}
+
+      {groups.length > 0 && (
+        <div className="or-groups">
+          {groups.map((group, i) => (
+            <div key={i} className="or-group">
+              <span className="or-group-label">组合 {i + 1}（任选其一）</span>
+              <span className="or-group-members">{group.map(nameOf).join(' 或 ')}</span>
+              <button className="or-group-remove" onClick={() => removeGroup(group)} title="移除该组合">
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <ul>
         {prereqGoals.map((p) => (
-          <li key={p.id} className={`prereq status-${p.status}`}>
-            <span className="title" onClick={() => select(p.id)}>{p.title}</span>
+          <li
+            key={p.id}
+            className={`prereq status-${p.status}${grouping ? ' grouping' : ''}${groupSel.has(p.id) ? ' group-sel' : ''}`}
+            onClick={grouping ? () => toggleGroupSel(p.id) : undefined}
+          >
+            {grouping && (
+              <span className={`group-pick${groupSel.has(p.id) ? ' picked' : ''}`}>
+                {groupSel.has(p.id) ? '✓' : ''}
+              </span>
+            )}
+            <span className="title" onClick={grouping ? undefined : () => select(p.id)}>{p.title}</span>
             <span className={`status-tag status-${p.status}`}>{STATUS_LABELS[p.status]}</span>
-            <button className="prereq-remove" onClick={() => remove(p.id)} title="移除前置">×</button>
+            <button
+              className="prereq-remove"
+              onClick={() => remove(p.id)}
+              title="移除前置"
+              disabled={grouping}
+            >
+              ×
+            </button>
           </li>
         ))}
         {missingIds.map((id) => (
@@ -158,9 +277,26 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         {prereqIds.length === 0 && <li className="muted empty-hint">无前置 —— 此目标永远解锁</li>}
       </ul>
 
-      <button className="add-prereq" onClick={() => setPickerOpen((v) => !v)}>
-        + 添加前置
-      </button>
+      <div className="prereq-actions">
+        <button className="add-prereq" onClick={() => setPickerOpen((v) => !v)}>
+          + 添加前置
+        </button>
+        {!grouping ? (
+          <button className="add-prereq" onClick={enterGrouping} disabled={prereqIds.length < 2} title="把 2 个及以上前置组成『任选其一』的组合">
+            ⚑ 组合二选一
+          </button>
+        ) : (
+          <span className="group-bar">
+            <span className="muted">已选 {groupSel.size} 个（至少 2 个）</span>
+            <button className="btn-primary" onClick={() => void confirmGroup()} disabled={groupSel.size < 2}>
+              确定组合
+            </button>
+            <button className="btn-secondary" onClick={cancelGrouping}>
+              取消
+            </button>
+          </span>
+        )}
+      </div>
 
       {pickerOpen && (
         <div className="prereq-picker">
