@@ -1,0 +1,111 @@
+//! config.json 读写(数据目录自带那份)—— Goal 领域 Config。
+//!
+//! 双仓分离:
+//! - `%APPDATA%/life-tracker/config.json` —— 只存 `data_dir`(应用启动入口)
+//! - `<data_dir>/config.json` —— 完整 `Config`(本文件负责)
+//!
+//! 通用读写骨架(read/write config value、relations/config 路径)在 `tracker-core::config`。
+
+use std::path::{Path, PathBuf};
+
+use crate::types::{Config, DefaultMode};
+
+/// 默认 Config。`data_dir` 为空字符串表示未设置。
+pub fn default_config() -> Config {
+    Config {
+        version: 1,
+        data_dir: String::new(),
+        language: "zh-CN".to_string(),
+        default_mode: DefaultMode::Clean,
+    }
+}
+
+/// 读 `<data_dir>/config.json`。文件不存在或字段缺失 → 用默认值 + 容错纠正。
+pub fn read_config(data_dir: impl AsRef<Path>) -> std::io::Result<Config> {
+    let raw = tracker_core::config::read_config_value(data_dir)?;
+    Ok(normalize(raw))
+}
+
+/// 写 `<data_dir>/config.json`(原子)。
+pub fn write_config(config: &Config) -> std::io::Result<()> {
+    tracker_core::config::write_config_value(&config.data_dir, config)
+}
+
+/// 从 raw JSON 容错纠正为 Config。
+fn normalize(raw: serde_json::Value) -> Config {
+    let obj = raw.as_object();
+    let get_str = |k: &str| obj.and_then(|o| o.get(k)).and_then(|v| v.as_str()).map(String::from);
+    let get_num = |k: &str| obj.and_then(|o| o.get(k)).and_then(|v| v.as_u64());
+
+    Config {
+        version: get_num("version").map(|n| n as u32).unwrap_or(1),
+        data_dir: get_str("data_dir").unwrap_or_default(),
+        language: {
+            let lang = get_str("language").unwrap_or_else(|| "zh-CN".to_string());
+            if lang == "zh-CN" { "zh-CN".to_string() } else { "zh-CN".to_string() }
+        },
+        default_mode: {
+            let m = obj
+                .and_then(|o| o.get("default_mode"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("clean");
+            if m == "edit" { DefaultMode::Edit } else { DefaultMode::Clean }
+        },
+    }
+}
+
+/// 数据目录布局约定。`relations_file` / `config_file` 复用 tracker-core 的约定。
+pub mod paths {
+    use super::PathBuf;
+
+    pub fn goals_dir(data_dir: &str) -> PathBuf {
+        PathBuf::from(data_dir).join("goals")
+    }
+    pub fn relations_file(data_dir: &str) -> PathBuf {
+        tracker_core::config::paths::relations_file(data_dir)
+    }
+    pub fn config_file(data_dir: &str) -> PathBuf {
+        tracker_core::config::paths::config_file(data_dir)
+    }
+}
+
+// ==================== 单测 ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn write_then_read_round_trip() {
+        let dir = tempdir().unwrap();
+        let cfg = Config {
+            version: 1,
+            data_dir: dir.path().to_string_lossy().to_string(),
+            language: "zh-CN".to_string(),
+            default_mode: DefaultMode::Edit,
+        };
+        write_config(&cfg).unwrap();
+        let got = read_config(&cfg.data_dir).unwrap();
+        assert_eq!(got.data_dir, cfg.data_dir);
+        assert_eq!(got.language, cfg.language);
+        assert_eq!(got.default_mode, DefaultMode::Edit);
+    }
+
+    #[test]
+    fn read_missing_file_returns_default() {
+        let dir = tempdir().unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.version, 1);
+        assert_eq!(got.data_dir, "");
+        assert_eq!(got.language, "zh-CN");
+        assert_eq!(got.default_mode, DefaultMode::Clean);
+    }
+
+    #[test]
+    fn paths_helpers() {
+        assert!(paths::goals_dir("/d").ends_with("goals"));
+        assert!(paths::relations_file("/d").ends_with("relations.json"));
+        assert!(paths::config_file("/d").ends_with("config.json"));
+    }
+}

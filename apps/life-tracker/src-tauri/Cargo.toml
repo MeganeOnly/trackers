@@ -1,0 +1,34 @@
+[package]
+name = "life-tracker"
+version = "0.0.1"
+edition = "2021"
+description = "人生目标追踪器 (goals + prerequisites + unlock)"
+authors = ["you"]
+license = "MIT"
+
+[lib]
+name = "life_tracker_lib"
+# 只桌面端:仅 rlib(供二进制链接)。cdylib / staticlib 是给移动端(iOS .a / Android .so)的,
+# 但 cdylib 在 Windows GNU 链接大项目时会撞 export ordinal 上限(>65535)。
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 2 core (桌面 / 移动统一入口)
+tauri = { version = "2", features = [] }
+# 原生文件夹选择 dialog
+tauri-plugin-dialog = "2"
+# 系统文件管理器打开(opener)
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# monorepo 共享内核(前置图 / 进度 / 文件 I/O / config / data_dir)
+tracker-core = { path = "../../../crates/tracker-core" }
+
+[dev-dependencies]
+# 临时目录(单测用)
+tempfile = "3"
+
+# NOTE: workspace 成员时 [profile.*] 在根 Cargo.toml 统一声明（本文件的会被忽略）
