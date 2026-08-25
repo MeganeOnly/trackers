@@ -7,3 +7,5 @@
 *.html text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf

@@ -17,9 +17,15 @@
     "test:watch": "vitest",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
-    "dist:win": "electron-vite build && electron-builder --win --x64"
+    "dist:win": "electron-vite build && electron-builder --win --x64",
+    "dev:vite": "vite",
+    "build:vite": "vite build",
+    "dev:tauri": "tauri dev",
+    "build:tauri": "tauri build",
+    "tauri": "tauri"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "gray-matter": "^4.0.3",
     "pinyin-pro": "^3.29.3",
     "react": "^18.3.1",
@@ -28,6 +34,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.20.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
