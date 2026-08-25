@@ -21,6 +21,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# frontmatter 自己手写(gray-matter 行为很简单:`---` 包裹的 YAML + 正文),避免 matter alpha 坑
+
+[dev-dependencies]
+# 临时目录(单测用)
+tempfile = "3"
 
 [profile.release]
 panic = "abort"
