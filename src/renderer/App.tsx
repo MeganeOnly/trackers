@@ -8,6 +8,7 @@ import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
 import { useSearchStore } from './store/search'
+import { api } from './lib/api'
 import type { Book } from '@shared/types'
 
 type FormState = { mode: 'add' } | { mode: 'edit'; book: Book } | null
@@ -25,12 +26,31 @@ export default function App(): JSX.Element {
   const [graphOpen, setGraphOpen] = useState(false)
 
   useEffect(() => {
-    window.electron.config
-      .get()
-      .then((cfg) => useModeStore.getState().hydrate(cfg))
-      .catch((e) => console.error('config load failed:', e))
-    loadBooks()
-    loadRelations()
+    // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
+    // 用户取消 picker 则不 load(留给后续 UI 提示重试)。
+    let cancelled = false
+    ;(async () => {
+      try {
+        await api.app.ensureDataDir()
+      } catch {
+        const picked = await api.data.pickDir()
+        if (!picked) {
+          console.warn('data dir picker cancelled; app is not initialized')
+          return
+        }
+      }
+      if (cancelled) return
+      try {
+        const cfg = await api.config.get()
+        useModeStore.getState().hydrate(cfg)
+        await Promise.all([loadBooks(), loadRelations()])
+      } catch (e) {
+        console.error('init load failed:', e)
+      }
+    })().catch((e) => console.error('init flow failed:', e))
+    return () => {
+      cancelled = true
+    }
   }, [loadBooks, loadRelations])
 
   function openAdd(): void {
