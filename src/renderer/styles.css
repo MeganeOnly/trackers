@@ -60,7 +60,7 @@ button:focus-visible {
   margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
 }
 .search-input {
-  width: 100%; max-width: 480px;
+  width: 100%; max-width: 320px;
   padding: 7px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -342,30 +342,43 @@ button:focus-visible {
   list-style: none;
   padding: 0; margin: 16px 0;
   display: flex; flex-direction: column; gap: 4px;
-  max-width: 720px;            /* 跟 .collapsed-sections 一致：行不铺满整页 */
 }
 .clean-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  display: flex;
   align-items: center;
-  column-gap: 12px;
+  gap: 12px;
   padding: 10px 14px;
   background: white;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
 }
-.clean-item .title {
+.clean-item-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.clean-item-left .title {
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 1;
   min-width: 0;
 }
-.clean-item .author {
+.clean-item-left .author {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
+  flex-shrink: 0;
+}
+.clean-item-right {
+  margin-left: auto;            /* 推到行末 */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 .ref-badge {
   font-size: 11px;
@@ -393,7 +406,6 @@ button:focus-visible {
   margin-top: 32px;
   display: flex; flex-direction: column;
   gap: 6px;
-  max-width: 720px;
 }
 .collapsed-header {
   display: flex; align-items: center; gap: 8px;
