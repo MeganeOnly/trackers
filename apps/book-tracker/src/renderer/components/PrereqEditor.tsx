@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
-import { detectCycles } from '@shared/unlock'
+import { detectCycles } from '@core'
 import type { Book, Edge, UnlockRule } from '@shared/types'
 
 interface PrereqEditorProps {

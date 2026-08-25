@@ -1,4 +1,19 @@
-// 下位书籍追踪器 —— 共享类型定义
+// 下位书籍追踪器 —— Book 领域类型定义
+//
+// 通用类型（Edge / Progress / RelationsFile / UnlockResult / UnlockRule）已抽到
+// monorepo 共享内核 `@core`（packages/tracker-core），本文件 re-export 保持
+// 现有 `@shared/types` 引用不变；Book 领域类型留在这里。
+
+export type {
+  Edge,
+  Progress,
+  RelationsFile,
+  UnlockResult,
+  UnlockRule,
+  BrokenEntry
+} from '@core'
+
+import type { Progress } from '@core'
 
 /** 书的阅读状态 */
 export type BookStatus =
@@ -11,14 +26,6 @@ export type BookStatus =
 /** 创建/编辑输入：用户填的字段，不含 id/created/updated/read_count/tags 默认值 */
 export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'> & {
   tags?: string[]
-}
-
-/** 阅读进度（用于连载小说等带"第 N / 总 M 章"的场景） */
-export interface Progress {
-  /** 当前已读到的章节数（≥1） */
-  current: number
-  /** 总章节数；null = 连载中/未知 */
-  total: number | null
 }
 
 /** 一本书 */
@@ -44,37 +51,11 @@ export interface Book {
   tags: string[]
 }
 
-/** 解锁规则 */
-export type UnlockRule = 'all' | 'any_of'
-
-/** 一条前置边 */
-export interface Edge {
-  to: string
-  prerequisites: string[]
-  rule: UnlockRule
-  /** 仅 rule === 'any_of' 时使用 */
-  threshold?: number
-}
-
-/** relations.json 文件结构 */
-export interface RelationsFile {
-  version: number
-  edges: Edge[]
-}
-
-/** 配置文件 */
+/** 配置文件（数据目录自带） */
 export interface Config {
   version: number
   /** 用户数据根目录 */
   data_dir: string
   language: 'zh-CN'
   default_mode: 'clean' | 'edit'
-}
-
-/** 解锁结果 */
-export interface UnlockResult {
-  /** id -> 是否解锁 */
-  unlocked: Map<string, boolean>
-  /** 循环依赖的书 id 列表（这些书不参与解锁计算） */
-  cycles: string[][]
 }

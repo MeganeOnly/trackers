@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
-import { computeUnlocked } from '@shared/unlock'
+import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
 
 interface GraphViewProps {
@@ -59,7 +59,11 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
     for (const e of edges) {
       for (const p of e.prerequisites) refCount.set(p, (refCount.get(p) ?? 0) + 1)
     }
-    const { unlocked } = computeUnlocked(books, edges)
+    const { unlocked } = computeUnlocked(
+      books.map((b) => b.id),
+      edges,
+      (id) => books.some((b) => b.id === id && b.status === 'finished')
+    )
     const nodes: GraphNode[] = books.map((b) => ({
       id: b.id,
       title: b.title,

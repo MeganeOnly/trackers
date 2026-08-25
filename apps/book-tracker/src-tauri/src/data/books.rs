@@ -3,13 +3,17 @@
 //! - 每本书一个 `<id>.md`,frontmatter 是单行 JSON,正文是 Markdown
 //! - `progress` 字段只在有值时写入,避免污染 frontmatter
 //! - 损坏文件不阻塞其他书加载,返回 broken 列表
+//!
+//! 通用工具（原子写 / 数字 ID / frontmatter 拆分 / ISO 时间戳 / 进度纯函数）
+//! 来自 monorepo 共享内核 `tracker-core`。
 
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::data::files::{atomic_write_file, ensure_dir};
-use crate::data::slug::make_base_id;
-use crate::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
+use tracker_core::files::{atomic_write_file, ensure_dir};
+use tracker_core::frontmatter::{now_iso, split_frontmatter};
+use tracker_core::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
+use tracker_core::slug::make_base_id;
 use crate::types::{Book, BookInput, BookPatch, BookStatus};
 
 fn is_valid_status(s: &str) -> bool {
@@ -17,46 +21,6 @@ fn is_valid_status(s: &str) -> bool {
         s,
         "want" | "shelved" | "reading" | "finished" | "abandoned"
     )
-}
-
-fn now_iso() -> String {
-    // 用时间戳,避免引入 chrono
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // 简单 ISO 8601 (UTC)。够精确给用户看,不做格式化时区。
-    format_iso8601_utc(secs)
-}
-
-fn format_iso8601_utc(secs: u64) -> String {
-    // 把 epoch 秒换算成日期时间(UTC)。算法取自 `humantime` 的简化版。
-    // 不依赖外部 crate;精度到秒。
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let hour = rem / 3600;
-    let minute = (rem % 3600) / 60;
-    let second = rem % 60;
-    let (year, month, day) = civil_from_days(days as i64);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.000Z",
-        year, month, day, hour, minute, second
-    )
-}
-
-/// Howard Hinnant 的 civil_from_days 算法,把 epoch days → (year, month, day)
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let y = (yoe as i64) + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
-    let y = if m <= 2 { y + 1 } else { y };
-    (y as i32, m, d)
 }
 
 /// 列出所有书的 ID(从文件名读)。
@@ -97,58 +61,6 @@ pub fn read_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<Optio
     Ok(Some(normalize_book(id, &data)))
 }
 
-/// 拆分 markdown 的 frontmatter 部分(我们自己实现,避开 matter alpha 坑)。
-///
-/// 期望格式:
-/// ```text
-/// ---
-/// key: value
-/// ---
-/// 正文...
-/// ```
-///
-/// 返回 `(frontmatter_json_value, body)`。没有 frontmatter 或格式不对 → 返回 `None`。
-///
-/// 简化策略:先当 JSON 解析(我们自己写入时用 JSON),失败 fallback 到空对象。
-/// 如果用户手写 YAML frontmatter,我们用 serde_yaml 兜底。
-fn split_frontmatter(raw: &str) -> Option<(serde_json::Value, String)> {
-    let after_first = raw.strip_prefix("---")?;
-    let after_first = after_first.strip_prefix('\n').unwrap_or(after_first);
-
-    // 找下一个恰好是 "---" 的行,记录 yaml 结束位置(=行首)和 body 起始位置(=行尾)
-    let mut yaml_end: Option<usize> = None;
-    let mut body_offset: Option<usize> = None;
-    let mut consumed = 0usize;
-    for line in after_first.split_inclusive('\n') {
-        let trimmed = line.trim_end_matches(['\n', '\r']);
-        if trimmed == "---" {
-            yaml_end = Some(consumed);
-            body_offset = Some(consumed + line.len());
-            break;
-        }
-        consumed += line.len();
-    }
-    let yaml_end = yaml_end?;
-    let body_offset = body_offset?;
-    let yaml_str = &after_first[..yaml_end];
-    let body = after_first[body_offset..].trim_start_matches('\n').to_string();
-
-    let value: serde_json::Value = serde_yaml_from_compat_yaml(yaml_str);
-    Some((value, body))
-}
-
-/// 把简化 YAML(仅"key: value"和"key:\n  nested"格式)解析为 JSON Value。
-///
-/// gray-matter 写出的格式其实就是 JSON-like 的 YAML(我们 serialize 用 JSON 后,gray-matter
-/// 能识别;反过来 gray-matter 写出的 YAML 也能被 serde_yaml 解析)。这里先 JSON,失败 fallback
-/// 到空对象(避免引入 serde_yaml 依赖;真 YAML 用户手写时拿不到数据但不阻塞加载)。
-fn serde_yaml_from_compat_yaml(s: &str) -> serde_json::Value {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-        return v;
-    }
-    serde_json::json!({})
-}
-
 fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
     Book {
         id: id.to_string(),
@@ -159,7 +71,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
         translator: data.get("translator").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         status: parse_status(data.get("status")),
         read_count: data.get("read_count").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
-        progress: data.get("progress").and_then(crate::progress::parse_progress),
+        progress: data.get("progress").and_then(tracker_core::progress::parse_progress),
         created: data.get("created").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         updated: data.get("updated").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         tags: data

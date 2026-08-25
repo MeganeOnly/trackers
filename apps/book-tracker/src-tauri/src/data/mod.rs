@@ -1,10 +1,7 @@
-//! 数据访问层 —— fs I/O + matter frontmatter 解析。
+//! 数据访问层 —— Book 领域文件 I/O。
 //!
-//! 与 `src/main/data/` 1:1 对应。无业务逻辑,纯 fs 操作。
-//! 上层 `service/` 包装业务规则(create/update/bump/delete 等)。
+//! 通用文件 I/O（原子写 / JSON / 数字 ID / relations.json / config 骨架）已抽到
+//! `crates/tracker-core`，本模块只保留 Book 专属的 frontmatter 读写。
 
 pub mod books;
 pub mod config;
-pub mod files;
-pub mod relations;
-pub mod slug;

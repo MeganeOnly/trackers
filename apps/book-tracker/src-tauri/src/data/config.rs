@@ -1,16 +1,14 @@
-//! config.json 读写(数据目录自带那份)。
+//! config.json 读写(数据目录自带那份)—— Book 领域 Config。
 //!
 //! 双仓分离:
-//! - `%APPDATA%/book-tracker/config.json` —— 只存 `data_dir`(应用启动入口,P3 实现)
+//! - `%APPDATA%/book-tracker/config.json` —— 只存 `data_dir`(应用启动入口)
 //! - `<data_dir>/config.json` —— 完整 `Config`(本文件负责)
 //!
-//! 与 `src/main/data/config.ts` 1:1 对应。
+//! 通用读写骨架(read/write config value、relations/config 路径)在 `tracker-core::config`。
 
 use std::path::{Path, PathBuf};
 
 use crate::types::{Config, DefaultMode};
-
-const CONFIG_FILENAME: &str = "config.json";
 
 /// 默认 Config。`data_dir` 为空字符串表示未设置。
 pub fn default_config() -> Config {
@@ -24,16 +22,13 @@ pub fn default_config() -> Config {
 
 /// 读 `<data_dir>/config.json`。文件不存在或字段缺失 → 用默认值 + 容错纠正。
 pub fn read_config(data_dir: impl AsRef<Path>) -> std::io::Result<Config> {
-    let path = data_dir.as_ref().join(CONFIG_FILENAME);
-    let raw = super::files::read_json::<serde_json::Value>(&path, serde_json::json!({}))?;
+    let raw = tracker_core::config::read_config_value(data_dir)?;
     Ok(normalize(raw))
 }
 
 /// 写 `<data_dir>/config.json`(原子)。
 pub fn write_config(config: &Config) -> std::io::Result<()> {
-    let dir = std::path::PathBuf::from(&config.data_dir);
-    super::files::ensure_dir(&dir)?;
-    super::files::write_json(dir.join(CONFIG_FILENAME), config)
+    tracker_core::config::write_config_value(&config.data_dir, config)
 }
 
 /// 从 raw JSON 容错纠正为 Config。
@@ -62,7 +57,7 @@ fn normalize(raw: serde_json::Value) -> Config {
     }
 }
 
-/// 数据目录布局约定。
+/// 数据目录布局约定。`relations_file` / `config_file` 复用 tracker-core 的约定。
 pub mod paths {
     use super::PathBuf;
 
@@ -70,10 +65,10 @@ pub mod paths {
         PathBuf::from(data_dir).join("books")
     }
     pub fn relations_file(data_dir: &str) -> PathBuf {
-        PathBuf::from(data_dir).join("relations.json")
+        tracker_core::config::paths::relations_file(data_dir)
     }
     pub fn config_file(data_dir: &str) -> PathBuf {
-        PathBuf::from(data_dir).join("config.json")
+        tracker_core::config::paths::config_file(data_dir)
     }
 }
 
@@ -113,7 +108,7 @@ mod tests {
     #[test]
     fn invalid_default_mode_falls_back_to_clean() {
         let dir = tempdir().unwrap();
-        fs_json(dir.path().join(CONFIG_FILENAME), r#"{"default_mode": "invalid_mode"}"#);
+        fs_json(dir.path().join("config.json"), r#"{"default_mode": "invalid_mode"}"#);
         let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
         assert_eq!(got.default_mode, DefaultMode::Clean);
     }
@@ -121,7 +116,7 @@ mod tests {
     #[test]
     fn missing_fields_use_defaults() {
         let dir = tempdir().unwrap();
-        fs_json(dir.path().join(CONFIG_FILENAME), r#"{}"#);
+        fs_json(dir.path().join("config.json"), r#"{}"#);
         let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
         assert_eq!(got.version, 1);
         assert_eq!(got.data_dir, "");

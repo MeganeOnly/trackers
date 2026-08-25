@@ -1,7 +1,8 @@
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
-import { formatProgress, progressPercent } from '@shared/progress'
+import { progressPercent } from '@core'
+import { formatProgress } from '@shared/progress'
 import type { Book } from '@shared/types'
 
 interface BookDetailProps {

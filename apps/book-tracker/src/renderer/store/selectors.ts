@@ -1,13 +1,17 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useBooksStore } from './books'
 import { useRelationsStore } from './relations'
-import { computeUnlocked } from '@shared/unlock'
+import { computeUnlocked } from '@core'
 import type { Book, Edge } from '@shared/types'
 
 export function useUnlocked(): { unlocked: Map<string, boolean>; cycles: string[][] } {
   const books = useBooksStore((s) => s.books)
   const edges = useRelationsStore((s) => s.edges)
-  return computeUnlocked(books, edges)
+  return computeUnlocked(
+    books.map((b) => b.id),
+    edges,
+    (id) => books.some((b) => b.id === id && b.status === 'finished')
+  )
 }
 
 export function useBackReferences(): Map<string, Book[]> {

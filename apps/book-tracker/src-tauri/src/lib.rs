@@ -1,19 +1,19 @@
 //! book-tracker Tauri entry point.
 //!
 //! 模块结构:
-//! - `types` / `progress` / `unlock` —— 纯函数(P1)
-//! - `data` —— 文件 I/O + matter frontmatter 解析(P2)
-//! - `service` —— 业务逻辑包装(P3)
-//! - `commands` —— `#[tauri::command]` 暴露给前端(P4)
+//! - `types` —— Book 领域类型(Rust serde 镜像)
+//! - `data` —— Book 文件 I/O + frontmatter 解析
+//! - `service` —— 业务逻辑包装
+//! - `commands` —— `#[tauri::command]` 暴露给前端
+//!
+//! 通用内核(前置图 / 进度 / 文件 I/O / config / data_dir)来自 `tracker-core`(monorepo 共享)。
 //!
 //! 注意:`tauri` 相关的代码全部用 `#[cfg(not(test))]` 隔离,
 //! 这样 `cargo test` 时不会拉入 webview2 / wry 等大依赖,
 //! 测试可执行文件可以正常加载。
 
 pub mod data;
-pub mod progress;
 pub mod types;
-pub mod unlock;
 
 #[cfg(not(test))]
 pub mod commands;

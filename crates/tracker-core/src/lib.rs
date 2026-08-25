@@ -13,6 +13,7 @@
 //! 共享边界约定见仓库根 `docs/shared-boundary.md`。
 
 pub mod config;
+pub mod data_dir;
 pub mod files;
 pub mod frontmatter;
 pub mod progress;

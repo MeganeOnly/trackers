@@ -7,6 +7,7 @@ import { resolve } from 'node:path'
 // - dev 端口固定 1420(tauri.conf.json devUrl 对应)
 // - build 输出到 <project>/dist/(frontendDist ../dist 对应)
 // - 不监听 src-tauri/(Rust 改动由 cargo 自己处理)
+// - @core 指向 monorepo 共享内核 packages/tracker-core(fs.allow 放开到 repo 根)
 
 export default defineConfig({
   root: 'src/renderer',
@@ -16,6 +17,10 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: '127.0.0.1',
+    // root 在 src/renderer,但 @core 引用 repo 根的 packages/ → 必须放开 fs.allow
+    fs: {
+      allow: [resolve(__dirname, '../..')]
+    },
     watch: {
       ignored: ['**/src-tauri/**']
     }
@@ -30,7 +35,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/renderer'),
-      '@shared': resolve(__dirname, 'src/shared')
+      '@shared': resolve(__dirname, 'src/shared'),
+      '@core': resolve(__dirname, '../../packages/tracker-core/src/index.ts'),
     }
   },
   plugins: [react()],
