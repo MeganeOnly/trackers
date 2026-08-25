@@ -373,13 +373,6 @@ button:focus-visible {
   white-space: nowrap;
   flex-shrink: 0;
 }
-.clean-item-right {
-  margin-left: auto;            /* 推到行末 */
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
 .ref-badge {
   font-size: 11px;
   padding: 2px 8px;
@@ -400,6 +393,7 @@ button:focus-visible {
 
 .clean-item .quick-actions {
   display: flex; gap: 6px;
+  margin-left: auto;            /* 推到行末；ref-badge 留在 left 组右侧紧贴 */
 }
 
 .collapsed-sections {
