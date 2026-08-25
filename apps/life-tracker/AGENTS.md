@@ -85,7 +85,7 @@ src/
 | `shelved` | 搁置 | 否 |
 | `abandoned` | 放弃 | 否 |
 
-解锁规则 `all` / `any_of` + threshold + 环检测，全部走 `tracker-core`。
+解锁规则 `all` / `any_of` + threshold / `groups`（二选一组合，AND-of-ORs）+ 环检测，全部走 `tracker-core`。
 
 ## 六、常用命令
 

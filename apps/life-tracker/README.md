@@ -156,8 +156,9 @@ git push origin v0.1.0
 
 ## 解锁规则
 
-- `all`（默认）：所有前置 `finished` 才解锁
-- `any_of`：至少 `threshold` 个前置 `finished` 才解锁
+- `all`（默认）：所有前置达成才解锁
+- `any_of`：至少 `threshold` 个前置达成才解锁
+- `groups`（二选一组合）：每组任选其一达成，其余前置必须全部达成（如 "A 或 B + C 必须"）
 - 无前置：永远解锁
 
 循环依赖会被检测并阻止保存。
