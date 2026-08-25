@@ -1,0 +1,20 @@
+node_modules/
+dist/
+out/
+release/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# 本机专属文档（不上 GitHub）
+*NOTES.md
+LEGACY-LOCATION*.md

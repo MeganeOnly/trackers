@@ -1,0 +1,252 @@
+//! 解锁计算 —— 给定条目 id 列表 + 前置关系 + 完成判定，算出每个条目是否解锁。
+//!
+//! 与 `packages/tracker-core/src/unlock.ts` 逻辑一致，参数化后两个 app 共用：
+//! - book-tracker: 传书 id + `done = { id: status==finished }`
+//! - life-tracker:  传目标 id + 自己的完成判定（status / 里程碑达成等）
+//!
+//! 规则：
+//! - `All`：所有前置 done 才解锁
+//! - `AnyOf`：至少 `threshold` 个前置 done 才解锁（缺省 = 全部）
+//! - 无前置：永远解锁
+//! - 环上的条目标 false 并报告环
+
+use std::collections::{HashMap, HashSet};
+
+use crate::types::{Edge, UnlockResult, UnlockRule};
+
+/// 给定条目 id 列表 + 关系 + 完成 map，计算每个条目是否解锁。
+pub fn compute_unlocked(
+    ids: &[String],
+    edges: &[Edge],
+    done: &HashMap<String, bool>,
+) -> UnlockResult {
+    let mut unlocked: HashMap<String, bool> = HashMap::new();
+    let id_set: HashSet<String> = ids.iter().cloned().collect();
+
+    // 1. 检测循环依赖
+    let cycles = detect_cycles(edges);
+    let cycle_nodes: HashSet<String> = cycles.iter().flatten().cloned().collect();
+
+    // 2. 计算每条前置边（过滤悬空引用）
+    let mut edge_by_to: HashMap<String, Edge> = HashMap::new();
+    for e in edges {
+        let prereqs: Vec<String> = e
+            .prerequisites
+            .iter()
+            .filter(|p| id_set.contains(*p))
+            .cloned()
+            .collect();
+        edge_by_to.insert(
+            e.to.clone(),
+            Edge {
+                to: e.to.clone(),
+                prerequisites: prereqs,
+                rule: e.rule,
+                threshold: e.threshold,
+            },
+        );
+    }
+
+    // 3. 迭代解锁（带 memo）
+    //    用内部 fn + &mut HashMap 参数，避开递归闭包借用冲突。
+    fn unlocked_of(
+        id: &str,
+        unlocked: &mut HashMap<String, bool>,
+        cycle_nodes: &HashSet<String>,
+        edge_by_to: &HashMap<String, Edge>,
+        done: &HashMap<String, bool>,
+    ) -> bool {
+        if let Some(&v) = unlocked.get(id) {
+            return v;
+        }
+        if cycle_nodes.contains(id) {
+            unlocked.insert(id.to_string(), false);
+            return false;
+        }
+        let Some(edge) = edge_by_to.get(id) else {
+            unlocked.insert(id.to_string(), true);
+            return true;
+        };
+        if edge.prerequisites.is_empty() {
+            unlocked.insert(id.to_string(), true);
+            return true;
+        }
+        let done_count = edge
+            .prerequisites
+            .iter()
+            .filter(|p| done.get(*p).copied().unwrap_or(false))
+            .count();
+        let ok = match edge.rule {
+            UnlockRule::All => done_count == edge.prerequisites.len(),
+            UnlockRule::AnyOf => {
+                let need = edge.threshold.unwrap_or(edge.prerequisites.len() as u32);
+                done_count as u32 >= need
+            }
+        };
+        unlocked.insert(id.to_string(), ok);
+        ok
+    }
+
+    for id in ids {
+        unlocked_of(id, &mut unlocked, &cycle_nodes, &edge_by_to, done);
+    }
+
+    UnlockResult { unlocked, cycles }
+}
+
+/// DFS 检测循环，返回每个环涉及到的节点 id 列表（可能重叠）。
+///
+/// 构造反向邻接表（prereq → to），从每个节点做迭代式 DFS（三色标记），
+/// 遇 GRAY 节点时截取当前路径栈得环。
+pub fn detect_cycles(edges: &[Edge]) -> Vec<Vec<String>> {
+    // 反向邻接：prereq 依赖者列表
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for e in edges {
+        for prereq in &e.prerequisites {
+            adj.entry(prereq.clone()).or_default().push(e.to.clone());
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    let mut color: HashMap<String, Color> = HashMap::new();
+    let mut cycles: Vec<Vec<String>> = Vec::new();
+
+    let nodes: Vec<String> = adj.keys().cloned().collect();
+    for start in &nodes {
+        if color.get(start).copied().unwrap_or(Color::White) != Color::White {
+            continue;
+        }
+        // 迭代式 DFS：栈帧 = (节点, 当前邻接子节点的索引)
+        let mut stack: Vec<(String, usize)> = vec![(start.clone(), 0)];
+        color.insert(start.clone(), Color::Gray);
+
+        while let Some((node, idx)) = stack.last().cloned() {
+            let nexts = adj.get(&node).cloned().unwrap_or_default();
+            if idx >= nexts.len() {
+                color.insert(node.clone(), Color::Black);
+                stack.pop();
+                continue;
+            }
+            stack.last_mut().unwrap().1 = idx + 1;
+            let next = &nexts[idx];
+
+            match color.get(next).copied().unwrap_or(Color::White) {
+                Color::Gray => {
+                    if let Some(pos) = stack.iter().position(|(n, _)| n == next) {
+                        let mut cycle: Vec<String> =
+                            stack[pos..].iter().map(|(n, _)| n.clone()).collect();
+                        cycle.push(next.clone());
+                        cycles.push(cycle);
+                    }
+                }
+                Color::Black => {}
+                Color::White => {
+                    color.insert(next.clone(), Color::Gray);
+                    stack.push((next.clone(), 0));
+                }
+            }
+        }
+    }
+
+    cycles
+}
+
+// ==================== 单测 ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::UnlockRule;
+
+    fn ids(ls: &[&str]) -> Vec<String> {
+        ls.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn done_map(finished: &[&str]) -> HashMap<String, bool> {
+        finished.iter().map(|s| (s.to_string(), true)).collect()
+    }
+
+    fn edge(to: &str, prereqs: &[&str], rule: UnlockRule) -> Edge {
+        Edge {
+            to: to.to_string(),
+            prerequisites: prereqs.iter().map(|s| s.to_string()).collect(),
+            rule,
+            threshold: None,
+        }
+    }
+
+    #[test]
+    fn no_prereq_always_unlocked() {
+        let r = compute_unlocked(&ids(&["a"]), &[], &done_map(&[]));
+        assert_eq!(r.unlocked.get("a"), Some(&true));
+    }
+
+    #[test]
+    fn rule_all_requires_all_done() {
+        let edges = vec![edge("c", &["a", "b"], UnlockRule::All)];
+        let r = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("a"), Some(&true));
+        assert_eq!(r.unlocked.get("b"), Some(&true));
+        assert_eq!(r.unlocked.get("c"), Some(&false));
+
+        let r2 = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_map(&["a", "b"]));
+        assert_eq!(r2.unlocked.get("c"), Some(&true));
+    }
+
+    #[test]
+    fn rule_any_of_uses_threshold() {
+        let edges = vec![Edge {
+            to: "target".to_string(),
+            prerequisites: ids(&["a", "b", "c"]),
+            rule: UnlockRule::AnyOf,
+            threshold: Some(2),
+        }];
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "b"]));
+        assert_eq!(r.unlocked.get("target"), Some(&true));
+
+        let r2 = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a"]));
+        assert_eq!(r2.unlocked.get("target"), Some(&false));
+    }
+
+    #[test]
+    fn not_done_does_not_count() {
+        // done map 中没有的条目视为未完成
+        let edges = vec![edge("target", &["a", "b", "c"], UnlockRule::All)];
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&[]));
+        assert_eq!(r.unlocked.get("target"), Some(&false));
+    }
+
+    #[test]
+    fn cycle_items_are_blocked_and_reported() {
+        let edges = vec![edge("a", &["b"], UnlockRule::All), edge("b", &["a"], UnlockRule::All)];
+        let r = compute_unlocked(&ids(&["a", "b"]), &edges, &done_map(&[]));
+        assert_eq!(r.unlocked.get("a"), Some(&false));
+        assert_eq!(r.unlocked.get("b"), Some(&false));
+        assert!(!r.cycles.is_empty(), "should report at least one cycle");
+    }
+
+    #[test]
+    fn dangling_refs_are_silently_ignored() {
+        let edges = vec![edge("target", &["a", "ghost"], UnlockRule::All)];
+        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("target"), Some(&true));
+    }
+
+    #[test]
+    fn detect_cycles_acyclic_returns_empty() {
+        let edges = vec![edge("b", &["a"], UnlockRule::All)];
+        assert!(detect_cycles(&edges).is_empty());
+    }
+
+    #[test]
+    fn detect_cycles_self_loop_detected() {
+        let edges = vec![edge("a", &["a"], UnlockRule::All)];
+        assert!(!detect_cycles(&edges).is_empty());
+    }
+}

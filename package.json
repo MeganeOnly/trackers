@@ -1,0 +1,18 @@
+{
+  "name": "trackers",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Tracker monorepo: book-tracker + life-tracker sharing tracker-core / tracker-ui",
+  "scripts": {
+    "dev:book": "npm --prefix apps/book-tracker run dev",
+    "dev:life": "npm --prefix apps/life-tracker run dev",
+    "dev:vite:book": "npm --prefix apps/book-tracker run dev:vite",
+    "dev:vite:life": "npm --prefix apps/life-tracker run dev:vite",
+    "typecheck:book": "npm --prefix apps/book-tracker run typecheck",
+    "typecheck:life": "npm --prefix apps/life-tracker run typecheck",
+    "test:book": "npm --prefix apps/book-tracker test",
+    "test:life": "npm --prefix apps/life-tracker test",
+    "test:core": "npm --prefix packages/tracker-core test",
+    "test:rust": "cargo test"
+  }
+}

@@ -1,0 +1,18 @@
+# tracker monorepo —— Cargo workspace 根
+#
+# members 随阶段追加：
+#   Phase 2: "apps/book-tracker/src-tauri"
+#   Phase 3: "apps/life-tracker/src-tauri"
+
+[workspace]
+resolver = "2"
+members = [
+  "crates/tracker-core",
+]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
