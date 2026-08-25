@@ -2,7 +2,7 @@ import matter from 'gray-matter'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile, ensureDir } from './files'
-import { makeBaseSlug } from './slug'
+import { makeBaseId } from './slug'
 import {
   bumpProgress as bumpProgressHelper,
   normalizeProgressInput,
@@ -83,8 +83,7 @@ export async function writeBook(
   input: BookInput,
   existingIds: Set<string>
 ): Promise<Book> {
-  const baseSlug = makeBaseSlug(input.author, input.title, input.year)
-  const id = resolveCollision(baseSlug, existingIds)
+  const id = makeBaseId(existingIds)
   const now = nowIso()
   const book: Book = {
     id,
@@ -146,13 +145,6 @@ export async function bumpProgress(
 export async function deleteBook(booksDir: string, id: string): Promise<void> {
   const filePath = path.join(booksDir, `${id}.md`)
   await fs.unlink(filePath)
-}
-
-function resolveCollision(base: string, existing: Set<string>): string {
-  if (!existing.has(base)) return base
-  let n = 2
-  while (existing.has(`${base}-${n}`)) n++
-  return `${base}-${n}`
 }
 
 async function persist(booksDir: string, book: Book): Promise<void> {
