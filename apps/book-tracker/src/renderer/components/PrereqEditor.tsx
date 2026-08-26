@@ -75,11 +75,17 @@ export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {
           }
     const updated = newEdge ? [...others, newEdge] : others
 
-    // 写之前做一次环检测
+    // 写之前做一次环检测 —— 必须与 Rust 后端 relations_set 的校验一致：
+    // 后端对**任何**环都拒绝写入，renderer 若只拦"当前作品在环上"，会让
+    // 已存在的其他环导致每次写盘静默失败（表现为"点了没反应"）。
     const cycles = detectCycles(updated)
-    const inCycle = cycles.some((c) => c.includes(bookId))
-    if (inCycle) {
-      alert('此修改会造成循环依赖，请先调整其他前置。')
+    if (cycles.length > 0) {
+      const inCycle = cycles.some((c) => c.includes(bookId))
+      alert(
+        inCycle
+          ? '此修改会造成循环依赖，请先调整其他前置。'
+          : '数据中已存在循环依赖（与本次修改无关），请先修复关系图后再保存。'
+      )
       return
     }
     await setAll(updated)
