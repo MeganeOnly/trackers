@@ -588,43 +588,56 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
               <span className="muted">
                 已选 <strong>{pickerSel.size}</strong> 个：
               </span>
-              <button
-                className="btn-secondary"
-                onClick={() => void addMultiAs('group', 1)}
-                title="把已选目标组成『任选其一』的组合"
-              >
-                任选其一
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => void addMultiAs('count', pickerSel.size)}
-                title="把已选目标组成『全部都要』的计数任务"
-              >
-                全部都要
-              </button>
-              <span className="count-need-row">
-                <span className="muted">N 选</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={pickerSel.size}
-                  value={Math.min(countNeed, pickerSel.size)}
-                  onChange={(e) =>
-                    setCountNeed(
-                      Math.max(1, Math.min(pickerSel.size, Number(e.target.value) || 1))
-                    )
-                  }
-                  className="threshold-input"
-                />
+              {pickerSel.size === 1 && (
                 <button
                   className="btn-primary"
-                  disabled={countNeed < 1 || countNeed > pickerSel.size}
-                  onClick={() => void addMultiAs('count', countNeed)}
-                  title="把已选目标组成『N 选 K』的计数任务"
+                  onClick={() => void addSingle(Array.from(pickerSel)[0])}
+                  title="把已选目标作为单个前置添加"
                 >
-                  创建
+                  作为单个前置添加
                 </button>
-              </span>
+              )}
+              {pickerSel.size >= 2 && (
+                <>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => void addMultiAs('group', 1)}
+                    title="把已选目标组成『任选其一』的组合"
+                  >
+                    任选其一
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => void addMultiAs('count', pickerSel.size)}
+                    title="把已选目标组成『全部都要』的计数任务"
+                  >
+                    全部都要
+                  </button>
+                  <span className="count-need-row">
+                    <span className="muted">N 选</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={pickerSel.size}
+                      value={Math.min(countNeed, pickerSel.size)}
+                      onChange={(e) =>
+                        setCountNeed(
+                          Math.max(1, Math.min(pickerSel.size, Number(e.target.value) || 1))
+                        )
+                      }
+                      className="threshold-input"
+                    />
+                    <button
+                      className="btn-primary"
+                      disabled={countNeed < 1 || countNeed > pickerSel.size}
+                      onClick={() => void addMultiAs('count', countNeed)}
+                      title="把已选目标组成『N 选 K』的计数任务"
+                    >
+                      创建
+                    </button>
+                  </span>
+                </>
+              )}
               <button className="link-btn" onClick={clearPickerSel}>
                 清空选择
               </button>
