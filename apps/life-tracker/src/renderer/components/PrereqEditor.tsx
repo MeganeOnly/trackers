@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
 import { buildDonePredicate } from '@shared/done'
-import { detectCycles } from '@core'
+import { detectCycles, groupMemberCount, groupMemberId } from '@core'
 import type {
   Edge,
   ExcludeSpec,
@@ -81,6 +81,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   const [countNeed, setCountNeed] = useState<number>(2)
   /** picker 单选时『引用次数』步进器（≥1）：count>1 时落 simple spec 带 count */
   const [singleCount, setSingleCount] = useState<number>(1)
+  /** picker 多选时每个 member 的 per-member count（默认 1）；仅 countable 任务的 count>=2 会被记入 spec */
+  const [groupMemberCounts, setGroupMemberCounts] = useState<Record<string, number>>({})
   const [grouping, setGrouping] = useState(false)
   const [groupSel, setGroupSel] = useState<Set<string>>(new Set())
   const [excludePickerOpen, setExcludePickerOpen] = useState(false)
@@ -111,8 +113,10 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       const s = specs[i]
       if (s.kind === 'exclude') continue
       if (s.kind === 'simple') {
+        // key 含 spec.count：同一目标被多次添加（每次不同 count）时 React key 不冲突
+        // removeIds 仅含 id（向后兼容旧行为）；removeRow 内部按 spec count 精确匹配
         out.push({
-          key: `spec-simple-${i}-${s.id}`,
+          key: `spec-simple-${i}-${s.id}-${s.count ?? 1}`,
           spec: s,
           label: '',
           detail: nameOf(s.id),
@@ -120,24 +124,40 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         })
       } else if (s.kind === 'group') {
         const { label } = specLabel(s)
+        // 详尽展示：per-member count 写入 detail；
+        // 非 countable 或 count=1 的 member 省略 count（保持简洁）。
         out.push({
           key: `spec-group-${i}`,
           spec: s,
           label,
-          detail: s.members.map(nameOf).join(' 或 '),
-          removeIds: [...s.members]
+          detail: s.members
+            .map((m): string => {
+              const id = groupMemberId(m)
+              const c = groupMemberCount(m)
+              const isCountable = goalById.get(id)?.countable ?? false
+              return isCountable && c >= 2 ? `${nameOf(id)} ×${c}` : nameOf(id)
+            })
+            .join(' 或 '),
+          removeIds: s.members.map(groupMemberId)
         })
       } else {
-        const done = s.members.filter(isDone).length
+        const done = s.members.filter((m) => isDone(groupMemberId(m), 1)).length
         const total = s.members.length
         const { label } = specLabel(s)
         out.push({
           key: `spec-count-${i}`,
           spec: s,
           label,
-          detail: s.members.map(nameOf).join('、'),
+          detail: s.members
+            .map((m): string => {
+              const id = groupMemberId(m)
+              const c = groupMemberCount(m)
+              const isCountable = goalById.get(id)?.countable ?? false
+              return isCountable && c >= 2 ? `${nameOf(id)} ×${c}` : nameOf(id)
+            })
+            .join('、'),
           progress: { current: done, total },
-          removeIds: [...s.members]
+          removeIds: s.members.map(groupMemberId)
         })
       }
     }
@@ -146,7 +166,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       ...groupMemberIds,
       ...specs.flatMap((s) => {
         if (s.kind === 'simple') return [s.id]
-        if (s.kind === 'group' || s.kind === 'count') return s.members
+        if (s.kind === 'group' || s.kind === 'count') return s.members.map(groupMemberId)
         return []
       })
     ])
@@ -165,11 +185,22 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
 
   const missingIds = allPrereqIds.filter((id) => !goalById.has(id))
 
+  // 已 added simple spec 同 id 的次数（用于 picker 视觉提示）
+  const simpleSpecCountById = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of specs ?? []) {
+      if (s.kind === 'simple') m.set(s.id, (m.get(s.id) ?? 0) + 1)
+    }
+    return m
+  }, [specs])
+
   const candidates = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase()
     return goals
       .filter((b) => b.id !== goalId)
-      .filter((b) => !allPrereqIds.includes(b.id))
+      // countable 任务允许重复添加（每次作为独立 simple spec，引用次数不同）
+      // 非 countable 仍按"已添加则不再出现"过滤
+      .filter((b) => !allPrereqIds.includes(b.id) || b.countable)
       .filter((b) => !q || b.title.toLowerCase().includes(q) || b.category.toLowerCase().includes(q))
       .slice(0, 12)
   }, [goals, goalId, allPrereqIds, pickerQuery])
@@ -184,19 +215,34 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   }
   function clearPickerSel(): void {
     setPickerSel(new Set())
+    setGroupMemberCounts({})
+  }
+  function setGroupMemberCount(id: string, n: number): void {
+    const v = Math.max(1, Math.min(99, Math.floor(n) || 1))
+    setGroupMemberCounts((prev) => ({ ...prev, [id]: v }))
   }
   async function addMultiAs(kind: 'group' | 'count', need: number): Promise<void> {
-    const members = Array.from(pickerSel)
-    if (members.length < 2) return
+    const ids = Array.from(pickerSel)
+    if (ids.length < 2) return
+    // group 形态：把每个 member 按其 per-member count 包成 `{id, count}` 对象。
+    // 仅 countable 任务的 count > 1 才记录到 member；非 countable 与 count=1 一律走
+    // 字符串形态（与旧 relations.json 兼容，省 count 字段）。
+    const memberObjs = ids.map((id) => {
+      const g = goalById.get(id)
+      const c = groupMemberCounts[id] ?? 1
+      if (g?.countable && c >= 2) return { id, count: c }
+      return id
+    })
     const spec: PrereqSpec =
       kind === 'group'
-        ? { kind: 'group', members, pick: 1 }
-        : { kind: 'count', members, need }
+        ? { kind: 'group', members: memberObjs, pick: 1 }
+        : { kind: 'count', members: ids, need }
     const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
     await persist({ specs: nextSpecs, rule: 'all', threshold: undefined, clearGroups: true })
     setPickerOpen(false)
     setPickerQuery('')
     clearPickerSel()
+    setGroupMemberCounts({})
   }
   async function addSingle(id: string, count: number = 1): Promise<void> {
     const spec: PrereqSpec =
@@ -247,9 +293,10 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
           }
         } else {
           for (const m of s.members) {
-            if (!seen.has(m)) {
-              seen.add(m)
-              newPrereqIds.push(m)
+            const id = groupMemberId(m)
+            if (!seen.has(id)) {
+              seen.add(id)
+              newPrereqIds.push(id)
             }
           }
         }
@@ -306,11 +353,23 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   async function removeRow(row: RenderedRow): Promise<void> {
     // 从 specs + groups 里同步移除
     const removeSet = new Set(row.removeIds)
+    // simple spec 精确匹配：key `spec-simple-${i}-${s.id}-${s.count ?? 1}` 末段即 (id, count)
+    // —— 同一目标被多次添加时，只移除该 (id, count) 实例，不误伤其他实例。
+    // row.spec 是对应 spec，从 key 末段解析 count 比 parse 字符串更可靠。
+    const targetSimpleCount =
+      row.spec.kind === 'simple' ? (row.spec.count ?? 1) : null
     const nextSpecs: PrereqSpec[] = (specs ?? [])
       .map((s) => {
-        if (s.kind === 'simple') return removeSet.has(s.id) ? null : s
+        if (s.kind === 'simple') {
+          // 仅当 id 命中移除集合且 count 等于目标 count 才移除（null 兜底：兼容旧数据）
+          if (targetSimpleCount === null) {
+            return removeSet.has(s.id) ? null : s
+          }
+          if (removeSet.has(s.id) && (s.count ?? 1) === targetSimpleCount) return null
+          return s
+        }
         if (s.kind === 'group' || s.kind === 'count') {
-          const left = s.members.filter((m) => !removeSet.has(m))
+          const left = s.members.filter((m) => !removeSet.has(groupMemberId(m)))
           if (left.length === 0) return null
           return { ...s, members: left }
         }
@@ -319,7 +378,19 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       .filter((s): s is PrereqSpec => s !== null)
     // 只剔除本次移除涉及的 legacy groups，无关组合保留（避免误清）
     const nextGroups = groups.filter((g) => !g.some((m) => removeSet.has(m)))
-    const nextPrereqIds = allPrereqIds.filter((id) => !removeSet.has(id))
+    // v3：保留 (a) 仍在某 spec/group 的 id（用于"同一目标多次添加"的去重判定）；
+    //         (b) 旧裸 id 不在 removeSet 中（与 dev-notes §5 兜底一致）。
+    const remainingIds = new Set<string>()
+    for (const s of nextSpecs) {
+      if (s.kind === 'simple') remainingIds.add(s.id)
+      else if (s.kind === 'group' || s.kind === 'count') {
+        for (const m of s.members) remainingIds.add(groupMemberId(m))
+      }
+    }
+    for (const g of nextGroups) for (const m of g) remainingIds.add(m)
+    const nextPrereqIds = allPrereqIds.filter(
+      (id) => remainingIds.has(id) || !removeSet.has(id)
+    )
     await persist({
       specs: nextSpecs,
       prerequisites: nextPrereqIds,
@@ -380,7 +451,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     const inAnyExistingGroup = new Set<string>([
       ...groups.flat(),
       ...(specs ?? []).flatMap((s) =>
-        s.kind === 'group' || s.kind === 'count' ? s.members : []
+        s.kind === 'group' || s.kind === 'count' ? s.members.map(groupMemberId) : []
       )
     ])
     const dup = members.filter((m) => inAnyExistingGroup.has(m))
@@ -427,6 +498,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     setPickerQuery('')
     setPickerSel(new Set())
     setSingleCount(1)
+    setGroupMemberCounts({})
     setGrouping(false)
     setGroupSel(new Set())
     setExcludePickerOpen(false)
@@ -606,19 +678,33 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
             {candidates.length === 0 ? (
               <li className="muted">无匹配</li>
             ) : (
-              candidates.map((b) => (
-                <li
-                  key={b.id}
-                  className={pickerSel.has(b.id) ? 'picker-sel' : ''}
-                  onClick={() => togglePickerSel(b.id)}
-                >
-                  <span className={`group-pick${pickerSel.has(b.id) ? ' picked' : ''}`}>
-                    {pickerSel.has(b.id) ? '✓' : ''}
-                  </span>
-                  <span className="title">{b.title}</span>
-                  <span className="author muted">{b.category || ''}</span>
-                </li>
-              ))
+              candidates.map((b) => {
+                const addedCount = simpleSpecCountById.get(b.id) ?? 0
+                const alreadyAdded = addedCount > 0
+                return (
+                  <li
+                    key={b.id}
+                    className={`${pickerSel.has(b.id) ? 'picker-sel' : ''}${alreadyAdded && b.countable ? ' picker-reusable' : ''}`}
+                    onClick={() => togglePickerSel(b.id)}
+                    title={
+                      alreadyAdded && b.countable
+                        ? `已添加为前置 ×${addedCount}（可再次添加以指定不同引用次数）`
+                        : undefined
+                    }
+                  >
+                    <span className={`group-pick${pickerSel.has(b.id) ? ' picked' : ''}`}>
+                      {pickerSel.has(b.id) ? '✓' : ''}
+                    </span>
+                    <span className="title">{b.title}</span>
+                    <span className="author muted">{b.category || ''}</span>
+                    {alreadyAdded && b.countable && (
+                      <span className="picker-reused-badge muted">
+                        已添加 ×{addedCount}
+                      </span>
+                    )}
+                  </li>
+                )
+              })
             )}
           </ul>
           {pickerSel.size > 0 && (
@@ -673,7 +759,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
                   <button
                     className="btn-secondary"
                     onClick={() => void addMultiAs('group', 1)}
-                    title="把已选目标组成『任选其一』的组合"
+                    title="把已选目标组成『任选其一』的组合；每个 member 可单独设引用次数（仅 countable 任务生效）"
                   >
                     任选其一
                   </button>
@@ -684,6 +770,58 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
                   >
                     全部都要
                   </button>
+                  {/* per-member 引用次数选择器（仅对 countable 任务生效） */}
+                  <details className="group-member-counts">
+                    <summary className="muted">
+                      各成员引用次数
+                      {Object.values(groupMemberCounts).some((c) => c >= 2)
+                        ? '（含自定义）'
+                        : '（仅 countable 任务可改）'}
+                    </summary>
+                    <ul className="member-count-list">
+                      {Array.from(pickerSel).map((id) => {
+                        const g = goalById.get(id)
+                        const isCountable = !!g?.countable
+                        const v = groupMemberCounts[id] ?? 1
+                        return (
+                          <li key={id} className={`member-count-row${isCountable ? '' : ' disabled'}`}>
+                            <span className="member-name">{nameOf(id)}</span>
+                            {!isCountable && <span className="muted">非 countable</span>}
+                            {isCountable && (
+                              <>
+                                <button
+                                  className="btn-secondary"
+                                  onClick={() => setGroupMemberCount(id, v - 1)}
+                                  title="减 1"
+                                >
+                                  −
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={99}
+                                  value={v}
+                                  onChange={(e) =>
+                                    setGroupMemberCount(id, Number(e.target.value))
+                                  }
+                                  className="threshold-input"
+                                  title="该 member 的引用次数（默认 1）"
+                                />
+                                <button
+                                  className="btn-secondary"
+                                  onClick={() => setGroupMemberCount(id, v + 1)}
+                                  title="加 1"
+                                >
+                                  ＋
+                                </button>
+                                <span className="muted">×{v}</span>
+                              </>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </details>
                   <span className="count-need-row">
                     <span className="muted">N 选</span>
                     <input
@@ -782,7 +920,14 @@ function PrereqChip({
   if (spec.kind === 'simple') {
     const g = goalById.get(spec.id)
     const isGroupSel = grouping && groupSel.has(spec.id)
-    const needCount = spec.count && spec.count >= 2 ? spec.count : null
+    // count 标签规则：
+    //   - spec.count >= 2  → ×N（沿用旧行为）
+    //   - 目标是 countable → 始终显示 count（包括 count=1，用「完成 N 次」更贴近用户语境）
+    const showCountTag = g?.countable || (spec.count !== undefined && spec.count >= 2)
+    const countTagText = (() => {
+      const n = spec.count ?? 1
+      return g?.countable ? `完成 ${n} 次` : `×${n}`
+    })()
     return (
       <li
         className={`prereq${grouping ? ' grouping' : ''}${isGroupSel ? ' group-sel' : ''}`}
@@ -796,7 +941,7 @@ function PrereqChip({
           <span className={`group-pick${isGroupSel ? ' picked' : ''}`}>{isGroupSel ? '✓' : ''}</span>
         )}
         <span className="title">{detail}</span>
-        {needCount && <span className="count-tag">×{needCount}</span>}
+        {showCountTag && <span className="count-tag">{countTagText}</span>}
         {g && <span className={`status-tag status-${g.status}`}>{STATUS_LABELS[g.status]}</span>}
         <button
           className="prereq-remove"

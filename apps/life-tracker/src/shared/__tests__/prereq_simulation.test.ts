@@ -49,9 +49,10 @@ function persist({
         }
       } else {
         for (const m of s.members) {
-          if (!seen.has(m)) {
-            seen.add(m)
-            newPrereqIds.push(m)
+          const id = typeof m === 'string' ? m : m.id
+          if (!seen.has(id)) {
+            seen.add(id)
+            newPrereqIds.push(id)
           }
         }
       }
@@ -88,11 +89,20 @@ function removeRow(
   row: RenderedRow
 ): { specs: PrereqSpec[]; groups: string[][]; prerequisites: string[] } {
   const removeSet = new Set(row.removeIds)
+  // v3：simple spec 按 (id, count) 精确匹配；同一目标多次添加（不同 count）时只移除该实例
+  const targetSimpleCount =
+    row.spec.kind === 'simple' ? (row.spec.count ?? 1) : null
   const nextSpecs = specs
     .map((s) => {
-      if (s.kind === 'simple') return removeSet.has(s.id) ? null : s
+      if (s.kind === 'simple') {
+        if (targetSimpleCount === null) {
+          return removeSet.has(s.id) ? null : s
+        }
+        if (removeSet.has(s.id) && (s.count ?? 1) === targetSimpleCount) return null
+        return s
+      }
       if (s.kind === 'group' || s.kind === 'count') {
-        const left = s.members.filter((m) => !removeSet.has(m))
+        const left = s.members.filter((m) => !removeSet.has(typeof m === 'string' ? m : m.id))
         if (left.length === 0) return null
         return { ...s, members: left }
       }
@@ -100,7 +110,18 @@ function removeRow(
     })
     .filter((s): s is PrereqSpec => s !== null)
   const nextGroups = groups.filter((g) => !g.some((m) => removeSet.has(m)))
-  const nextPrereqIds = allPrereqIds.filter((id) => !removeSet.has(id))
+  // v3：保留 (a) 仍在某 spec/group 的 id；(b) 旧裸 id 不在 removeSet 中（与 dev-notes §5 兜底一致）
+  const remainingIds = new Set<string>()
+  for (const s of nextSpecs) {
+    if (s.kind === 'simple') remainingIds.add(s.id)
+    else if (s.kind === 'group' || s.kind === 'count') {
+      for (const m of s.members) remainingIds.add(typeof m === 'string' ? m : m.id)
+    }
+  }
+  for (const g of nextGroups) for (const m of g) remainingIds.add(m)
+  const nextPrereqIds = allPrereqIds.filter(
+    (id) => remainingIds.has(id) || !removeSet.has(id)
+  )
   return { specs: nextSpecs, groups: nextGroups, prerequisites: nextPrereqIds }
 }
 
@@ -268,5 +289,106 @@ describe('removeRow + persist simulation', () => {
     const edge2 = persist({ baseEdge: edge, specs: next.specs, goalId, prerequisites: next.prerequisites, groups: next.groups })
     const cycles = detectCycles([edge2])
     expect(cycles).toHaveLength(0)
+  })
+})
+
+describe('removeRow + persist simulation — countable multiple instances', () => {
+  // 同一 countable 任务被多次添加为 simple spec，每次引用次数不同
+  it('multiple simple specs of same id coexist in specs, deduped in prerequisites', () => {
+    const goalId = 'award'
+    const initialSpecs: PrereqSpec[] = [
+      { kind: 'simple', id: 'paper', count: 1 },
+      { kind: 'simple', id: 'paper', count: 2 }
+    ]
+    const edge = persist({ baseEdge: null, specs: initialSpecs, goalId })
+    // specs 保留两条；prerequisites 去重为一条
+    expect(edge.specs).toHaveLength(2)
+    expect(edge.prerequisites).toEqual(['paper'])
+  })
+
+  it('removing one simple spec (count=1) keeps the count=2 instance', () => {
+    const goalId = 'award'
+    const baseEdge: Edge = {
+      to: goalId,
+      prerequisites: ['paper'],
+      rule: 'all',
+      specs: [
+        { kind: 'simple', id: 'paper', count: 1 },
+        { kind: 'simple', id: 'paper', count: 2 }
+      ]
+    }
+    const next = removeRow(baseEdge.specs ?? [], baseEdge.groups ?? [], baseEdge.prerequisites, {
+      key: 'spec-simple-0-paper-1',
+      spec: { kind: 'simple', id: 'paper', count: 1 },
+      label: '',
+      detail: 'paper',
+      removeIds: ['paper']
+    })
+    const edge2 = persist({ baseEdge, specs: next.specs, goalId, prerequisites: next.prerequisites, groups: next.groups })
+    expect(edge2.specs).toHaveLength(1)
+    expect(edge2.specs![0]).toEqual({ kind: 'simple', id: 'paper', count: 2 })
+    expect(edge2.prerequisites).toEqual(['paper'])
+  })
+
+  it('group with per-member count (countable) keeps both members', () => {
+    const goalId = 'award'
+    const initialSpecs: PrereqSpec[] = [
+      { kind: 'simple', id: 'paper', count: 1 },
+      {
+        kind: 'group',
+        members: [{ id: 'paper', count: 2 }, { id: 'patent' }],
+        pick: 1
+      }
+    ]
+    const edge = persist({ baseEdge: null, specs: initialSpecs, goalId })
+    // 两条 spec 都保留；prerequisites 同时包含 paper 和 patent（group 的 member 也算）
+    expect(edge.specs).toHaveLength(2)
+    expect(edge.prerequisites).toContain('paper')
+    expect(edge.prerequisites).toContain('patent')
+  })
+
+  it('removing only one member of a group keeps the other', () => {
+    const goalId = 'award'
+    const baseEdge: Edge = {
+      to: goalId,
+      prerequisites: ['paper', 'patent'],
+      rule: 'all',
+      specs: [
+        {
+          kind: 'group',
+          members: [{ id: 'paper', count: 2 }, { id: 'patent' }],
+          pick: 1
+        }
+      ]
+    }
+    const next = removeRow(baseEdge.specs ?? [], baseEdge.groups ?? [], baseEdge.prerequisites, {
+      key: 'spec-group-0',
+      spec: {
+        kind: 'group',
+        members: [{ id: 'paper', count: 2 }, { id: 'patent' }],
+        pick: 1
+      },
+      label: '组合',
+      detail: 'paper ×2 或 patent',
+      removeIds: ['paper'] // 只移除 paper
+    })
+    const edge2 = persist({ baseEdge, specs: next.specs, goalId, prerequisites: next.prerequisites, groups: next.groups })
+    // group 仍存在但只剩 patent
+    expect(edge2.specs).toHaveLength(1)
+    if (edge2.specs![0].kind === 'group') {
+      expect(edge2.specs![0].members).toEqual([{ id: 'patent' }])
+    }
+    expect(edge2.prerequisites).toEqual(['patent'])
+  })
+
+  it('backward compat — old GroupSpec with string members persists identically', () => {
+    const goalId = 'award'
+    const initialSpecs: PrereqSpec[] = [
+      { kind: 'group', members: ['a', 'b'], pick: 1 }
+    ]
+    const edge = persist({ baseEdge: null, specs: initialSpecs, goalId })
+    // 旧 ['a','b'] 形态推导 prerequisites = ['a','b']
+    expect(edge.specs).toHaveLength(1)
+    expect(edge.prerequisites).toEqual(['a', 'b'])
   })
 })

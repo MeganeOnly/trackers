@@ -69,8 +69,19 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
         pinned,
         hidden
       }
-      // 仅当 status === 'in_progress' 且填了 current 时才把 progress 写进 input
-      if (status === 'in_progress') {
+      // countable 任务：progress 与 status 解耦
+      if (countable) {
+        const c = Number(progressCurrent)
+        if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
+          const tRaw = progressTotal.trim()
+          const t = tRaw === '' ? null : Number(tRaw)
+          input.progress = {
+            current: Math.floor(c),
+            total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
+          }
+        }
+      } else if (status === 'in_progress') {
+        // 非 countable 沿用旧行为
         const c = Number(progressCurrent)
         if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
           const tRaw = progressTotal.trim()
@@ -83,8 +94,8 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
       }
       if (isEdit && goal) {
         const patch: Parameters<typeof update>[1] = input
-        // 编辑模式下，如果 status 不是 in_progress，主动清空 progress（用户主动清除意图）
-        if (status !== 'in_progress') patch.progress = null
+        // 非 countable 且非 in_progress：清空 progress（用户主动清除意图）
+        if (!countable && status !== 'in_progress') patch.progress = null
         await update(goal.id, patch)
       } else {
         await create(input)
@@ -163,16 +174,16 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
             ))}
           </select>
         </label>
-        {status === 'in_progress' && (
+        {(status === 'in_progress' || countable) && (
           <div className="field-row progress-fields">
             <label className="field">
-              <span>当前进度</span>
+              <span>{countable ? '当前完成次数' : '当前进度'}</span>
               <input
                 type="number"
                 value={progressCurrent}
                 onChange={(e) => setProgressCurrent(e.target.value)}
                 min="0"
-                placeholder="如 1"
+                placeholder={countable ? '如 5（不填 = 0）' : '如 1'}
               />
             </label>
             <label className="field">
@@ -214,7 +225,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
             onChange={(e) => setCountable(e.target.checked)}
           />
           <span>
-            可计数任务 —— 别的目标引用时可指定需要完成多少次（与『量化进度』配合使用）
+            可计数任务 —— 别的目标引用时可指定需要完成多少次（完成次数与 status 解耦）
           </span>
         </label>
         <label className="field">

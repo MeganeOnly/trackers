@@ -111,6 +111,29 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
     )
   }
 
+  /**
+   * countable 任务专用：直接把「完成次数」设到指定值。
+   * 与 status 解耦 —— countable 任务在设计上不存在「全达成」语义，
+   * 引用方按各自需要的次数（simple spec count / group per-member count）触发解锁。
+   */
+  async function handleSetCount(raw: string): Promise<void> {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n < 0) return
+    const target = Math.floor(n)
+    const totalRaw = progressTotal.trim()
+    const total =
+      totalRaw === ''
+        ? (g.progress?.total ?? null)
+        : Number.isFinite(Number(totalRaw)) && Number(totalRaw) > 0
+          ? Math.floor(Number(totalRaw))
+          : null
+    await update(g.id, {
+      progress: { current: target, total }
+    })
+    setProgressCurrent(String(target))
+    setProgressTotal(total === null ? '' : String(total))
+  }
+
   async function handleFinish(): Promise<void> {
     setStatus('done')
     await update(g.id, { status: 'done' })
@@ -140,8 +163,22 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
         pinned,
         hidden
       }
-      // 仅当 status === 'in_progress' 且填了 current 时才把 progress 写进 patch
-      if (status === 'in_progress') {
+      // countable 任务：progress.current 与 status 解耦，强制保留（无 status 切走即清空的逻辑）
+      if (countable) {
+        const c = Number(progressCurrent)
+        if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
+          const tRaw = progressTotal.trim()
+          const t = tRaw === '' ? null : Number(tRaw)
+          patch.progress = {
+            current: Math.floor(c),
+            total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
+          }
+        } else if (g.progress !== null && g.progress !== undefined) {
+          // 草稿清空但已有 progress：保留原值（避免误清零）
+          patch.progress = g.progress
+        }
+      } else if (status === 'in_progress') {
+        // 非 countable 沿用旧行为：仅 in_progress 时写 progress
         const c = Number(progressCurrent)
         if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
           const tRaw = progressTotal.trim()
@@ -151,9 +188,12 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
           }
         }
+        // 非 in_progress 时主动清空 progress（用户主动清除意图）
+        if (status !== 'in_progress') patch.progress = null
+      } else {
+        // 非 countable 且非 in_progress：清空 progress
+        patch.progress = null
       }
-      // status 不是 in_progress 时主动清空 progress（用户主动清除意图）
-      if (status !== 'in_progress') patch.progress = null
       await update(g.id, patch)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 1500)
@@ -193,7 +233,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
         </div>
       </header>
 
-      {status === 'in_progress' && goal.progress !== null && (
+      {status === 'in_progress' && goal.progress !== null && !countable && (
         <section className="progress-card">
           <div className="progress-card-header">
             <span className="progress-label">量化进度</span>
@@ -222,6 +262,69 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
               达成
             </button>
           </div>
+        </section>
+      )}
+
+      {countable && (
+        <section className="progress-card progress-card--countable">
+          <div className="progress-card-header">
+            <span className="progress-label">完成次数</span>
+            <span className="progress-text">
+              {goal.progress && goal.progress.total !== null
+                ? `${goal.progress.current} / ${goal.progress.total}`
+                : goal.progress
+                  ? `${goal.progress.current}+`
+                  : '尚未记录'}
+            </span>
+          </div>
+          <div className="countable-editor">
+            <label className="field countable-count-field">
+              <span>当前次数</span>
+              <input
+                type="number"
+                value={progressCurrent}
+                onChange={(e) => setProgressCurrent(e.target.value)}
+                onBlur={(e) => {
+                  const v = e.target.value
+                  if (v.trim() !== '' && v !== String(g.progress?.current ?? '')) {
+                    void handleSetCount(v)
+                  }
+                }}
+                min="0"
+                placeholder="如 5"
+                title="直接键入当前完成次数（回车 / 失焦保存）"
+              />
+            </label>
+            <label className="field countable-total-field">
+              <span>目标总量（可选）</span>
+              <input
+                type="number"
+                value={progressTotal}
+                onChange={(e) => setProgressTotal(e.target.value)}
+                onBlur={(e) => {
+                  const v = e.target.value
+                  if (v.trim() !== '') void handleSetCount(progressCurrent || '0')
+                }}
+                min="0"
+                placeholder="留空 = 无总量"
+                title="可选的目标总量（用于可视化展示，不影响解锁）"
+              />
+            </label>
+          </div>
+          <div className="progress-actions">
+            <button className="btn-secondary" onClick={() => void handleBump(-1)} title="回退 1">
+              -1
+            </button>
+            <button className="btn-secondary" onClick={() => void handleBump(+1)} title="推进 1">
+              +1
+            </button>
+            <button className="btn-secondary" onClick={() => void handleBump(+5)} title="推进 5">
+              +5
+            </button>
+          </div>
+          <p className="muted countable-hint">
+            可计数任务：status 与完成次数解耦；其他目标通过引用次数（如「完成 2 次」）控制解锁。
+          </p>
         </section>
       )}
 
@@ -256,7 +359,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             ))}
           </select>
         </label>
-        {status === 'in_progress' && (
+        {status === 'in_progress' && !countable && (
           <div className="field-row progress-fields">
             <label className="field">
               <span>当前进度</span>
@@ -307,7 +410,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             onChange={(e) => setCountable(e.target.checked)}
           />
           <span>
-            可计数任务 —— 别的目标引用时可指定需要完成多少次（与『量化进度』配合使用）
+            可计数任务 —— 别的目标引用时可指定需要完成多少次（完成次数与 status 解耦）
           </span>
         </label>
         <label className="field">

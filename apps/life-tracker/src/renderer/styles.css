@@ -344,6 +344,20 @@ button:focus-visible {
 /* progress input fields in GoalForm */
 .progress-fields { align-items: flex-start; }
 
+/* countable 任务「完成次数」直接编辑 section */
+.progress-card--countable .countable-editor {
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+.progress-card--countable .countable-editor .field {
+  flex: 1 1 140px; min-width: 140px;
+}
+.progress-card--countable .countable-editor input[type="number"] {
+  width: 100%; font-variant-numeric: tabular-nums;
+}
+.progress-card--countable .countable-hint {
+  margin: 0; font-size: 12px; line-height: 1.5;
+}
+
 /* 置顶到『进行中』栏（GoalDetail 快捷开关 / GoalForm 复选框） */
 .pinned-toggle,
 .form-checkline {
@@ -470,6 +484,53 @@ button:focus-visible {
 .prereq-picker li.picker-sel {
   background: var(--accent-soft);
 }
+/* 已添加但可再次添加（countable 任务）—— 边框用虚线 + 徽标提示 */
+.prereq-picker li.picker-reusable {
+  border-left: 2px dashed var(--accent, #1a7f37);
+}
+.picker-reused-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent-soft, #e6f4ea);
+  color: var(--accent, #1a7f37);
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+/* picker 多选时各成员 per-member 引用次数折叠区 */
+.group-member-counts {
+  margin-top: 8px;
+  width: 100%;
+}
+.group-member-counts summary {
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.member-count-list {
+  list-style: none;
+  padding: 6px 0 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.member-count-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg, #fafafa);
+}
+.member-count-row.disabled { opacity: 0.55; }
+.member-count-row .member-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.member-count-row .threshold-input { width: 56px; }
+.member-count-row .muted { font-size: 12px; }
 
 /* 互斥 / 失效规则栏（v2 exclude）—— 与前置 chip 视觉拉开 */
 .prereq-excludes {
