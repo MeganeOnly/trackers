@@ -76,6 +76,9 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState('')
+  /** picker 内『多选目标』状态：选中后用下方三种模式之一落 spec */
+  const [pickerSel, setPickerSel] = useState<Set<string>>(new Set())
+  const [countNeed, setCountNeed] = useState<number>(2)
   const [grouping, setGrouping] = useState(false)
   const [groupSel, setGroupSel] = useState<Set<string>>(new Set())
   const [excludePickerOpen, setExcludePickerOpen] = useState(false)
@@ -168,6 +171,38 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       .filter((b) => !q || b.title.toLowerCase().includes(q) || b.category.toLowerCase().includes(q))
       .slice(0, 12)
   }, [goals, goalId, allPrereqIds, pickerQuery])
+
+  function togglePickerSel(id: string): void {
+    setPickerSel((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function clearPickerSel(): void {
+    setPickerSel(new Set())
+  }
+  async function addMultiAs(kind: 'group' | 'count', need: number): Promise<void> {
+    const members = Array.from(pickerSel)
+    if (members.length < 2) return
+    const spec: PrereqSpec =
+      kind === 'group'
+        ? { kind: 'group', members, pick: 1 }
+        : { kind: 'count', members, need }
+    const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
+    await persist({ specs: nextSpecs, rule: 'all', threshold: undefined, clearGroups: true })
+    setPickerOpen(false)
+    setPickerQuery('')
+    clearPickerSel()
+  }
+  async function addSingle(id: string): Promise<void> {
+    const nextSpecs: PrereqSpec[] = [
+      ...(specs ?? []),
+      { kind: 'simple', id }
+    ]
+    await persist({ specs: nextSpecs, rule: rule, threshold: threshold, clearGroups: true })
+  }
 
   const excludeCandidates = useMemo(() => {
     return goals.filter((b) => b.id !== goalId).slice(0, 24)
@@ -272,21 +307,6 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     void nextPrereqIds
   }
 
-  async function addSingle(id: string): Promise<void> {
-    setPickerOpen(false)
-    setPickerQuery('')
-    const nextSpecs: PrereqSpec[] = [
-      ...(specs ?? []),
-      { kind: 'simple', id }
-    ]
-    await persist({
-      specs: nextSpecs,
-      rule: rule,
-      threshold: threshold,
-      clearGroups: true
-    })
-  }
-
   async function setRule(r: 'all' | 'any_of'): Promise<void> {
     await persist({
       specs: [], // 切到旧路径
@@ -368,6 +388,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   useEffect(() => {
     setPickerOpen(false)
     setPickerQuery('')
+    setPickerSel(new Set())
     setGrouping(false)
     setGroupSel(new Set())
     setExcludePickerOpen(false)
@@ -461,10 +482,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
               onRemove={() => void removeRow(row)}
               onSelect={(id) => select(id)}
               grouping={grouping}
-              selected={false}
-              toggle={() => {
-                /* 在 chip 模式下不参与 grouping 选择 */
-              }}
+              groupSel={groupSel}
+              toggleGroupSel={toggleGroupSel}
             />
           ))}
         </ul>
@@ -550,13 +569,67 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
               <li className="muted">无匹配</li>
             ) : (
               candidates.map((b) => (
-                <li key={b.id} onClick={() => void addSingle(b.id)}>
+                <li
+                  key={b.id}
+                  className={pickerSel.has(b.id) ? 'picker-sel' : ''}
+                  onClick={() => togglePickerSel(b.id)}
+                >
+                  <span className={`group-pick${pickerSel.has(b.id) ? ' picked' : ''}`}>
+                    {pickerSel.has(b.id) ? '✓' : ''}
+                  </span>
                   <span className="title">{b.title}</span>
                   <span className="author muted">{b.category || ''}</span>
                 </li>
               ))
             )}
           </ul>
+          {pickerSel.size > 0 && (
+            <div className="picker-mode">
+              <span className="muted">
+                已选 <strong>{pickerSel.size}</strong> 个：
+              </span>
+              <button
+                className="btn-secondary"
+                onClick={() => void addMultiAs('group', 1)}
+                title="把已选目标组成『任选其一』的组合"
+              >
+                任选其一
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => void addMultiAs('count', pickerSel.size)}
+                title="把已选目标组成『全部都要』的计数任务"
+              >
+                全部都要
+              </button>
+              <span className="count-need-row">
+                <span className="muted">N 选</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={pickerSel.size}
+                  value={Math.min(countNeed, pickerSel.size)}
+                  onChange={(e) =>
+                    setCountNeed(
+                      Math.max(1, Math.min(pickerSel.size, Number(e.target.value) || 1))
+                    )
+                  }
+                  className="threshold-input"
+                />
+                <button
+                  className="btn-primary"
+                  disabled={countNeed < 1 || countNeed > pickerSel.size}
+                  onClick={() => void addMultiAs('count', countNeed)}
+                  title="把已选目标组成『N 选 K』的计数任务"
+                >
+                  创建
+                </button>
+              </span>
+              <button className="link-btn" onClick={clearPickerSel}>
+                清空选择
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -606,23 +679,36 @@ interface PrereqChipProps {
   onRemove: () => void
   onSelect: (id: string) => void
   grouping: boolean
-  selected: boolean
-  toggle: () => void
+  groupSel: Set<string>
+  toggleGroupSel: (id: string) => void
 }
 
-function PrereqChip({ row, goalById, onRemove, onSelect, grouping, selected, toggle }: PrereqChipProps): JSX.Element {
+function PrereqChip({
+  row,
+  goalById,
+  onRemove,
+  onSelect,
+  grouping,
+  groupSel,
+  toggleGroupSel
+}: PrereqChipProps): JSX.Element {
   const { spec, label, detail, progress } = row
 
   // simple：渲染成单条『目标 chip』+ 状态 tag
   if (spec.kind === 'simple') {
     const g = goalById.get(spec.id)
+    const isGroupSel = grouping && groupSel.has(spec.id)
     return (
       <li
-        className={`prereq${grouping ? ' grouping' : ''}${selected ? ' group-sel' : ''}`}
-        onClick={grouping ? toggle : () => onSelect(spec.id)}
+        className={`prereq${grouping ? ' grouping' : ''}${isGroupSel ? ' group-sel' : ''}`}
+        onClick={
+          grouping
+            ? () => toggleGroupSel(spec.id)
+            : () => onSelect(spec.id)
+        }
       >
         {grouping && (
-          <span className={`group-pick${selected ? ' picked' : ''}`}>{selected ? '✓' : ''}</span>
+          <span className={`group-pick${isGroupSel ? ' picked' : ''}`}>{isGroupSel ? '✓' : ''}</span>
         )}
         <span className="title">{detail}</span>
         {g && <span className={`status-tag status-${g.status}`}>{STATUS_LABELS[g.status]}</span>}
@@ -646,11 +732,16 @@ function PrereqChip({ row, goalById, onRemove, onSelect, grouping, selected, tog
   const total = progress?.total ?? 0
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const ok = spec.kind === 'count' ? done >= spec.need : done >= 1
+  // 在 grouping（『组合二选一』模式）下，已是 group / count 的 chip 不可再参与
+  // ——它们的成员已经决定了互斥语义；显示成禁用态。
   return (
-    <li className={`prereq spec-${spec.kind}${ok ? ' spec-satisfied' : ''}`}>
+    <li
+      className={`prereq spec-${spec.kind}${ok ? ' spec-satisfied' : ''}${grouping ? ' spec-locked' : ''}`}
+      title={grouping ? '组合 / 计数任务不可再参与组合' : undefined}
+    >
       {label && <span className="spec-label">{label}</span>}
       <span className="title">{detail}</span>
-      {progress && (
+      {spec.kind === 'count' && total > 0 && (
         <>
           <span className="progress-text">
             {done}/{total}
@@ -660,6 +751,11 @@ function PrereqChip({ row, goalById, onRemove, onSelect, grouping, selected, tog
           </span>
         </>
       )}
+      {spec.kind === 'group' && total > 0 && (
+        <span className="progress-text">
+          {done}/{total}
+        </span>
+      )}
       <button
         className="prereq-remove"
         onClick={(e) => {
@@ -667,6 +763,7 @@ function PrereqChip({ row, goalById, onRemove, onSelect, grouping, selected, tog
           onRemove()
         }}
         title="移除该规则"
+        disabled={grouping}
       >
         ×
       </button>

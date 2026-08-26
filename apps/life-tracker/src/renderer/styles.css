@@ -411,7 +411,7 @@ button:focus-visible {
   border-radius: 3px;
   background: var(--accent-soft);
 }
-/* 计数任务进度条：紧凑内联 */
+/* 计数任务进度条：紧凑内联显示，且显式 display 让高度/宽度生效 */
 .prereq .progress-text {
   font-size: 11px;
   color: var(--muted);
@@ -419,11 +419,15 @@ button:focus-visible {
   flex-shrink: 0;
 }
 .prereq .spec-progress {
-  width: 60px; height: 4px;
+  display: inline-block;     /* span 默认 inline，宽度撑不开 */
+  position: relative;
+  width: 80px;
+  height: 6px;
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   flex-shrink: 0;
+  vertical-align: middle;
 }
 .prereq .spec-progress .progress-fill {
   display: block;
@@ -432,6 +436,28 @@ button:focus-visible {
   transition: width 120ms ease-out;
 }
 .prereq.spec-satisfied .spec-label { background: var(--accent); color: white; }
+/* 在『组合二选一』模式下，已成型的 group / count chip 灰化 + 不可点 */
+.prereq.spec-locked { opacity: 0.55; cursor: not-allowed; }
+.prereq.spec-locked:hover { background: transparent; }
+.prereq.spec-locked .prereq-remove { opacity: 0.4; }
+
+/* picker 内多选 + 模式选择栏 */
+.picker-mode {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px;
+}
+.picker-mode .count-need-row {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.picker-mode .threshold-input {
+  width: 44px;
+}
+.prereq-picker li.picker-sel {
+  background: var(--accent-soft);
+}
 
 /* 互斥 / 失效规则栏（v2 exclude）—— 与前置 chip 视觉拉开 */
 .prereq-excludes {
