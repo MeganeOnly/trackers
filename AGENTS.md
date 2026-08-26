@@ -21,7 +21,8 @@
 ├── AGENTS.md                     # 本文件
 ├── docs/
 │   ├── shared-boundary.md        # ★ 共享边界清单 + 归属判断规则（改代码前先看）
-│   └── architecture.md
+│   ├── architecture.md
+│   └── dev-notes.md              # ★ 经验沉淀（整改/增添后如有值得记录的经验追加到这里）
 ├── packages/
 │   ├── tracker-core/             # TS 纯逻辑（无 React）：unlock / progress / 通用类型 + vitest
 │   └── tracker-ui/               # React 基座：Modal / TopBar / GraphView / PrereqEditor / styles-base
@@ -90,3 +91,17 @@ cd apps/life-tracker && npm test
 GitHub release 走 root `.github/workflows/release.yml`，按 tag 前缀分派：
 - `book-tracker-v*` → 构建 apps/book-tracker
 - `life-tracker-v*` → 构建 apps/life-tracker
+
+## 九、经验沉淀（每次整改/增添后）
+
+**每次整改、增添功能后，如有值得沉淀的经验、注意点、踩坑，追加到 `docs/dev-notes.md`**
+（新条目放对应主题节开头或按日期倒序）。
+
+要求：
+
+- 只写**中性、可提交**的技术经验：不写本机路径、私人陈述、内部对话原话（与本文档同标准）
+- 每条保持最小结构：**现象 → 根因 → 修复 / 规避 → 回归验证**
+- 通用教训标 `[共享]`，单 app 的标 app 名；涉及共享内核的改动，记录时同步考虑是否补 core 测试
+- 找不到合适主题时，可新开一节（`## YYYY-MM：<主题>`）
+
+本节的目的是让后续 agent 复用已踩过的坑，避免同类 bug 反复出现。
