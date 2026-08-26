@@ -10,7 +10,9 @@ export type {
   RelationsFile,
   UnlockResult,
   UnlockRule,
-  BrokenEntry
+  BrokenEntry,
+  PrereqSpec,
+  ExcludeSpec
 } from '@core'
 
 import type { Progress } from '@core'

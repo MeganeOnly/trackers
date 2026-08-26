@@ -74,6 +74,7 @@ fn normalize_edge(raw: Edge) -> Edge {
         rule,
         threshold,
         groups,
+        ..Default::default()
     }
 }
 
@@ -89,8 +90,7 @@ mod tests {
             to: to.to_string(),
             prerequisites: prereqs.iter().map(|s| s.to_string()).collect(),
             rule,
-            threshold: None,
-            groups: None,
+            ..Default::default()
         }
     }
 
@@ -160,8 +160,8 @@ mod tests {
             to: "target".to_string(),
             prerequisites: vec!["a".into(), "b".into(), "c".into()],
             rule: UnlockRule::All,
-            threshold: None,
             groups: Some(vec![vec!["a".into(), "b".into()]]),
+            ..Default::default()
         }];
         write_relations(dir.path(), &edges, None).unwrap();
         let r = read_relations(dir.path()).unwrap();

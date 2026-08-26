@@ -18,15 +18,67 @@ pub struct Progress {
 }
 
 /// 解锁规则。`'all' | 'any_of'`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnlockRule {
+    #[default]
     All,
     AnyOf,
 }
 
+/// 前置规格类型（v2）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrereqKind {
+    Simple,
+    Group,
+    Count,
+    Exclude,
+}
+
+/// 简单前置：单个目标引用
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PrereqSpec {
+    Simple { id: String },
+    /// 二选一 / N 选一组合：`pick` 默认为 1（任选其一）
+    #[serde(rename_all = "snake_case")]
+    Group { members: Vec<String>, #[serde(default, skip_serializing_if = "Option::is_none")] pick: Option<u32> },
+    /// 计数任务：成员里至少 `need` 个 done
+    #[serde(rename_all = "snake_case")]
+    Count { members: Vec<String>, need: u32 },
+    /// 互斥规则：trigger 达成时改写 target 的 done 语义
+    #[serde(rename_all = "snake_case")]
+    Exclude { trigger: String, target: String, effect: ExcludeEffect },
+}
+
+/// `exclude.effect`：`disqualifies`（失格）/ `satisfies`（豁免）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExcludeEffect {
+    Disqualifies,
+    Satisfies,
+}
+
+impl ExcludeEffect {
+    /// 对 done 集合的影响（应用层调用 compute_unlocked 前先改写）
+    pub fn rewrite(self, raw_done: &mut HashMap<String, bool>, trigger: &str, target: &str) {
+        if !matches!(raw_done.get(trigger).copied(), Some(true)) {
+            return;
+        }
+        match self {
+            ExcludeEffect::Disqualifies => {
+                raw_done.insert(target.to_string(), false);
+            }
+            ExcludeEffect::Satisfies => {
+                raw_done.insert(target.to_string(), true);
+            }
+        }
+    }
+}
+
 /// 一条前置边：目标条目 `to` 需要 `prerequisites` 中若干已完成
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Edge {
     pub to: String,
     pub prerequisites: Vec<String>,
@@ -39,6 +91,12 @@ pub struct Edge {
     /// 缺省 / 空数组时回退到 `rule` + `threshold` 的整组逻辑（向后兼容）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<Vec<String>>>,
+    /// v2：完整规格清单。AND-of-specs；`exclude` 项不算正向 spec。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specs: Option<Vec<PrereqSpec>>,
+    /// v2：独立互斥规则索引
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excludes: Option<Vec<PrereqSpec>>,
 }
 
 /// `relations.json` 文件结构

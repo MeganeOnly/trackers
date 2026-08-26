@@ -1,18 +1,45 @@
-//! 解锁计算 —— 给定条目 id 列表 + 前置关系 + 完成判定，算出每个条目是否解锁。
+//! 解锁计算 —— 给定条目 id 列表 + 前置关系 + 完成 map，计算每个条目是否解锁。
 //!
 //! 与 `packages/tracker-core/src/unlock.ts` 逻辑一致，参数化后两个 app 共用：
 //! - book-tracker: 传书 id + `done = { id: status==finished }`
 //! - life-tracker:  传目标 id + 自己的完成判定（status / 里程碑达成等）
 //!
-//! 规则：
-//! - `All`：所有前置 done 才解锁
-//! - `AnyOf`：至少 `threshold` 个前置 done 才解锁（缺省 = 全部）
+//! 规则（v2）：
+//! - v2 specs 路径（AND-of-specs）有正向 spec 时优先
+//! - 旧 `groups` 路径（AND-of-ORs）其次
+//! - 否则按 `rule + threshold` 路径
 //! - 无前置：永远解锁
 //! - 环上的条目标 false 并报告环
+//!
+//! 应用层职责：调用本函数前，用所有 `exclude` 改写 `done` 谓词；
+//! 本函数本身不感知 exclude。
 
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{Edge, UnlockResult, UnlockRule};
+use crate::types::{Edge, ExcludeEffect, PrereqSpec, UnlockResult, UnlockRule};
+
+/// 单个 spec 是否『满足』（exclude 在此永真，由谓词改写处理）。
+fn is_spec_satisfied(spec: &PrereqSpec, done: &HashMap<String, bool>) -> bool {
+    match spec {
+        PrereqSpec::Simple { id } => done.get(id).copied().unwrap_or(false),
+        PrereqSpec::Group { members, pick } => {
+            let need = pick.unwrap_or(1);
+            let hit = members
+                .iter()
+                .filter(|m| done.get(*m).copied().unwrap_or(false))
+                .count() as u32;
+            hit >= need
+        }
+        PrereqSpec::Count { members, need } => {
+            let hit = members
+                .iter()
+                .filter(|m| done.get(*m).copied().unwrap_or(false))
+                .count() as u32;
+            hit >= *need
+        }
+        PrereqSpec::Exclude { .. } => true, // exclude 不参与正向 AND；谓词已改写
+    }
+}
 
 /// 给定条目 id 列表 + 关系 + 完成 map，计算每个条目是否解锁。
 pub fn compute_unlocked(
@@ -36,6 +63,18 @@ pub fn compute_unlocked(
             .filter(|p| id_set.contains(*p))
             .cloned()
             .collect();
+        // 仅保留正向 spec（exclude 不算）
+        let specs_positive: Option<Vec<PrereqSpec>> = match &e.specs {
+            Some(list) => {
+                let pos: Vec<PrereqSpec> = list
+                    .iter()
+                    .filter(|s| !matches!(s, PrereqSpec::Exclude { .. }))
+                    .cloned()
+                    .collect();
+                if pos.is_empty() { None } else { Some(pos) }
+            }
+            None => None,
+        };
         edge_by_to.insert(
             e.to.clone(),
             Edge {
@@ -43,7 +82,9 @@ pub fn compute_unlocked(
                 prerequisites: prereqs,
                 rule: e.rule,
                 threshold: e.threshold,
-                groups: e.groups.clone(),
+                groups: e.groups.as_ref().filter(|g| !g.is_empty()).cloned(),
+                specs: specs_positive,
+                excludes: e.excludes.clone(),
             },
         );
     }
@@ -71,6 +112,14 @@ pub fn compute_unlocked(
         if edge.prerequisites.is_empty() {
             unlocked.insert(id.to_string(), true);
             return true;
+        }
+        // v2 specs 路径（AND-of-specs）优先
+        if let Some(specs) = &edge.specs {
+            if !specs.is_empty() {
+                let ok = specs.iter().all(|s| is_spec_satisfied(s, done));
+                unlocked.insert(id.to_string(), ok);
+                return ok;
+            }
         }
         let done_count = edge
             .prerequisites
@@ -173,6 +222,42 @@ pub fn detect_cycles(edges: &[Edge]) -> Vec<Vec<String>> {
     cycles
 }
 
+/// 收集所有 edges 中出现的 ExcludeSpec，去重（trigger+target+effect）。
+/// 应用层用这个建 done 谓词的改写层。
+pub fn collect_excludes(edges: &[Edge]) -> Vec<PrereqSpec> {
+    let mut seen: HashSet<(String, String, &'static str)> = HashSet::new();
+    let mut out: Vec<PrereqSpec> = Vec::new();
+    for e in edges {
+        // edge.excludes 字段 + edge.specs 里的 exclude 项都收集
+        let mut all: Vec<PrereqSpec> = Vec::new();
+        if let Some(list) = &e.excludes {
+            all.extend(list.iter().cloned());
+        }
+        if let Some(list) = &e.specs {
+            for s in list {
+                if matches!(s, PrereqSpec::Exclude { .. }) {
+                    all.push(s.clone());
+                }
+            }
+        }
+        for s in all {
+            if let PrereqSpec::Exclude { trigger, target, effect } = s {
+                let key_tag: &'static str = match effect {
+                    ExcludeEffect::Disqualifies => "disqualifies",
+                    ExcludeEffect::Satisfies => "satisfies",
+                };
+                let key = (trigger.clone(), target.clone(), key_tag);
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.insert(key);
+                out.push(PrereqSpec::Exclude { trigger, target, effect });
+            }
+        }
+    }
+    out
+}
+
 // ==================== 单测 ====================
 
 #[cfg(test)]
@@ -193,8 +278,7 @@ mod tests {
             to: to.to_string(),
             prerequisites: prereqs.iter().map(|s| s.to_string()).collect(),
             rule,
-            threshold: None,
-            groups: None,
+            ..Default::default()
         }
     }
 
@@ -223,7 +307,7 @@ mod tests {
             prerequisites: ids(&["a", "b", "c"]),
             rule: UnlockRule::AnyOf,
             threshold: Some(2),
-            groups: None,
+            ..Default::default()
         }];
         let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "b"]));
         assert_eq!(r.unlocked.get("target"), Some(&true));
@@ -276,6 +360,7 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: Some(vec![ids(&["a", "b"])]),
+            ..Default::default()
         }];
         // c 必须 + a/b 二选一
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
@@ -299,6 +384,7 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: Some(vec![ids(&["a", "b"]), ids(&["c", "d"])]),
+            ..Default::default()
         }];
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
         let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_map(&["a", "c"]));
@@ -316,6 +402,7 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: Some(vec![]),
+            ..Default::default()
         }];
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
         let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_map(&["a"]));
@@ -333,6 +420,7 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: Some(vec![ids(&["a", "ghost"])]),
+            ..Default::default()
         }];
         let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_map(&["a"]));
         assert_eq!(r.unlocked.get("target"), Some(&true));
@@ -344,8 +432,191 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: Some(vec![ids(&["ghost1", "ghost2"])]),
+            ..Default::default()
         }];
         let r2 = compute_unlocked(&ids(&["a", "target"]), &edges2, &done_map(&[]));
         assert_eq!(r2.unlocked.get("target"), Some(&false));
+    }
+
+    // ========== v2 specs / excludes ==========
+
+    fn rewrite_done(raw: &HashMap<String, bool>, excludes: &[PrereqSpec]) -> HashMap<String, bool> {
+        let mut m = raw.clone();
+        for ex in excludes {
+            if let PrereqSpec::Exclude { trigger, target, effect } = ex {
+                if matches!(m.get(trigger).copied(), Some(true)) {
+                    match effect {
+                        ExcludeEffect::Disqualifies => {
+                            m.insert(target.clone(), false);
+                        }
+                        ExcludeEffect::Satisfies => {
+                            m.insert(target.clone(), true);
+                        }
+                    }
+                }
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn specs_simple_satisfied_when_id_done() {
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Simple { id: "a".to_string() }]),
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("t"), Some(&true));
+        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_map(&[]));
+        assert_eq!(r.unlocked.get("t"), Some(&false));
+    }
+
+    #[test]
+    fn specs_group_pick_n_of_m() {
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a", "b", "c", "d"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Group {
+                members: ids(&["a", "b", "c", "d"]),
+                pick: Some(2),
+            }]),
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("t"), Some(&false));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_map(&["a", "b"]));
+        assert_eq!(r.unlocked.get("t"), Some(&true));
+    }
+
+    #[test]
+    fn specs_count_need_n() {
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a", "b", "c"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Count {
+                members: ids(&["a", "b", "c"]),
+                need: 2,
+            }]),
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("t"), Some(&false));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_map(&["a", "b"]));
+        assert_eq!(r.unlocked.get("t"), Some(&true));
+    }
+
+    #[test]
+    fn exclude_disqualifies_blocks_via_rewrite() {
+        // 经典场景：所长奖学金获得者原则上不再参选冠名奖学金
+        let edges = vec![Edge {
+            to: "mainAward".to_string(),
+            prerequisites: ids(&["namedAward"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: None,
+            excludes: Some(vec![PrereqSpec::Exclude {
+                trigger: "chiefAward".to_string(),
+                target: "namedAward".to_string(),
+                effect: ExcludeEffect::Disqualifies,
+            }]),
+        }];
+        let excludes = collect_excludes(&edges);
+        // 没拿到所长 → namedAward done → 解锁
+        let done = rewrite_done(&done_map(&["namedAward"]), &excludes);
+        let r = compute_unlocked(
+            &ids(&["chiefAward", "namedAward", "mainAward"]),
+            &edges,
+            &done,
+        );
+        assert_eq!(r.unlocked.get("mainAward"), Some(&true));
+        // 拿到所长 → namedAward 被 disqualify → 锁
+        let done = rewrite_done(&done_map(&["chiefAward", "namedAward"]), &excludes);
+        let r = compute_unlocked(
+            &ids(&["chiefAward", "namedAward", "mainAward"]),
+            &edges,
+            &done,
+        );
+        assert_eq!(r.unlocked.get("mainAward"), Some(&false));
+    }
+
+    #[test]
+    fn exclude_satisfies_marks_done_via_rewrite() {
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["B"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: None,
+            excludes: Some(vec![PrereqSpec::Exclude {
+                trigger: "A".to_string(),
+                target: "B".to_string(),
+                effect: ExcludeEffect::Satisfies,
+            }]),
+        }];
+        let excludes = collect_excludes(&edges);
+        // 仅 A done → B 视为 done → t 解锁
+        let done = rewrite_done(&done_map(&["A"]), &excludes);
+        let r = compute_unlocked(&ids(&["A", "B", "t"]), &edges, &done);
+        assert_eq!(r.unlocked.get("t"), Some(&true));
+    }
+
+    #[test]
+    fn collect_excludes_dedupes_by_triple() {
+        let x = PrereqSpec::Exclude {
+            trigger: "a".to_string(),
+            target: "b".to_string(),
+            effect: ExcludeEffect::Disqualifies,
+        };
+        let edges = vec![
+            Edge {
+                to: "t1".to_string(),
+                prerequisites: ids(&["b"]),
+                rule: UnlockRule::All,
+                threshold: None,
+                groups: None,
+                specs: None,
+                excludes: Some(vec![x.clone()]),
+            },
+            Edge {
+                to: "t2".to_string(),
+                prerequisites: ids(&["b"]),
+                rule: UnlockRule::All,
+                threshold: None,
+                groups: None,
+                specs: Some(vec![x]),
+                excludes: None,
+            },
+        ];
+        assert_eq!(collect_excludes(&edges).len(), 1);
+    }
+
+    #[test]
+    fn backward_compat_no_specs_uses_old_path() {
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a", "b"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: None,
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_map(&["a"]));
+        assert_eq!(r.unlocked.get("t"), Some(&false));
+        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_map(&["a", "b"]));
+        assert_eq!(r.unlocked.get("t"), Some(&true));
     }
 }

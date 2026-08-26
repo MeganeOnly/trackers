@@ -22,4 +22,6 @@ pub mod slug;
 pub mod types;
 pub mod unlock;
 
-pub use types::{Edge, Progress, RelationsFile, UnlockResult, UnlockRule};
+pub use types::{
+    Edge, ExcludeEffect, PrereqSpec, Progress, RelationsFile, UnlockResult, UnlockRule,
+};

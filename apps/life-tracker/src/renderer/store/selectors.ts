@@ -2,19 +2,17 @@ import { useShallow } from 'zustand/react/shallow'
 import { useGoalsStore } from './goals'
 import { useRelationsStore } from './relations'
 import { computeUnlocked } from '@core'
-import { isGoalDone } from '@shared/types'
+import { buildDonePredicate } from '@shared/done'
 import type { Goal, Edge } from '@shared/types'
 
 export function useUnlocked(): { unlocked: Map<string, boolean>; cycles: string[][] } {
   const goals = useGoalsStore((s) => s.goals)
   const edges = useRelationsStore((s) => s.edges)
+  const { isDone } = buildDonePredicate(goals, edges)
   return computeUnlocked(
     goals.map((g) => g.id),
     edges,
-    (id) => {
-      const g = goals.find((x) => x.id === id)
-      return g ? isGoalDone(g) : false
-    }
+    isDone
   )
 }
 

@@ -25,7 +25,7 @@
 | crates/tracker-core: unlock.rs（compute_unlocked / detect_cycles） | Rust |
 | crates/tracker-core: config.rs（config.json 读写骨架） | Rust |
 | crates/tracker-core: data_dir.rs（双仓 + cache + init_with_picker，app 名参数化） | Rust |
-| packages/tracker-core: unlock.ts / progress.ts / types.ts（Edge/Progress/UnlockResult/BrokenEntry） | TS |
+| packages/tracker-core: unlock.ts / progress.ts / types.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec） | TS |
 | packages/tracker-ui: Modal / TopBar / GraphView / GraphModal / PrereqEditor / styles-base.css | TS/React |
 
 ### B. 参数化共享（进 core，抽象薄）
@@ -53,4 +53,5 @@
 
 ## 变更记录
 
+- v2（前置规格化）：`Edge` 扩展 `specs: PrereqSpec[]` 与 `excludes: ExcludeSpec[]`，支持『简单 / 二选一组 / 计数 / 互斥』四种前置规格。旧 `rule+threshold+groups` 路径完全兼容（无新字段 → 旧行为）。
 - v1（monorepo 初建）：从 book-tracker 抽取 core，life-tracker 从 core 长出；UI 基座共享列为待办

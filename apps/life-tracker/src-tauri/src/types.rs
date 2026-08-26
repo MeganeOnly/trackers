@@ -9,7 +9,13 @@
 use serde::{Deserialize, Serialize};
 
 // 通用类型：来自共享内核（crates/tracker-core）
-pub use tracker_core::{Edge, Progress, RelationsFile, UnlockResult, UnlockRule};
+// `ExcludeSpec` 在共享内核里是 `PrereqSpec::Exclude { trigger, target, effect }` 的
+// 形态；用类型别名保持 IPC / UI 侧的语义命名。
+pub use tracker_core::{
+    Edge, ExcludeEffect, PrereqSpec, Progress, RelationsFile, UnlockResult, UnlockRule,
+};
+/// 互斥规则别名（v2），与 `PrereqSpec::Exclude { trigger, target, effect }` 等价。
+pub type ExcludeSpec = PrereqSpec;
 
 /// 目标推进状态。`'not_started' | 'in_progress' | 'done' | 'shelved' | 'abandoned'`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 export * from './types'
-export { computeUnlocked, detectCycles } from './unlock'
+export { computeUnlocked, detectCycles, collectExcludes } from './unlock'
 export {
   parseProgress,
   normalizeProgressInput,
