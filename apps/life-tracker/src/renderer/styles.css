@@ -391,6 +391,94 @@ button:focus-visible {
 .status-tag.status-abandoned { color: var(--status-abandoned); }
 .status-tag.status-not_started { color: var(--muted); }
 
+/* v2 spec chip：与普通 .prereq 同样的边框 / 圆角 / 间距，不再画异形框 */
+.prereq-chips { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 4px; }
+.prereq.spec-group,
+.prereq.spec-count {
+  cursor: default;          /* 整组 chip 不再点击导航 */
+}
+.prereq.spec-group .title,
+.prereq.spec-count .title {
+  font-size: 13px;
+}
+/* chip 头部小标签：组合 / 计数任务，与成员标题拉开层级 */
+.prereq .spec-label {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+}
+/* 计数任务进度条：紧凑内联 */
+.prereq .progress-text {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.prereq .spec-progress {
+  width: 60px; height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.prereq .spec-progress .progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms ease-out;
+}
+.prereq.spec-satisfied .spec-label { background: var(--accent); color: white; }
+
+/* 互斥 / 失效规则栏（v2 exclude）—— 与前置 chip 视觉拉开 */
+.prereq-excludes {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fdf6f0;       /* 偏橙提示色，与绿色 accent-soft 区分 */
+}
+.prereq-excludes-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+.prereq-excludes ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.prereq-exclude {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+.prereq-exclude:hover { background: rgba(192, 87, 61, 0.05); }
+.prereq-exclude .exclude-label,
+.prereq-exclude .exclude-target {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.prereq-exclude .exclude-arrow { color: var(--muted); flex-shrink: 0; }
+.prereq-exclude .exclude-remove {
+  margin-left: auto;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.prereq-exclude .exclude-remove:hover { color: var(--danger); }
+.exclude-select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* ============ Clean mode ============ */
 .page-clean { flex: 1; padding: 24px 32px; overflow-y: auto; }
 .clean-header h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
@@ -584,29 +672,11 @@ button:focus-visible {
 .prereq .prereq-remove:hover { color: var(--danger); }
 .prereq .prereq-remove:disabled { opacity: 0.4; cursor: default; }
 
-/* 二选一组合（AND-of-ORs） */
-.rule-hint {
-  margin: 0 0 8px; font-size: 12px; color: var(--muted);
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-}
-.rule-hint .link-btn {
-  font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0;
-  text-decoration: underline;
-}
-.rule-hint .link-btn:hover { filter: brightness(0.85); }
-.or-groups { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.or-group {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border: 1px dashed var(--accent); border-radius: 4px;
-  background: var(--accent-soft);
-}
-.or-group-label { font-size: 11px; color: var(--accent); flex-shrink: 0; font-weight: 500; }
-.or-group-members {
-  font-size: 13px; flex: 1 1 auto; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.or-group-remove { font-size: 14px; line-height: 1; color: var(--muted); padding: 0 4px; flex-shrink: 0; }
-.or-group-remove:hover { color: var(--danger); }
+/* v2: 二选一组合已合并到 .prereq.spec-group chip；老的 .or-group / .rule-hint 删除 */
+
+/* v2 互斥规则已合并到 .prereq-excludes 栏 */
+
+/* 多选 / grouping 视觉（仅当用户在『组合二选一』模式下使用） */
 .prereq.grouping { cursor: pointer; }
 .prereq.group-sel { border-color: var(--accent); background: var(--accent-soft); }
 .group-pick {
@@ -619,6 +689,11 @@ button:focus-visible {
 .prereq-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .prereq-actions .add-prereq { margin-top: 8px; }
 .group-bar { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; }
+.link-btn {
+  font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.link-btn:hover { filter: brightness(0.85); }
 
 .add-prereq {
   margin-top: 8px;
