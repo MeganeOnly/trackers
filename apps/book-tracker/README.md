@@ -1,6 +1,6 @@
 # BookTracker — 作品追踪器
 
-> **monorepo 迁移说明**：本项目现位于 `trackers` monorepo（仓库根 `F:\LIFE`）的 `apps/book-tracker`。
+> **monorepo 迁移说明**：本项目现位于 `trackers` monorepo（仓库根 `<repo-root>`）的 `apps/book-tracker`。
 > 共享逻辑（前置依赖图 / 解锁 / 进度 / 文件存储 / 配置 / 数据目录）已抽到 `tracker-core`
 > （`packages/tracker-core` TS + `crates/tracker-core` Rust），与 `life-tracker` 共用——**一处改、两 app 同生效**。
 > 本目录 `src/shared/` 只保留 Book 领域类型与文案；开发命令与工作流见根 `AGENTS.md`。
@@ -47,8 +47,8 @@ npm run build:vite   # 只跑 vite build：产物在 dist/（供 tauri build 消
 Rust 后端验证（monorepo workspace 统一在根跑）：
 
 ```bash
-cd F:\LIFE && cargo test            # workspace 全量（含本 app）
-cd F:\LIFE && cargo build -p book-tracker
+cd <repo-root> && cargo test            # workspace 全量（含本 app）
+cd <repo-root> && cargo build -p book-tracker
 ```
 
 ## 发布

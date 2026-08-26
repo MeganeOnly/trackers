@@ -19,7 +19,7 @@
 
 ## 二、与 monorepo 的关系（重要）
 
-本应用并入 `trackers` monorepo（仓库根 `F:\LIFE`）。**共享逻辑在 monorepo 内核，不要在本目录重新实现/复制**：
+本应用并入 `trackers` monorepo（仓库根 `<repo-root>`）。**共享逻辑在 monorepo 内核，不要在本目录重新实现/复制**：
 
 - 解锁图 + 环检测：`tracker-core`（TS `packages/tracker-core/src/unlock.ts`、Rust `crates/tracker-core/src/unlock.rs`）—— 以 done map / `isDone` 谓词参数化
 - 进度纯函数：`packages/tracker-core/src/progress.ts` / `crates/tracker-core/src/progress.rs`
@@ -90,15 +90,15 @@ src/
 ## 六、常用命令
 
 ```bash
-cd F:\LIFE\apps\life-tracker
+cd <repo-root>/apps/life-tracker
 npm run dev            # tauri dev（Vite 1421 + Rust）
 npm run dev:vite       # 纯 renderer（端口 1421，与 book-tracker 的 1420 区分）
 npm run typecheck      # tsc 双段
 npm test               # vitest（tracker-core 共享测试）
 
 # Rust 在 repo 根 workspace 统一：
-cd F:\LIFE && cargo test -p life-tracker
-cd F:\LIFE && cargo build -p life-tracker
+cd <repo-root> && cargo test -p life-tracker
+cd <repo-root> && cargo build -p life-tracker
 ```
 
 ## 七、加新目标领域功能（本地流程）

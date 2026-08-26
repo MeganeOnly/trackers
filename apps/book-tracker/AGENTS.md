@@ -2,7 +2,7 @@
 
 > **给后续 agent 看的开发指南**。本文件应随项目一起 commit；不含本机路径 / 私人化信息。
 
-> **monorepo 迁移后说明（重要）**：本应用已并入 `trackers` monorepo（仓库根 `F:\LIFE`）。
+> **monorepo 迁移后说明（重要）**：本应用已并入 `trackers` monorepo（仓库根 `<repo-root>`）。
 > 共享逻辑已抽到 monorepo 内核，**不要在本目录重新实现/复制**：
 > - 解锁图 + 环检测：`tracker-core`（TS `packages/tracker-core/src/unlock.ts`、Rust `crates/tracker-core/src/unlock.rs`）
 > - 进度纯函数：`packages/tracker-core/src/progress.ts` / `crates/tracker-core/src/progress.rs`
@@ -243,8 +243,8 @@ npm run typecheck        # tsc 双段(node: vite.config.ts；web: renderer + sha
 npm test                 # vitest run（tracker-core 共享纯函数，见 vitest.config.ts）
 
 # Rust 后端（workspace 统一在 repo 根跑）
-cd F:\LIFE && cargo test            # workspace 全量（tracker-core + book-tracker + life-tracker）
-cd F:\LIFE && cargo build -p book-tracker   # 单独构建本 app
+cd <repo-root> && cargo test            # workspace 全量（tracker-core + book-tracker + life-tracker）
+cd <repo-root> && cargo build -p book-tracker   # 单独构建本 app
 ```
 
 Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 `src-tauri/target/release/book-tracker.exe`（可执行文件）。Vite 构建产物在 `dist/`。

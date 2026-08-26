@@ -15,6 +15,6 @@ target/
 src-tauri/target/
 src-tauri/gen/
 
-# 本机专属文档（不上 GitHub）
+# 杂项文档与编辑器临时
 *NOTES.md
 LEGACY-LOCATION*.md
