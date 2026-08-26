@@ -44,6 +44,10 @@ pub fn write_relations(
 }
 
 /// 把 raw Edge 容错纠正成合法 Edge。
+///
+/// 注意：用 `..raw` 保留未显式归一化的字段（`specs` / `excludes`），不要用
+/// `..Default::default()`——后者会把这两个 Option 字段重置成 None，
+/// 导致每次读 `relations.json` 时丢掉 v2 specs 与互斥规则。
 fn normalize_edge(raw: Edge) -> Edge {
     let rule = if raw.rule == UnlockRule::AnyOf {
         UnlockRule::AnyOf
@@ -69,12 +73,11 @@ fn normalize_edge(raw: Edge) -> Edge {
     });
     let groups = groups.filter(|g| !g.is_empty());
     Edge {
-        to: raw.to,
         prerequisites,
         rule,
         threshold,
         groups,
-        ..Default::default()
+        ..raw
     }
 }
 
@@ -173,5 +176,41 @@ mod tests {
         std::fs::write(dir.path().join("relations.json"), raw).unwrap();
         let r2 = read_relations(dir.path()).unwrap();
         assert!(r2.edges[0].groups.is_none());
+    }
+
+    #[test]
+    fn normalize_preserves_specs_and_excludes() {
+        // 关键回归测试：normalize_edge 不能把 specs / excludes 字段 reset 成 None。
+        // 历史上用 `..Default::default()` 导致每次读 relations.json 时丢掉 v2 字段，
+        // 用户重启后 simple spec（含 count）+ exclude 规则全部消失，
+        // 表现为"加了前置/互斥规则但读不到 / 像被删除了一样"。
+        let raw = r#"{
+            "version": 1,
+            "edges": [{
+                "to": "award",
+                "prerequisites": ["paper"],
+                "rule": "all",
+                "specs": [{"kind":"simple","id":"paper","count":2}],
+                "excludes": [{"kind":"exclude","trigger":"a","target":"paper","effect":"disqualifies"}]
+            }]
+        }"#;
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("relations.json"), raw).unwrap();
+        let r = read_relations(dir.path()).unwrap();
+        let specs = r.edges[0].specs.as_ref().expect("specs preserved");
+        assert_eq!(specs.len(), 1);
+        match &specs[0] {
+            crate::types::PrereqSpec::Simple { id, count } => {
+                assert_eq!(id, "paper");
+                assert_eq!(*count, Some(2));
+            }
+            other => panic!("expected Simple spec, got {other:?}"),
+        }
+        let excludes = r.edges[0].excludes.as_ref().expect("excludes preserved");
+        assert_eq!(excludes.len(), 1);
+        assert!(matches!(
+            &excludes[0],
+            crate::types::PrereqSpec::Exclude { .. }
+        ));
     }
 }

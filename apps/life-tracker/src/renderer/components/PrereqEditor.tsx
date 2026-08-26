@@ -203,6 +203,10 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       count >= 2 ? { kind: 'simple', id, count } : { kind: 'simple', id }
     const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
     await persist({ specs: nextSpecs, rule: rule, threshold: threshold, clearGroups: true })
+    setPickerOpen(false)
+    setPickerQuery('')
+    clearPickerSel()
+    setSingleCount(1)
   }
 
   const excludeCandidates = useMemo(() => {
@@ -624,9 +628,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
                     className="btn-primary"
                     onClick={() => {
                       const id = Array.from(pickerSel)[0]
-                      const n = singleCount
-                      void addSingle(id, n)
-                      setSingleCount(1)
+                      void addSingle(id, singleCount)
                     }}
                     title="把已选目标作为单个前置添加（count>1 时表示引用方需要它达到多少次）"
                   >
