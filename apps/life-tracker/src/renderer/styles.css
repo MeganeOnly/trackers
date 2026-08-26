@@ -449,11 +449,23 @@ button:focus-visible {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13px;
 }
-.picker-mode .count-need-row {
+.picker-mode .count-need-row,
+.picker-mode .single-count-row {
   display: inline-flex; align-items: center; gap: 4px;
 }
 .picker-mode .threshold-input {
   width: 44px;
+}
+
+/* simple spec 引用次数 tag —— ×N 表示引用方要求它达到 N 次 */
+.prereq .count-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #1a7f37);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-soft, #e6f4ea);
+  font-variant-numeric: tabular-nums;
 }
 .prereq-picker li.picker-sel {
   background: var(--accent-soft);

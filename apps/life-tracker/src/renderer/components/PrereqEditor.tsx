@@ -79,6 +79,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   /** picker 内『多选目标』状态：选中后用下方三种模式之一落 spec */
   const [pickerSel, setPickerSel] = useState<Set<string>>(new Set())
   const [countNeed, setCountNeed] = useState<number>(2)
+  /** picker 单选时『引用次数』步进器（≥1）：count>1 时落 simple spec 带 count */
+  const [singleCount, setSingleCount] = useState<number>(1)
   const [grouping, setGrouping] = useState(false)
   const [groupSel, setGroupSel] = useState<Set<string>>(new Set())
   const [excludePickerOpen, setExcludePickerOpen] = useState(false)
@@ -196,11 +198,10 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     setPickerQuery('')
     clearPickerSel()
   }
-  async function addSingle(id: string): Promise<void> {
-    const nextSpecs: PrereqSpec[] = [
-      ...(specs ?? []),
-      { kind: 'simple', id }
-    ]
+  async function addSingle(id: string, count: number = 1): Promise<void> {
+    const spec: PrereqSpec =
+      count >= 2 ? { kind: 'simple', id, count } : { kind: 'simple', id }
+    const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
     await persist({ specs: nextSpecs, rule: rule, threshold: threshold, clearGroups: true })
   }
 
@@ -389,6 +390,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     setPickerOpen(false)
     setPickerQuery('')
     setPickerSel(new Set())
+    setSingleCount(1)
     setGrouping(false)
     setGroupSel(new Set())
     setExcludePickerOpen(false)
@@ -589,13 +591,48 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
                 已选 <strong>{pickerSel.size}</strong> 个：
               </span>
               {pickerSel.size === 1 && (
-                <button
-                  className="btn-primary"
-                  onClick={() => void addSingle(Array.from(pickerSel)[0])}
-                  title="把已选目标作为单个前置添加"
-                >
-                  作为单个前置添加
-                </button>
+                <>
+                  <span className="single-count-row">
+                    <span className="muted">引用次数</span>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setSingleCount((n) => Math.max(1, n - 1))}
+                      title="减 1"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={singleCount}
+                      onChange={(e) =>
+                        setSingleCount(Math.max(1, Math.min(99, Number(e.target.value) || 1)))
+                      }
+                      className="threshold-input"
+                      title="引用次数（仅当目标是 countable 任务时生效）"
+                    />
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setSingleCount((n) => Math.min(99, n + 1))}
+                      title="加 1"
+                    >
+                      ＋
+                    </button>
+                  </span>
+                  <button
+                    className="btn-primary"
+                    onClick={() => {
+                      const id = Array.from(pickerSel)[0]
+                      const n = singleCount
+                      void addSingle(id, n)
+                      setSingleCount(1)
+                    }}
+                    title="把已选目标作为单个前置添加（count>1 时表示引用方需要它达到多少次）"
+                  >
+                    作为单个前置添加{singleCount >= 2 ? `（×${singleCount}）` : ''}
+                  </button>
+                </>
               )}
               {pickerSel.size >= 2 && (
                 <>
@@ -711,6 +748,7 @@ function PrereqChip({
   if (spec.kind === 'simple') {
     const g = goalById.get(spec.id)
     const isGroupSel = grouping && groupSel.has(spec.id)
+    const needCount = spec.count && spec.count >= 2 ? spec.count : null
     return (
       <li
         className={`prereq${grouping ? ' grouping' : ''}${isGroupSel ? ' group-sel' : ''}`}
@@ -724,6 +762,7 @@ function PrereqChip({
           <span className={`group-pick${isGroupSel ? ' picked' : ''}`}>{isGroupSel ? '✓' : ''}</span>
         )}
         <span className="title">{detail}</span>
+        {needCount && <span className="count-tag">×{needCount}</span>}
         {g && <span className={`status-tag status-${g.status}`}>{STATUS_LABELS[g.status]}</span>}
         <button
           className="prereq-remove"

@@ -64,6 +64,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
   const [note, setNote] = useState(goal?.note ?? '')
   const [pinned, setPinned] = useState(goal?.pinned ?? false)
   const [hidden, setHidden] = useState(goal?.hidden ?? false)
+  const [countable, setCountable] = useState(goal?.countable ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -81,6 +82,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
     setNote(goal?.note ?? '')
     setPinned(goal?.pinned ?? false)
     setHidden(goal?.hidden ?? false)
+    setCountable(goal?.countable ?? false)
     setError(null)
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,6 +136,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
         status,
         progress: null,
         note: note.trim(),
+        countable,
         pinned,
         hidden
       }
@@ -297,6 +300,16 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             <span>在日常模式『现在能推进』中收起（隐藏，不影响解锁）</span>
           </label>
         )}
+        <label className="form-checkline">
+          <input
+            type="checkbox"
+            checked={countable}
+            onChange={(e) => setCountable(e.target.checked)}
+          />
+          <span>
+            可计数任务 —— 别的目标引用时可指定需要完成多少次（与『量化进度』配合使用）
+          </span>
+        </label>
         <label className="field">
           <span>备注 / 描述</span>
           <textarea

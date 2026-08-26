@@ -40,6 +40,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
   const [note, setNote] = useState(goal?.note ?? '')
   const [pinned, setPinned] = useState(goal?.pinned ?? false)
   const [hidden, setHidden] = useState(goal?.hidden ?? false)
+  const [countable, setCountable] = useState(goal?.countable ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -64,7 +65,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
         status,
         progress: null,
         note: note.trim(),
-        countable: false,
+        countable,
         pinned,
         hidden
       }
@@ -206,6 +207,16 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
             <span>在日常模式『现在能推进』中收起（隐藏，不影响解锁）</span>
           </label>
         )}
+        <label className="form-checkline">
+          <input
+            type="checkbox"
+            checked={countable}
+            onChange={(e) => setCountable(e.target.checked)}
+          />
+          <span>
+            可计数任务 —— 别的目标引用时可指定需要完成多少次（与『量化进度』配合使用）
+          </span>
+        </label>
         <label className="field">
           <span>备注 / 描述</span>
           <textarea
