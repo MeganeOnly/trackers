@@ -64,6 +64,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
         status,
         progress: null,
         note: note.trim(),
+        countable: false,
         pinned,
         hidden
       }

@@ -54,6 +54,10 @@ pub struct Goal {
     pub status: GoalStatus,
     /// 量化进度(如"2 篇 SCI 已完成 1 篇")；`None` = 无量化目标
     pub progress: Option<Progress>,
+    /// 可计数任务：别的目标引用时可指定需要完成多少次。
+    /// countable 任务在解锁语义上不存在"全达成"——它就是个计数器，
+    /// 引用方 simple spec 携带的 `count` 直接对 progress.current 做比较。
+    pub countable: bool,
     /// 置顶展示：in_progress 时显示在 CleanMode 顶部『进行中』栏
     pub pinned: bool,
     /// 日常模式收起：not_started / in_progress 时从『现在能推进的目标』列表隐藏（纯展示，不影响解锁）
@@ -73,6 +77,9 @@ pub struct GoalInput {
     pub deadline: Option<String>,
     pub status: GoalStatus,
     pub progress: Option<Progress>,
+    /// 可计数（默认 false）
+    #[serde(default)]
+    pub countable: bool,
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
@@ -100,6 +107,9 @@ pub struct GoalPatch {
     /// 三态:`None` = 不改 / `Some(None)` = 清空 / `Some(Some(p))` = 设值
     #[serde(default, deserialize_with = "double_option")]
     pub progress: Option<Option<Progress>>,
+    /// 可计数
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub countable: Option<bool>,
     /// 置顶展示
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,

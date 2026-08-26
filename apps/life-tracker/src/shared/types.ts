@@ -41,6 +41,16 @@ export interface Goal {
   status: GoalStatus
   /** 量化进度（如"2 篇 SCI 已完成 1 篇"）；null = 无量化目标 */
   progress: Progress | null
+  /**
+   * 可计数任务：别的目标引用时可指定需要完成多少次。
+   * - 当其他目标 simple spec 引用本目标时，可携带 `count`（默认 1）；
+   *   解锁判定改为 progress.current >= count（而不是看 status==='done'）。
+   * - 自身"已达成"仍按 status==='done' 手动标记；
+   *   countable 任务在概念上不存在"全达成"——总是能再做下一篇，
+   *   完成的是它的"第 N 篇"这种具体引用方。
+   * - 写盘：仅 true 时写入 frontmatter，与 pinned/hidden 同款。
+   */
+  countable: boolean
   /** 置顶展示：状态为进行中时，显示在 CleanMode 顶部的『进行中』栏 */
   pinned: boolean
   /** 日常模式收起：状态为未开始/进行中时，从『现在能推进的目标』列表隐藏（纯展示，不影响解锁） */

@@ -7,6 +7,9 @@
 //! `ExcludeSpec`，先把 done map 改写一遍（disqualifies → false；satisfies → true），
 //! 再传入 compute_unlocked。与 TS 端 `apps/life-tracker/src/shared/done.ts` 的
 //! `buildDonePredicate` 语义一致。
+//!
+//! countable 任务：done 谓词按引用方要求的次数判断 —— 自身 progress.current >= required_count
+//! 就算 done（countable 任务在解锁语义上没有"全达成"，它就是个计数器）。
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -43,37 +46,59 @@ pub fn set_relations(data_dir: impl AsRef<Path>, edges: Vec<Edge>) -> std::io::R
     }))
 }
 
-/// 应用 ExcludeSpec 改写 done map（disqualifies → false；satisfies → true）。
-/// 同一 target 多次改写取最后一次；trigger 未 done 时该规则不生效。
-fn apply_excludes(done: &mut HashMap<String, bool>, excludes: &[PrereqSpec]) {
-    for ex in excludes {
-        if let PrereqSpec::Exclude { trigger, target, effect } = ex {
-            if !matches!(done.get(trigger).copied(), Some(true)) {
-                continue;
-            }
-            let v = matches!(effect, ExcludeEffect::Satisfies);
-            done.insert(target.clone(), v);
-        }
-    }
-}
-
 /// 给定 goals + edges,算 unlock map + cycles。
 ///
 /// 达成判定(与 TS `isGoalDone` 一致):status == Done,或量化进度已满(current >= total)。
+/// countable 任务的 done 谓词按引用方要求的次数判断（progress.current >= required_count）。
 /// v2: 应用所有 ExcludeSpec 改写 done map 后再算 unlock。
 pub fn compute_unlocked_for(goals: &[Goal], edges: &[Edge]) -> UnlockResult {
     let ids: Vec<String> = goals.iter().map(|g| g.id.clone()).collect();
-    let mut done: HashMap<String, bool> = goals
+
+    // raw_done = 普通任务的"已达成"语义（status==done 或 progress 满）。
+    // countable 任务的 raw_done 不参与谓词——其 done 由 progress.current >= required_count
+    // 决定，所以这里把 countable 任务的 raw_done 留 false。
+    let raw_done: HashMap<String, bool> = goals
         .iter()
         .map(|g| {
-            let complete = matches!(g.status, GoalStatus::Done)
-                || g.progress
-                    .as_ref()
-                    .is_some_and(|p| p.total.is_some_and(|t| p.current >= t));
+            let complete = !g.countable
+                && (matches!(g.status, GoalStatus::Done)
+                    || g.progress
+                        .as_ref()
+                        .is_some_and(|p| p.total.is_some_and(|t| p.current >= t)));
             (g.id.clone(), complete)
         })
         .collect();
+
+    // excludes 强改写层：disqualifies → false；satisfies → true；trigger 未 done 不生效。
+    // 与 TS 端 buildDonePredicate 语义一致 —— 改写后的结果视为 force_done。
     let excludes = collect_excludes(edges);
-    apply_excludes(&mut done, &excludes);
-    compute_unlocked(&ids, edges, &done)
+    let mut overrides: HashMap<String, bool> = HashMap::new();
+    for ex in &excludes {
+        if let PrereqSpec::Exclude { trigger, target, effect } = ex {
+            if !matches!(raw_done.get(trigger).copied(), Some(true)) {
+                continue;
+            }
+            let v = matches!(effect, ExcludeEffect::Satisfies);
+            overrides.insert(target.clone(), v);
+        }
+    }
+
+    let goal_by_id: HashMap<&str, &Goal> = goals.iter().map(|g| (g.id.as_str(), g)).collect();
+    let is_done = |id: &str, required_count: u32| -> bool {
+        // 1. excludes 强改写最优先
+        if let Some(&v) = overrides.get(id) {
+            return v;
+        }
+        // 2. countable 任务：按引用方 required_count 与 progress.current 比较
+        if let Some(&g) = goal_by_id.get(id) {
+            if g.countable {
+                let need = required_count.max(1);
+                return g.progress.as_ref().is_some_and(|p| p.current >= need);
+            }
+        }
+        // 3. 普通任务：按自身 done 状态
+        raw_done.get(id).copied().unwrap_or(false)
+    };
+
+    compute_unlocked(&ids, edges, &is_done)
 }

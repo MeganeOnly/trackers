@@ -39,12 +39,13 @@ pub fn set_relations(data_dir: impl AsRef<Path>, edges: Vec<Edge>) -> std::io::R
 
 /// 给定 books + edges,算 unlock map + cycles。
 ///
-/// 适配共享内核:把"book → finished 判定"参数化为 done map。
+/// 适配共享内核:把"book → finished 判定"参数化为谓词。
+/// book-tracker 没有 countable 任务 —— `required_count` 直接忽略。
 pub fn compute_unlocked_for(books: &[Book], edges: &[Edge]) -> UnlockResult {
     let ids: Vec<String> = books.iter().map(|b| b.id.clone()).collect();
     let done: HashMap<String, bool> = books
         .iter()
         .map(|b| (b.id.clone(), matches!(b.status, BookStatus::Finished)))
         .collect();
-    compute_unlocked(&ids, edges, &done)
+    compute_unlocked(&ids, edges, &|id, _k| done.get(id).copied().unwrap_or(false))
 }

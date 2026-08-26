@@ -70,6 +70,7 @@ fn normalize_goal(id: &str, data: &serde_json::Value) -> Goal {
         deadline: data.get("deadline").and_then(|v| v.as_str()).map(String::from),
         status: parse_status(data.get("status")),
         progress: data.get("progress").and_then(tracker_core::progress::parse_progress),
+        countable: data.get("countable").and_then(|v| v.as_bool()).unwrap_or(false),
         pinned: data.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false),
         hidden: data.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false),
         created: data.get("created").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -131,6 +132,7 @@ pub fn write_goal(
         deadline: input.deadline.clone(),
         status: input.status,
         progress: normalize_progress_input(input.progress.as_ref()),
+        countable: input.countable,
         pinned: input.pinned,
         hidden: input.hidden,
         created: now.clone(),
@@ -155,6 +157,7 @@ pub fn update_goal(
     if let Some(v) = &patch.category { merged.category = v.clone(); }
     if let Some(v) = &patch.deadline { merged.deadline = if v.is_empty() { None } else { Some(v.clone()) }; }
     if let Some(v) = patch.status { merged.status = v; }
+    if let Some(v) = patch.countable { merged.countable = v; }
     if let Some(v) = patch.pinned { merged.pinned = v; }
     if let Some(v) = patch.hidden { merged.hidden = v; }
     // progress 三态:
@@ -218,7 +221,10 @@ fn persist(goals_dir: impl AsRef<Path>, goal: &Goal) -> std::io::Result<()> {
         }
         fm.insert("progress".into(), serde_json::Value::Object(prog_map));
     }
-    // pinned / hidden 只在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
+    // pinned / hidden / countable 只在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
+    if goal.countable {
+        fm.insert("countable".into(), serde_json::Value::Bool(true));
+    }
     if goal.pinned {
         fm.insert("pinned".into(), serde_json::Value::Bool(true));
     }
@@ -255,6 +261,7 @@ mod tests {
             deadline: Some("2027-06-30".to_string()),
             status: GoalStatus::InProgress,
             progress: Some(Progress { current: 1, total: Some(2) }),
+            countable: false,
             pinned: false,
             hidden: false,
         }
@@ -405,5 +412,42 @@ mod tests {
         let patch = GoalPatch { hidden: Some(true), ..Default::default() };
         let updated = update_goal(&goals_dir, &goal.id, &patch).unwrap();
         assert!(updated.hidden);
+    }
+
+    #[test]
+    fn countable_round_trip_and_omit_when_false() {
+        let dir = temp_goals_dir();
+        let goals_dir = dir.path().join("goals");
+
+        // countable=true → 写盘并读回
+        let mut input = sample_input();
+        input.countable = true;
+        let goal = write_goal(&goals_dir, &input, &HashSet::new()).unwrap();
+        assert!(goal.countable);
+        let raw_true = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal.id))).unwrap();
+        assert!(raw_true.contains("countable"), "countable=true 应写盘");
+        assert!(read_goal(&goals_dir, &goal.id).unwrap().unwrap().countable);
+
+        // countable=false → 不写盘，读回仍为 false
+        let mut input2 = sample_input();
+        input2.countable = false;
+        let ids: HashSet<String> = [goal.id.clone()].into_iter().collect();
+        let goal2 = write_goal(&goals_dir, &input2, &ids).unwrap();
+        let raw = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal2.id))).unwrap();
+        assert!(!raw.contains("countable"), "countable=false 不应写盘");
+        assert!(!read_goal(&goals_dir, &goal2.id).unwrap().unwrap().countable);
+
+        // 旧文件没有 countable 字段 → 默认 false
+        let legacy = goals_dir.join("97.md");
+        std::fs::write(&legacy, "---\n{\"id\":\"97\",\"title\":\"旧目标3\",\"status\":\"in_progress\"}\n---\n# 旧目标3\n").unwrap();
+        assert!(!read_goal(&goals_dir, "97").unwrap().unwrap().countable);
+
+        // patch.countable 只在该字段出现时合并（true / false 都要生效）
+        let patch_true = GoalPatch { countable: Some(true), ..Default::default() };
+        let updated = update_goal(&goals_dir, &goal.id, &patch_true).unwrap();
+        assert!(updated.countable);
+        let patch_false = GoalPatch { countable: Some(false), ..Default::default() };
+        let updated2 = update_goal(&goals_dir, &goal.id, &patch_false).unwrap();
+        assert!(!updated2.countable);
     }
 }

@@ -21,6 +21,14 @@ export type PrereqKind = 'simple' | 'group' | 'count' | 'exclude'
 export interface SimpleSpec {
   kind: 'simple'
   id: string
+  /**
+   * 引用次数（仅当被引用目标是 `countable` 任务时才有意义）：
+   * - 缺省 / 1：等价于"目标已完成即可"（普通任务与 countable 任务都适用）
+   * - >= 2：要求 countable 任务的 progress.current >= count 才算 done
+   *
+   * 注：调用方写盘时，count === 1 应省略（避免污染 relations.json）。
+   */
+  count?: number
 }
 
 /** 二选一 / N 选一组合：成员里至少 `pick` 个 done 即满足该 spec */

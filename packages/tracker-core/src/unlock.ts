@@ -2,7 +2,9 @@ import type { Edge, ExcludeSpec, PrereqSpec, UnlockResult } from './types'
 
 /**
  * 给定条目 id 列表 + 关系 + 完成判定，计算每个条目是否解锁。
- * - isDone(id)：该条目是否算"已完成"（book: status==='finished'；goal: 自己的完成语义）。
+ * - isDone(id, requiredCount)：该条目是否算"已完成"。
+ *   - 普通任务：requiredCount 不影响判断（只看自身 done 状态）
+ *   - countable 任务：要求 progress.current >= requiredCount（typical 引用方填 1 / 2 / 3）
  *   应用层拿到原始 done 谓词后，应先用所有 `exclude` 改写一遍（`disqualifies` → 失格，
  *   `satisfies` → 视为 done），再传入本函数。
  * - 'all'：所有前置 done 才解锁
@@ -20,7 +22,7 @@ import type { Edge, ExcludeSpec, PrereqSpec, UnlockResult } from './types'
 export function computeUnlocked(
   ids: string[],
   edges: Edge[],
-  isDone: (id: string) => boolean
+  isDone: (id: string, requiredCount: number) => boolean
 ): UnlockResult {
   const unlocked = new Map<string, boolean>()
   const idSet = new Set(ids)
@@ -68,11 +70,11 @@ export function computeUnlocked(
       const inGroup = new Set(edge.groups.flat())
       const mandatoryOk = edge.prerequisites
         .filter((p) => !inGroup.has(p))
-        .every(isDone)
-      const groupsOk = edge.groups.every((g) => g.some(isDone))
+        .every((p) => isDone(p, 1))
+      const groupsOk = edge.groups.every((g) => g.some((p) => isDone(p, 1)))
       ok = mandatoryOk && groupsOk
     } else {
-      const done = edge.prerequisites.filter(isDone).length
+      const done = edge.prerequisites.filter((p) => isDone(p, 1)).length
       ok =
         edge.rule === 'all'
           ? done === edge.prerequisites.length
@@ -89,19 +91,22 @@ export function computeUnlocked(
 /**
  * 单个 spec 是否『满足』（exclude 在此永真，由谓词改写处理）。
  */
-function isSpecSatisfied(spec: PrereqSpec, isDone: (id: string) => boolean): boolean {
+function isSpecSatisfied(
+  spec: PrereqSpec,
+  isDone: (id: string, requiredCount: number) => boolean
+): boolean {
   switch (spec.kind) {
     case 'simple':
-      return isDone(spec.id)
+      return isDone(spec.id, spec.count ?? 1)
     case 'group': {
       const pick = spec.pick ?? 1
       let hit = 0
-      for (const m of spec.members) if (isDone(m)) hit++
+      for (const m of spec.members) if (isDone(m, 1)) hit++
       return hit >= pick
     }
     case 'count': {
       let hit = 0
-      for (const m of spec.members) if (isDone(m)) hit++
+      for (const m of spec.members) if (isDone(m, 1)) hit++
       return hit >= spec.need
     }
     case 'exclude':

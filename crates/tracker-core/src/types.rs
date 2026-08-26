@@ -40,7 +40,15 @@ pub enum PrereqKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PrereqSpec {
-    Simple { id: String },
+    /// 简单前置：单个目标引用。
+    /// `count` 是引用次数：缺省 / 1 时等价于"目标已完成即可"；
+    /// >= 2 时要求目标是 countable 任务且 progress.current >= count。
+    /// 写盘时 `count == 1` 跳过序列化，避免污染 relations.json。
+    Simple {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u32>,
+    },
     /// 二选一 / N 选一组合：`pick` 默认为 1（任选其一）
     #[serde(rename_all = "snake_case")]
     Group { members: Vec<String>, #[serde(default, skip_serializing_if = "Option::is_none")] pick: Option<u32> },

@@ -9,9 +9,9 @@ import type { Edge, ExcludeSpec } from '../types'
  *   路径 B：直接构造 specs+excludes 验证 collectExcludes 去重
  */
 
-function done(ids: string[]): (id: string) => boolean {
+function done(ids: string[]): (id: string, k: number) => boolean {
   const s = new Set(ids)
-  return (id: string) => s.has(id)
+  return (id: string, _k: number) => s.has(id)
 }
 
 describe('computeUnlocked — v2 specs', () => {
@@ -28,6 +28,46 @@ describe('computeUnlocked — v2 specs', () => {
     expect(r1.unlocked.get('t')).toBe(true)
     const r2 = computeUnlocked(['a', 't'], edges, done([]))
     expect(r2.unlocked.get('t')).toBe(false)
+  })
+
+  it('simple spec with count: 引用方把 requiredCount 透传给应用层谓词', () => {
+    // 模拟应用层：用一个 Map<id, current> 表示可计数任务的进度，
+    // 普通任务不存在时视作 done。
+    const progress: Record<string, number> = { sci: 1 }
+    const isDone = (id: string, k: number): boolean => {
+      if (id in progress) return progress[id] >= k
+      // 普通任务：自身 status==='done' 视情况而定；这里简化为只要在集合中就算 done
+      return true
+    }
+    const edges: Edge[] = [
+      {
+        to: 'award',
+        prerequisites: ['sci'],
+        rule: 'all',
+        specs: [{ kind: 'simple', id: 'sci', count: 2 }]
+      }
+    ]
+    // progress.current = 1 < 2 → 锁
+    expect(computeUnlocked(['sci', 'award'], edges, isDone).unlocked.get('award')).toBe(false)
+    // 进度涨到 2 → 解锁
+    progress.sci = 2
+    expect(computeUnlocked(['sci', 'award'], edges, isDone).unlocked.get('award')).toBe(true)
+    // 进度 3 → 仍解锁（>= 即通过）
+    progress.sci = 3
+    expect(computeUnlocked(['sci', 'award'], edges, isDone).unlocked.get('award')).toBe(true)
+  })
+
+  it('simple spec: count=1 时与不带 count 等价', () => {
+    const edgesNoCount: Edge[] = [
+      { to: 't', prerequisites: ['a'], rule: 'all', specs: [{ kind: 'simple', id: 'a' }] }
+    ]
+    const edgesCount1: Edge[] = [
+      { to: 't', prerequisites: ['a'], rule: 'all', specs: [{ kind: 'simple', id: 'a', count: 1 }] }
+    ]
+    const isDone = (id: string, _k: number) => id === 'a'
+    expect(computeUnlocked(['a', 't'], edgesNoCount, isDone).unlocked.get('t')).toBe(
+      computeUnlocked(['a', 't'], edgesCount1, isDone).unlocked.get('t')
+    )
   })
 
   it('group spec: 任选其一（pick=1）', () => {
@@ -134,14 +174,14 @@ describe('computeUnlocked — exclude 在 isDone 谓词层的改写', () => {
   function rewriteIsDone(
     raw: Set<string>,
     excludes: ExcludeSpec[]
-  ): (id: string) => boolean {
+  ): (id: string, k: number) => boolean {
     const modified = new Set(raw)
     for (const ex of excludes) {
       if (!raw.has(ex.trigger)) continue
       if (ex.effect === 'disqualifies') modified.delete(ex.target)
       else modified.add(ex.target)
     }
-    return (id: string) => modified.has(id)
+    return (id: string, _k: number) => modified.has(id)
   }
 
   it('disqualifies: trigger 已 done 时 target 不再算 done → 其做前置时不满足', () => {

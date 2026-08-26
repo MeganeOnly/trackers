@@ -19,21 +19,30 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{Edge, ExcludeEffect, PrereqSpec, UnlockResult, UnlockRule};
 
 /// 单个 spec 是否『满足』（exclude 在此永真，由谓词改写处理）。
-fn is_spec_satisfied(spec: &PrereqSpec, done: &HashMap<String, bool>) -> bool {
+///
+/// `required` 是 simple spec 携带的引用次数（`spec.count.unwrap_or(1)`）；
+/// group / count 内部成员按 1 次处理（一次"已达成"算一次 done 单位）。
+fn is_spec_satisfied<F: Fn(&str, u32) -> bool>(
+    spec: &PrereqSpec,
+    is_done: &F,
+) -> bool {
     match spec {
-        PrereqSpec::Simple { id } => done.get(id).copied().unwrap_or(false),
+        PrereqSpec::Simple { id, count } => {
+            let need = count.unwrap_or(1);
+            is_done(id, need)
+        }
         PrereqSpec::Group { members, pick } => {
             let need = pick.unwrap_or(1);
             let hit = members
                 .iter()
-                .filter(|m| done.get(*m).copied().unwrap_or(false))
+                .filter(|m| is_done(m, 1))
                 .count() as u32;
             hit >= need
         }
         PrereqSpec::Count { members, need } => {
             let hit = members
                 .iter()
-                .filter(|m| done.get(*m).copied().unwrap_or(false))
+                .filter(|m| is_done(m, 1))
                 .count() as u32;
             hit >= *need
         }
@@ -41,11 +50,18 @@ fn is_spec_satisfied(spec: &PrereqSpec, done: &HashMap<String, bool>) -> bool {
     }
 }
 
-/// 给定条目 id 列表 + 关系 + 完成 map，计算每个条目是否解锁。
-pub fn compute_unlocked(
+/// 给定条目 id 列表 + 关系 + 完成谓词，计算每个条目是否解锁。
+///
+/// `is_done(id, required_count)`：
+/// - 普通目标：required_count 不影响判断（只看自身 done 状态）
+/// - countable 目标：要求 progress.current >= required_count
+///
+/// 应用层在使用前先收集所有 `ExcludeSpec` 改写谓词（disqualifies → false；
+/// satisfies → true）；本函数本身不感知 exclude。
+pub fn compute_unlocked<F: Fn(&str, u32) -> bool>(
     ids: &[String],
     edges: &[Edge],
-    done: &HashMap<String, bool>,
+    is_done: &F,
 ) -> UnlockResult {
     let mut unlocked: HashMap<String, bool> = HashMap::new();
     let id_set: HashSet<String> = ids.iter().cloned().collect();
@@ -91,12 +107,12 @@ pub fn compute_unlocked(
 
     // 3. 迭代解锁（带 memo）
     //    用内部 fn + &mut HashMap 参数，避开递归闭包借用冲突。
-    fn unlocked_of(
+    fn unlocked_of<F: Fn(&str, u32) -> bool>(
         id: &str,
         unlocked: &mut HashMap<String, bool>,
         cycle_nodes: &HashSet<String>,
         edge_by_to: &HashMap<String, Edge>,
-        done: &HashMap<String, bool>,
+        is_done: &F,
     ) -> bool {
         if let Some(&v) = unlocked.get(id) {
             return v;
@@ -116,7 +132,7 @@ pub fn compute_unlocked(
         // v2 specs 路径（AND-of-specs）优先
         if let Some(specs) = &edge.specs {
             if !specs.is_empty() {
-                let ok = specs.iter().all(|s| is_spec_satisfied(s, done));
+                let ok = specs.iter().all(|s| is_spec_satisfied(s, is_done));
                 unlocked.insert(id.to_string(), ok);
                 return ok;
             }
@@ -124,7 +140,7 @@ pub fn compute_unlocked(
         let done_count = edge
             .prerequisites
             .iter()
-            .filter(|p| done.get(*p).copied().unwrap_or(false))
+            .filter(|p| is_done(p, 1))
             .count();
         let ok = match &edge.groups {
             // 二选一组合语义：必选项全部 done 且 每个组至少一个 done
@@ -134,10 +150,10 @@ pub fn compute_unlocked(
                     .prerequisites
                     .iter()
                     .filter(|p| !in_group.contains(p))
-                    .all(|p| done.get(p).copied().unwrap_or(false));
+                    .all(|p| is_done(p, 1));
                 let groups_ok = groups
                     .iter()
-                    .all(|g| g.iter().any(|p| done.get(p).copied().unwrap_or(false)));
+                    .all(|g| g.iter().any(|p| is_done(p, 1)));
                 mandatory_ok && groups_ok
             }
             _ => match edge.rule {
@@ -153,7 +169,7 @@ pub fn compute_unlocked(
     }
 
     for id in ids {
-        unlocked_of(id, &mut unlocked, &cycle_nodes, &edge_by_to, done);
+        unlocked_of(id, &mut unlocked, &cycle_nodes, &edge_by_to, is_done);
     }
 
     UnlockResult { unlocked, cycles }
@@ -273,6 +289,12 @@ mod tests {
         finished.iter().map(|s| (s.to_string(), true)).collect()
     }
 
+    /// 把 owned `HashMap<String, bool>` 转成 `Fn(&str, u32) -> bool` 闭包，
+    /// 适配 compute_unlocked 新签名。`required_count` 被忽略。
+    fn done_fn(done: HashMap<String, bool>) -> impl Fn(&str, u32) -> bool {
+        move |id, _k| done.get(id).copied().unwrap_or(false)
+    }
+
     fn edge(to: &str, prereqs: &[&str], rule: UnlockRule) -> Edge {
         Edge {
             to: to.to_string(),
@@ -284,19 +306,19 @@ mod tests {
 
     #[test]
     fn no_prereq_always_unlocked() {
-        let r = compute_unlocked(&ids(&["a"]), &[], &done_map(&[]));
+        let r = compute_unlocked(&ids(&["a"]), &[], &done_fn(done_map(&[])));
         assert_eq!(r.unlocked.get("a"), Some(&true));
     }
 
     #[test]
     fn rule_all_requires_all_done() {
         let edges = vec![edge("c", &["a", "b"], UnlockRule::All)];
-        let r = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("a"), Some(&true));
         assert_eq!(r.unlocked.get("b"), Some(&true));
         assert_eq!(r.unlocked.get("c"), Some(&false));
 
-        let r2 = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_map(&["a", "b"]));
+        let r2 = compute_unlocked(&ids(&["a", "b", "c"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r2.unlocked.get("c"), Some(&true));
     }
 
@@ -309,10 +331,10 @@ mod tests {
             threshold: Some(2),
             ..Default::default()
         }];
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "b"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r.unlocked.get("target"), Some(&true));
 
-        let r2 = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a"]));
+        let r2 = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r2.unlocked.get("target"), Some(&false));
     }
 
@@ -320,14 +342,14 @@ mod tests {
     fn not_done_does_not_count() {
         // done map 中没有的条目视为未完成
         let edges = vec![edge("target", &["a", "b", "c"], UnlockRule::All)];
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&[]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&[])));
         assert_eq!(r.unlocked.get("target"), Some(&false));
     }
 
     #[test]
     fn cycle_items_are_blocked_and_reported() {
         let edges = vec![edge("a", &["b"], UnlockRule::All), edge("b", &["a"], UnlockRule::All)];
-        let r = compute_unlocked(&ids(&["a", "b"]), &edges, &done_map(&[]));
+        let r = compute_unlocked(&ids(&["a", "b"]), &edges, &done_fn(done_map(&[])));
         assert_eq!(r.unlocked.get("a"), Some(&false));
         assert_eq!(r.unlocked.get("b"), Some(&false));
         assert!(!r.cycles.is_empty(), "should report at least one cycle");
@@ -336,7 +358,7 @@ mod tests {
     #[test]
     fn dangling_refs_are_silently_ignored() {
         let edges = vec![edge("target", &["a", "ghost"], UnlockRule::All)];
-        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("target"), Some(&true));
     }
 
@@ -364,15 +386,15 @@ mod tests {
         }];
         // c 必须 + a/b 二选一
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a", "c"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["a", "c"])));
         assert!(ok(&r));
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["b", "c"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["b", "c"])));
         assert!(ok(&r));
         // 缺 c → 锁
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert!(!ok(&r));
         // 组内一个都没完成 → 锁
-        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_map(&["c"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "target"]), &edges, &done_fn(done_map(&["c"])));
         assert!(!ok(&r));
     }
 
@@ -387,10 +409,10 @@ mod tests {
             ..Default::default()
         }];
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
-        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_map(&["a", "c"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_fn(done_map(&["a", "c"])));
         assert!(ok(&r));
         // 只满足第一组 → 锁
-        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert!(!ok(&r));
     }
 
@@ -405,9 +427,9 @@ mod tests {
             ..Default::default()
         }];
         let ok = |r: &UnlockResult| r.unlocked.get("target").copied().unwrap_or(false);
-        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert!(!ok(&r));
-        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_map(&["a", "b"]));
+        let r = compute_unlocked(&ids(&["a", "b", "target"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert!(ok(&r));
     }
 
@@ -422,7 +444,7 @@ mod tests {
             groups: Some(vec![ids(&["a", "ghost"])]),
             ..Default::default()
         }];
-        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "target"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("target"), Some(&true));
 
         // 组全悬空 → 永不满足 → 锁
@@ -434,29 +456,30 @@ mod tests {
             groups: Some(vec![ids(&["ghost1", "ghost2"])]),
             ..Default::default()
         }];
-        let r2 = compute_unlocked(&ids(&["a", "target"]), &edges2, &done_map(&[]));
+        let r2 = compute_unlocked(&ids(&["a", "target"]), &edges2, &done_fn(done_map(&[])));
         assert_eq!(r2.unlocked.get("target"), Some(&false));
     }
 
     // ========== v2 specs / excludes ==========
 
-    fn rewrite_done(raw: &HashMap<String, bool>, excludes: &[PrereqSpec]) -> HashMap<String, bool> {
-        let mut m = raw.clone();
+    fn rewrite_done<'a, F: Fn(&str, u32) -> bool>(
+        is_done: &'a F,
+        excludes: &'a [PrereqSpec],
+    ) -> impl Fn(&str, u32) -> bool + 'a {
+        let mut overrides: HashMap<String, bool> = HashMap::new();
         for ex in excludes {
             if let PrereqSpec::Exclude { trigger, target, effect } = ex {
-                if matches!(m.get(trigger).copied(), Some(true)) {
-                    match effect {
-                        ExcludeEffect::Disqualifies => {
-                            m.insert(target.clone(), false);
-                        }
-                        ExcludeEffect::Satisfies => {
-                            m.insert(target.clone(), true);
-                        }
-                    }
+                if is_done(trigger, 1) {
+                    overrides.insert(target.clone(), matches!(effect, ExcludeEffect::Satisfies));
                 }
             }
         }
-        m
+        move |id, _k| {
+            if let Some(&v) = overrides.get(id) {
+                return v;
+            }
+            is_done(id, 1)
+        }
     }
 
     #[test]
@@ -467,13 +490,70 @@ mod tests {
             rule: UnlockRule::All,
             threshold: None,
             groups: None,
-            specs: Some(vec![PrereqSpec::Simple { id: "a".to_string() }]),
+            specs: Some(vec![PrereqSpec::Simple { id: "a".to_string(), count: None }]),
             excludes: None,
         }];
-        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("t"), Some(&true));
-        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_map(&[]));
+        let r = compute_unlocked(&ids(&["a", "t"]), &edges, &done_fn(done_map(&[])));
         assert_eq!(r.unlocked.get("t"), Some(&false));
+    }
+
+    #[test]
+    fn specs_simple_count_passes_required_to_predicate() {
+        // 模拟可计数任务的进度谓词：progress.current 必须 >= 引用方要求的次数。
+        // progress = { sci: 1 } → count=2 不满足；count=1 满足
+        let progress: HashMap<String, u32> = [("sci".to_string(), 1)].into_iter().collect();
+        let is_done = |id: &str, k: u32| -> bool { progress.get(id).copied().unwrap_or(0) >= k };
+        let edges = vec![Edge {
+            to: "award".to_string(),
+            prerequisites: ids(&["sci"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Simple {
+                id: "sci".to_string(),
+                count: Some(2),
+            }]),
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["sci", "award"]), &edges, &is_done);
+        assert_eq!(r.unlocked.get("award"), Some(&false));
+        // 进度涨到 2 → 解锁
+        let progress2: HashMap<String, u32> = [("sci".to_string(), 2)].into_iter().collect();
+        let is_done2 = |id: &str, k: u32| -> bool { progress2.get(id).copied().unwrap_or(0) >= k };
+        let r = compute_unlocked(&ids(&["sci", "award"]), &edges, &is_done2);
+        assert_eq!(r.unlocked.get("award"), Some(&true));
+    }
+
+    #[test]
+    fn specs_simple_count_none_equivalent_to_count_1() {
+        // count=None 与 count=Some(1) 等价
+        let is_done = |id: &str, _k: u32| -> bool { id == "a" };
+        let edges_none = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Simple { id: "a".to_string(), count: None }]),
+            excludes: None,
+        }];
+        let edges_one = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Simple {
+                id: "a".to_string(),
+                count: Some(1),
+            }]),
+            excludes: None,
+        }];
+        let r_none = compute_unlocked(&ids(&["a", "t"]), &edges_none, &is_done);
+        let r_one = compute_unlocked(&ids(&["a", "t"]), &edges_one, &is_done);
+        assert_eq!(r_none.unlocked.get("t"), r_one.unlocked.get("t"));
     }
 
     #[test]
@@ -490,9 +570,9 @@ mod tests {
             }]),
             excludes: None,
         }];
-        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("t"), Some(&false));
-        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_map(&["a", "b"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "d", "t"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r.unlocked.get("t"), Some(&true));
     }
 
@@ -510,9 +590,9 @@ mod tests {
             }]),
             excludes: None,
         }];
-        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("t"), Some(&false));
-        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_map(&["a", "b"]));
+        let r = compute_unlocked(&ids(&["a", "b", "c", "t"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r.unlocked.get("t"), Some(&true));
     }
 
@@ -534,7 +614,8 @@ mod tests {
         }];
         let excludes = collect_excludes(&edges);
         // 没拿到所长 → namedAward done → 解锁
-        let done = rewrite_done(&done_map(&["namedAward"]), &excludes);
+        let base = done_fn(done_map(&["namedAward"]));
+        let done = rewrite_done(&base, &excludes);
         let r = compute_unlocked(
             &ids(&["chiefAward", "namedAward", "mainAward"]),
             &edges,
@@ -542,7 +623,8 @@ mod tests {
         );
         assert_eq!(r.unlocked.get("mainAward"), Some(&true));
         // 拿到所长 → namedAward 被 disqualify → 锁
-        let done = rewrite_done(&done_map(&["chiefAward", "namedAward"]), &excludes);
+        let base2 = done_fn(done_map(&["chiefAward", "namedAward"]));
+        let done = rewrite_done(&base2, &excludes);
         let r = compute_unlocked(
             &ids(&["chiefAward", "namedAward", "mainAward"]),
             &edges,
@@ -568,7 +650,8 @@ mod tests {
         }];
         let excludes = collect_excludes(&edges);
         // 仅 A done → B 视为 done → t 解锁
-        let done = rewrite_done(&done_map(&["A"]), &excludes);
+        let base3 = done_fn(done_map(&["A"]));
+        let done = rewrite_done(&base3, &excludes);
         let r = compute_unlocked(&ids(&["A", "B", "t"]), &edges, &done);
         assert_eq!(r.unlocked.get("t"), Some(&true));
     }
@@ -614,9 +697,9 @@ mod tests {
             specs: None,
             excludes: None,
         }];
-        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_map(&["a"]));
+        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_fn(done_map(&["a"])));
         assert_eq!(r.unlocked.get("t"), Some(&false));
-        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_map(&["a", "b"]));
+        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r.unlocked.get("t"), Some(&true));
     }
 }

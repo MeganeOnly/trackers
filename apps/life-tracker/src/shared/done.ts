@@ -14,6 +14,7 @@ import { isGoalDone } from '@shared/types'
 /**
  * 给一组 goals + edges，构造改写后的 done 谓词。
  * - 基础谓词：isGoalDone（status==='done' || progress 已满）
+ * - countable 任务：done 谓词按引用方要求的次数判断（progress.current >= requiredCount）
  * - 应用每条 ExcludeSpec：
  *   - effect === 'disqualifies' 且 trigger.done → target 视为未 done
  *   - effect === 'satisfies' 且 trigger.done → target 视为已 done
@@ -25,7 +26,7 @@ export function buildDonePredicate(
   goals: readonly Goal[],
   edges: readonly Edge[]
 ): {
-  isDone: (id: string) => boolean
+  isDone: (id: string, requiredCount: number) => boolean
   excludes: ExcludeSpec[]
 } {
   const goalById = new Map(goals.map((g) => [g.id, g]))
@@ -42,10 +43,18 @@ export function buildDonePredicate(
   }
 
   return {
-    isDone: (id: string): boolean => {
+    isDone: (id: string, requiredCount: number): boolean => {
       if (overrides.has(id)) return overrides.get(id)!
       const g = goalById.get(id)
-      return g ? isGoalDone(g) : false
+      if (!g) return false
+      // countable 任务：解锁判据只看 progress.current 是否达到引用方要求的次数
+      // （countable 任务自身没有"全达成"语义——它就是个计数器）
+      if (g.countable) {
+        const need = Math.max(1, requiredCount | 0)
+        return (g.progress?.current ?? 0) >= need
+      }
+      // 普通任务：requiredCount 不影响判断（只看自身 done 状态）
+      return isGoalDone(g)
     },
     excludes
   }
