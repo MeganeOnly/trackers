@@ -246,6 +246,97 @@ describe('computeUnlocked — 兼容性（无 specs/excludes 时行为与旧版�
   })
 })
 
+describe('computeUnlocked — group per-member count (v3)', () => {
+  /**
+   * 模拟 life-tracker 应用层 isDone：对 countable 任务比较 progress.current >= requiredCount；
+   * 普通任务只要 id 命中 done set 即视为 done。
+   */
+  function isDoneWithCounts(
+    progress: Record<string, number>,
+    rawDone: Set<string>
+  ): (id: string, k: number) => boolean {
+    return (id: string, k: number): boolean => {
+      if (id in progress) return progress[id] >= k
+      return rawDone.has(id)
+    }
+  }
+
+  it('group [{id,count:2}, C] pick=1：B=1 不满足，C 完成时满足', () => {
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['B', 'C'],
+        rule: 'all',
+        specs: [
+          {
+            kind: 'group',
+            members: [{ id: 'B', count: 2 }, { id: 'C' }],
+            pick: 1
+          }
+        ]
+      }
+    ]
+    const isDone = isDoneWithCounts({ B: 1 }, new Set(['C']))
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDone).unlocked.get('t')).toBe(true)
+  })
+
+  it('group [{id,count:2}, C] pick=1：B=2 时满足（不需要 C）', () => {
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['B'],
+        rule: 'all',
+        specs: [
+          {
+            kind: 'group',
+            members: [{ id: 'B', count: 2 }, { id: 'C' }],
+            pick: 1
+          }
+        ]
+      }
+    ]
+    const isDone = isDoneWithCounts({ B: 2 }, new Set([]))
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDone).unlocked.get('t')).toBe(true)
+  })
+
+  it('group 旧 ["B","C"] 形态仍按 requiredCount=1 计算（向后兼容）', () => {
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['B', 'C'],
+        rule: 'all',
+        specs: [{ kind: 'group', members: ['B', 'C'], pick: 1 }]
+      }
+    ]
+    // 普通任务：B 完成即视为 done；requiredCount=1
+    expect(computeUnlocked(['B', 'C', 't'], edges, done(['B'])).unlocked.get('t')).toBe(true)
+    expect(computeUnlocked(['B', 'C', 't'], edges, done(['C'])).unlocked.get('t')).toBe(true)
+  })
+
+  it('AND-of-specs：simple B count=1 AND group [{B,count:2}, C] pick=1 —— 表达用户原例', () => {
+    // 用户原例：(B 完成第 1 次) AND ((B 完成第 2 次) OR C 完成)
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['B'],
+        rule: 'all',
+        specs: [
+          { kind: 'simple', id: 'B', count: 1 },
+          { kind: 'group', members: [{ id: 'B', count: 2 }, { id: 'C' }], pick: 1 }
+        ]
+      }
+    ]
+    // B=1 且 C 完成 → 解锁（满足 simple B>=1 和 group 中 C）
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDoneWithCounts({ B: 1 }, new Set(['C']))).unlocked.get('t')).toBe(true)
+    // B=1 但 C 没完成 → 不解锁
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDoneWithCounts({ B: 1 }, new Set([]))).unlocked.get('t')).toBe(false)
+    // B=2 → 解锁（C 状态无所谓）
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDoneWithCounts({ B: 2 }, new Set([]))).unlocked.get('t')).toBe(true)
+    // B=0 → 不解锁
+    expect(computeUnlocked(['B', 'C', 't'], edges, isDoneWithCounts({ B: 0 }, new Set([]))).unlocked.get('t')).toBe(false)
+  })
+})
+
 describe('detectCycles — 包含 exclude / specs 的图', () => {
   it('exclude 不形成新边（不参与环检测）', () => {
     // exclude 不会让 to/prereq 出现循环；这里验证 detectCycles 对纯 specs 也能跑通

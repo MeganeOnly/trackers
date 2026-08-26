@@ -3,8 +3,11 @@
 //! 与 `packages/tracker-core/src/types.ts` 1:1 对应，字段名 / 值完全一致。
 //! 领域类型（Book / Goal / Config / 状态枚举）由各 app 自己定义，不进 core。
 
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::Serializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// 进度。`{ current: u32, total: u32 | null }`
 /// `total = null` 表示总量未知（连载 / 开放式目标）。
@@ -36,6 +39,97 @@ pub enum PrereqKind {
     Exclude,
 }
 
+/// 二选一 / N 选一组合成员（v3）：
+/// - 字符串形态：`"B"` 等价于 `{ id: "B", count: 1 }`（向后兼容旧数据）
+/// - 对象形态：`{ id: "B", count: 2 }` 支持 per-member count
+///
+/// 序列化：count === 1 时省略 count 字段（避免 relations.json 污染）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupMember {
+    /// 仅 id，引用次数默认 1
+    Id(String),
+    /// 带引用次数的成员
+    WithCount { id: String, count: u32 },
+}
+
+impl GroupMember {
+    pub fn id(&self) -> &str {
+        match self {
+            GroupMember::Id(s) => s,
+            GroupMember::WithCount { id, .. } => id,
+        }
+    }
+    /// 取引用次数（默认 1）。1 视作缺省值。
+    pub fn count(&self) -> u32 {
+        match self {
+            GroupMember::Id(_) => 1,
+            GroupMember::WithCount { count, .. } => (*count).max(1),
+        }
+    }
+}
+
+impl Serialize for GroupMember {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // 形态选择：count == 1 → 序列化为字符串；否则序列化为 `{id, count}`
+        match self {
+            GroupMember::Id(s) => serializer.serialize_str(s),
+            GroupMember::WithCount { id, count } if *count <= 1 => {
+                serializer.serialize_str(id)
+            }
+            GroupMember::WithCount { id, count } => {
+                use serde::ser::SerializeStruct;
+                let mut st = serializer.serialize_struct("GroupMember", 2)?;
+                st.serialize_field("id", id)?;
+                st.serialize_field("count", count)?;
+                st.end()
+            }
+        }
+    }
+}
+
+struct GroupMemberVisitor;
+
+impl<'de> Visitor<'de> for GroupMemberVisitor {
+    type Value = GroupMember;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("string id or { id, count? } object")
+    }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        Ok(GroupMember::Id(v.to_string()))
+    }
+
+    fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+        Ok(GroupMember::Id(v))
+    }
+
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        let mut id: Option<String> = None;
+        let mut count: Option<u32> = None;
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "id" => id = Some(map.next_value()?),
+                "count" => count = Some(map.next_value()?),
+                _ => {
+                    let _: serde::de::IgnoredAny = map.next_value()?;
+                }
+            }
+        }
+        let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
+        match count {
+            None | Some(1) => Ok(GroupMember::Id(id)),
+            Some(c) => Ok(GroupMember::WithCount { id, count: c }),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GroupMember {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(GroupMemberVisitor)
+    }
+}
+
 /// 简单前置：单个目标引用
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -49,10 +143,15 @@ pub enum PrereqSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<u32>,
     },
-    /// 二选一 / N 选一组合：`pick` 默认为 1（任选其一）
+    /// 二选一 / N 选一组合：`pick` 默认为 1（任选其一）。
+    /// `members` 支持字符串（向后兼容）或 `{id, count}` 形态。
     #[serde(rename_all = "snake_case")]
-    Group { members: Vec<String>, #[serde(default, skip_serializing_if = "Option::is_none")] pick: Option<u32> },
-    /// 计数任务：成员里至少 `need` 个 done
+    Group {
+        members: Vec<GroupMember>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pick: Option<u32>,
+    },
+    /// 计数任务：成员里至少 `need` 个 done（v3 暂未扩展 per-member count）
     #[serde(rename_all = "snake_case")]
     Count { members: Vec<String>, need: u32 },
     /// 互斥规则：trigger 达成时改写 target 的 done 语义

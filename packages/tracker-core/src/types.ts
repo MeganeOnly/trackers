@@ -31,10 +31,33 @@ export interface SimpleSpec {
   count?: number
 }
 
+/**
+ * 二选一 / N 选一组合成员（v3）：
+ * - 字符串形态：`"B"` 等价于 `{ id: "B", count: 1 }`（向后兼容旧数据）
+ * - 对象形态：`{ id: "B", count: 2 }` 支持 per-member count
+ *
+ * 序列化：count === 1 时省略 count 字段（避免 relations.json 污染）；
+ * 旧 `"B"` 形态反序列化时与 `{id:"B",count:1}` 完全等价。
+ */
+export type GroupMember = string | { id: string; count?: number }
+
+/** 取 member 的目标 id（兼容两种形态） */
+export function groupMemberId(m: GroupMember): string {
+  return typeof m === 'string' ? m : m.id
+}
+
+/** 取 member 的引用次数（默认 1） */
+export function groupMemberCount(m: GroupMember): number {
+  if (typeof m === 'string') return 1
+  const c = Number(m.count)
+  if (!Number.isFinite(c) || c < 1) return 1
+  return Math.floor(c)
+}
+
 /** 二选一 / N 选一组合：成员里至少 `pick` 个 done 即满足该 spec */
 export interface GroupSpec {
   kind: 'group'
-  members: string[]
+  members: GroupMember[]
   /** 默认 1（任选其一）；设为 K 即 N 选 K */
   pick?: number
 }

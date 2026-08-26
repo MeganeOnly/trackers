@@ -1,4 +1,5 @@
 import type { Edge, ExcludeSpec, PrereqSpec, UnlockResult } from './types'
+import { groupMemberCount, groupMemberId } from './types'
 
 /**
  * 给定条目 id 列表 + 关系 + 完成判定，计算每个条目是否解锁。
@@ -90,6 +91,10 @@ export function computeUnlocked(
 
 /**
  * 单个 spec 是否『满足』（exclude 在此永真，由谓词改写处理）。
+ *
+ * v3：group members 支持 per-member count（`{id, count}` 形态）；
+ * 普通任务仍按 requiredCount=1 计算（countable 任务的 per-member count
+ * 由应用层 isDone 谓词基于 progress.current 比较）。
  */
 function isSpecSatisfied(
   spec: PrereqSpec,
@@ -101,12 +106,14 @@ function isSpecSatisfied(
     case 'group': {
       const pick = spec.pick ?? 1
       let hit = 0
-      for (const m of spec.members) if (isDone(m, 1)) hit++
+      for (const m of spec.members) {
+        if (isDone(groupMemberId(m), groupMemberCount(m))) hit++
+      }
       return hit >= pick
     }
     case 'count': {
       let hit = 0
-      for (const m of spec.members) if (isDone(m, 1)) hit++
+      for (const m of spec.members) if (isDone(groupMemberId(m), 1)) hit++
       return hit >= spec.need
     }
     case 'exclude':

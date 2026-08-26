@@ -17,11 +17,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::types::{Edge, ExcludeEffect, PrereqSpec, UnlockResult, UnlockRule};
+#[cfg(test)]
+use crate::types::GroupMember;
 
 /// 单个 spec 是否『满足』（exclude 在此永真，由谓词改写处理）。
 ///
-/// `required` 是 simple spec 携带的引用次数（`spec.count.unwrap_or(1)`）；
-/// group / count 内部成员按 1 次处理（一次"已达成"算一次 done 单位）。
+/// v3：group members 支持 per-member count（`WithCount { id, count }` 形态）；
+/// string 形态与 `Count` 内部成员按 1 次处理（一次"已达成"算一次 done 单位）。
+/// 应用层 isDone 谓词负责把 countable 任务的 `progress.current >= count` 翻译成 true。
 fn is_spec_satisfied<F: Fn(&str, u32) -> bool>(
     spec: &PrereqSpec,
     is_done: &F,
@@ -35,7 +38,7 @@ fn is_spec_satisfied<F: Fn(&str, u32) -> bool>(
             let need = pick.unwrap_or(1);
             let hit = members
                 .iter()
-                .filter(|m| is_done(m, 1))
+                .filter(|m| is_done(m.id(), m.count()))
                 .count() as u32;
             hit >= need
         }
@@ -565,7 +568,10 @@ mod tests {
             threshold: None,
             groups: None,
             specs: Some(vec![PrereqSpec::Group {
-                members: ids(&["a", "b", "c", "d"]),
+                members: ids(&["a", "b", "c", "d"])
+                    .into_iter()
+                    .map(GroupMember::Id)
+                    .collect(),
                 pick: Some(2),
             }]),
             excludes: None,
@@ -701,5 +707,128 @@ mod tests {
         assert_eq!(r.unlocked.get("t"), Some(&false));
         let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_fn(done_map(&["a", "b"])));
         assert_eq!(r.unlocked.get("t"), Some(&true));
+    }
+
+    // ========== v3 group per-member count ==========
+
+    /// 模拟 life-tracker 应用层 isDone：countable 任务用 progress.current 比较，
+    /// 普通任务用 done set。返回 `Fn(&str, u32) -> bool`。
+    fn done_with_counts(
+        progress: &[(&str, u32)],
+        raw_done: &[&str],
+    ) -> impl Fn(&str, u32) -> bool {
+        let prog: std::collections::HashMap<String, u32> =
+            progress.iter().map(|(k, v)| ((*k).to_string(), *v)).collect();
+        let raw: std::collections::HashSet<String> =
+            raw_done.iter().map(|s| (*s).to_string()).collect();
+        move |id, k| match prog.get(id) {
+            Some(&cur) => cur >= k,
+            None => raw.contains(id),
+        }
+    }
+
+    fn group_m(
+        items: &[(&str, u32)],
+    ) -> Vec<GroupMember> {
+        items
+            .iter()
+            .map(|(id, c)| {
+                if *c <= 1 {
+                    GroupMember::Id((*id).to_string())
+                } else {
+                    GroupMember::WithCount { id: (*id).to_string(), count: *c }
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn specs_group_per_member_count_below_required() {
+        // group [{B,2}, C] pick=1：B=1 不满足（仍需要 C）
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["B", "C"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Group {
+                members: group_m(&[("B", 2), ("C", 1)]),
+                pick: Some(1),
+            }]),
+            excludes: None,
+        }];
+        let is_done = done_with_counts(&[("B", 1)], &["C"]);
+        assert_eq!(
+            compute_unlocked(&ids(&["B", "C", "t"]), &edges, &is_done).unlocked.get("t"),
+            Some(&true)
+        );
+    }
+
+    #[test]
+    fn specs_group_per_member_count_meets_required() {
+        // group [{B,2}, C] pick=1：B=2 即满足
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["B"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Group {
+                members: group_m(&[("B", 2), ("C", 1)]),
+                pick: Some(1),
+            }]),
+            excludes: None,
+        }];
+        let is_done = done_with_counts(&[("B", 2)], &[]);
+        assert_eq!(
+            compute_unlocked(&ids(&["B", "C", "t"]), &edges, &is_done).unlocked.get("t"),
+            Some(&true)
+        );
+    }
+
+    #[test]
+    fn specs_group_string_form_backward_compat() {
+        // 旧 ["a", "b"] 形态仍按 requiredCount=1 计算
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a", "b"]),
+            rule: UnlockRule::All,
+            threshold: None,
+            groups: None,
+            specs: Some(vec![PrereqSpec::Group {
+                members: ids(&["a", "b"])
+                    .into_iter()
+                    .map(GroupMember::Id)
+                    .collect(),
+                pick: Some(1),
+            }]),
+            excludes: None,
+        }];
+        let r = compute_unlocked(&ids(&["a", "b", "t"]), &edges, &done_fn(done_map(&["a"])));
+        assert_eq!(r.unlocked.get("t"), Some(&true));
+    }
+
+    #[test]
+    fn specs_group_per_count_serde_roundtrip() {
+        // 写盘形态 [{id,count}] 与 ["id"] 互转一致
+        let with_count = vec![PrereqSpec::Group {
+            members: group_m(&[("B", 2), ("C", 1)]),
+            pick: Some(1),
+        }];
+        let s = serde_json::to_string(&with_count).unwrap();
+        // count=1 的 C 序列化为字符串；B 序列化为 {id, count}
+        assert!(s.contains("\"id\":\"B\",\"count\":2"), "got: {s}");
+        assert!(s.contains("\"C\""), "got: {s}");
+        // 反序列化
+        let back: Vec<PrereqSpec> = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, with_count);
+    }
+
+    #[test]
+    fn specs_group_per_count_old_data_loads() {
+        // 旧 data 形如 ["a", "b"] 也能直接 deserialize 成新形态（向后兼容）
+        let s = r#"["a","b"]"#;
+        let m: Vec<GroupMember> = serde_json::from_str(s).unwrap();
+        assert_eq!(m, vec![GroupMember::Id("a".to_string()), GroupMember::Id("b".to_string())]);
     }
 }
