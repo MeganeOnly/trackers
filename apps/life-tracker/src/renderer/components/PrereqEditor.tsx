@@ -217,6 +217,10 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   async function persist(next: {
     specs?: PrereqSpec[]
     excludes?: ExcludeSpec[]
+    /** 显式前置 id 列表：removeRow 用它覆盖推导，避免兜底把已删 id 重新加回 */
+    prerequisites?: string[]
+    /** 显式 legacy groups：removeRow 用它保留与本次移除无关的组合 */
+    groups?: string[][]
     rule?: 'all' | 'any_of'
     threshold?: number
     clearGroups?: boolean
@@ -227,29 +231,43 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
 
     // 计算新 prerequisites（specs + excludes 不算）
     const nextSpecs = next.specs ?? baseEdge.specs ?? []
-    const positiveSpecs = nextSpecs.filter((s) => s.kind !== 'exclude')
-    const newPrereqIds: string[] = []
-    const seen = new Set<string>()
-    for (const s of positiveSpecs) {
-      if (s.kind === 'simple') {
-        if (!seen.has(s.id)) {
-          seen.add(s.id)
-          newPrereqIds.push(s.id)
-        }
-      } else {
-        for (const m of s.members) {
-          if (!seen.has(m)) {
-            seen.add(m)
-            newPrereqIds.push(m)
+    let newPrereqIds: string[]
+    if (next.prerequisites !== undefined) {
+      // 显式给出（removeRow）：直接采用，跳过兜底
+      newPrereqIds = next.prerequisites
+    } else {
+      newPrereqIds = []
+      const seen = new Set<string>()
+      const positiveSpecs = nextSpecs.filter((s) => s.kind !== 'exclude')
+      for (const s of positiveSpecs) {
+        if (s.kind === 'simple') {
+          if (!seen.has(s.id)) {
+            seen.add(s.id)
+            newPrereqIds.push(s.id)
+          }
+        } else {
+          for (const m of s.members) {
+            if (!seen.has(m)) {
+              seen.add(m)
+              newPrereqIds.push(m)
+            }
           }
         }
       }
-    }
-    // 兜底：旧裸 id（既不在 specs 也不在 groups 里）
-    if (positiveSpecs.length === 0 && (baseEdge.specs?.length ?? 0) === 0) {
+      // 旧裸 id 兜底：凡不被『新 specs / 生效后的 groups』覆盖的裸 id 一律保留。
+      // 不能只在 specs 为空时兜底 —— 否则 specs 与旧裸 id 混存时，任何非删除操作
+      // （加 spec / 加互斥规则 / 切规则）都会把裸 id 静默丢掉。
+      const covered = new Set(seen)
+      const effectiveGroups =
+        next.groups !== undefined
+          ? next.groups
+          : next.clearGroups
+            ? []
+            : (baseEdge.groups ?? [])
+      for (const g of effectiveGroups) for (const m of g) covered.add(m)
       for (const id of baseEdge.prerequisites) {
-        if (!seen.has(id)) {
-          seen.add(id)
+        if (!covered.has(id)) {
+          covered.add(id)
           newPrereqIds.push(id)
         }
       }
@@ -263,7 +281,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       prerequisites: newPrereqIds,
       rule: next.rule ?? baseEdge.rule,
       threshold: next.threshold ?? baseEdge.threshold,
-      groups: next.clearGroups ? undefined : baseEdge.groups,
+      groups: next.groups !== undefined ? next.groups : next.clearGroups ? undefined : baseEdge.groups,
       specs: nextSpecs.length > 0 ? nextSpecs : undefined,
       excludes: newExcludes.length > 0 ? newExcludes : undefined
     }
@@ -299,17 +317,16 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         return s
       })
       .filter((s): s is PrereqSpec => s !== null)
-    const nextGroups = groups.filter((g) => !removeSet.has(g[0]) && g.every((m) => !removeSet.has(m)))
+    // 只剔除本次移除涉及的 legacy groups，无关组合保留（避免误清）
+    const nextGroups = groups.filter((g) => !g.some((m) => removeSet.has(m)))
     const nextPrereqIds = allPrereqIds.filter((id) => !removeSet.has(id))
     await persist({
       specs: nextSpecs,
-      rule: rule,
-      threshold: threshold,
-      clearGroups: true
+      prerequisites: nextPrereqIds,
+      groups: nextGroups,
+      rule,
+      threshold
     })
-    // 也更新本地显示用的 ids 兜底
-    void nextGroups
-    void nextPrereqIds
   }
 
   async function setRule(r: 'all' | 'any_of'): Promise<void> {
@@ -359,8 +376,13 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   async function confirmGroup(): Promise<void> {
     const members = allPrereqIds.filter((id) => groupSel.has(id))
     if (members.length < 2) return
-    // 同一成员不能同时出现在多个 group
-    const inAnyExistingGroup = new Set(groups.flat())
+    // 同一成员不能同时出现在多个组合（legacy groups + spec group/count 都算）
+    const inAnyExistingGroup = new Set<string>([
+      ...groups.flat(),
+      ...(specs ?? []).flatMap((s) =>
+        s.kind === 'group' || s.kind === 'count' ? s.members : []
+      )
+    ])
     const dup = members.filter((m) => inAnyExistingGroup.has(m))
     if (dup.length > 0) {
       alert('所选前置里已有成员属于其他组合，请先移除再组合。')
@@ -381,12 +403,22 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       ...excludes,
       { kind: 'exclude', trigger, target, effect: 'disqualifies' }
     ]
-    void persist({ excludes: newExcludes, clearGroups: true })
+    // 互斥规则独立于组合/规格，不清理 legacy groups
+    void persist({ excludes: newExcludes })
     setExcludePickerOpen(false)
   }
   async function removeExclude(idx: number): Promise<void> {
-    const nextExcludes = excludes.filter((_, i) => i !== idx)
-    await persist({ excludes: nextExcludes, clearGroups: true })
+    // 渲染列表是 excludes + specs 里的 exclude 合并后的，删除时两边都要按索引过滤
+    const mergedExcludes: ExcludeSpec[] = [
+      ...excludes,
+      ...((specs ?? []).filter((s) => s.kind === 'exclude') as ExcludeSpec[])
+    ]
+    const target = mergedExcludes[idx]
+    if (!target) return
+    const nextExcludes = excludes.filter((e) => e !== target)
+    const nextSpecs = (specs ?? []).filter((s) => s !== target)
+    // 互斥规则独立于组合/规格，不清理 legacy groups
+    await persist({ excludes: nextExcludes, specs: nextSpecs })
   }
 
   // 重置本地状态当 goalId 变化
