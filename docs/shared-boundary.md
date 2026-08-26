@@ -53,5 +53,6 @@
 
 ## 变更记录
 
+- v3（countable 多次引用）：`GroupSpec.members` 从 `string[]` 升级为 `(string | {id, count?})[]`，支持 per-member count（如 `(B 完成 2 次) OR C 完成`）；旧 `["a","b"]` 形态完全兼容，serde 自定义 visitor 双向兼容。`SimpleSpec` 同 id 可多次添加（不同 count 视为独立实例），`removeRow` 改为按 `(id, count)` 精确匹配。
 - v2（前置规格化）：`Edge` 扩展 `specs: PrereqSpec[]` 与 `excludes: ExcludeSpec[]`，支持『简单 / 二选一组 / 计数 / 互斥』四种前置规格。旧 `rule+threshold+groups` 路径完全兼容（无新字段 → 旧行为）。
 - v1（monorepo 初建）：从 book-tracker 抽取 core，life-tracker 从 core 长出；UI 基座共享列为待办
