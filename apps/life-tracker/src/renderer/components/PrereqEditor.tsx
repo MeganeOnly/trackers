@@ -188,7 +188,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   // 已 added simple spec 同 id 的次数（用于 picker 视觉提示）
   const simpleSpecCountById = useMemo(() => {
     const m = new Map<string, number>()
-    for (const s of specs ?? []) {
+    for (const s of specs) {
       if (s.kind === 'simple') m.set(s.id, (m.get(s.id) ?? 0) + 1)
     }
     return m
@@ -237,7 +237,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       kind === 'group'
         ? { kind: 'group', members: memberObjs, pick: 1 }
         : { kind: 'count', members: ids, need }
-    const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
+    const nextSpecs: PrereqSpec[] = [...(specs), spec]
     await persist({ specs: nextSpecs, rule: 'all', threshold: undefined, clearGroups: true })
     setPickerOpen(false)
     setPickerQuery('')
@@ -247,7 +247,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   async function addSingle(id: string, count: number = 1): Promise<void> {
     const spec: PrereqSpec =
       count >= 2 ? { kind: 'simple', id, count } : { kind: 'simple', id }
-    const nextSpecs: PrereqSpec[] = [...(specs ?? []), spec]
+    const nextSpecs: PrereqSpec[] = [...(specs), spec]
     await persist({ specs: nextSpecs, rule: rule, threshold: threshold, clearGroups: true })
     setPickerOpen(false)
     setPickerQuery('')
@@ -358,7 +358,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     // row.spec 是对应 spec，从 key 末段解析 count 比 parse 字符串更可靠。
     const targetSimpleCount =
       row.spec.kind === 'simple' ? (row.spec.count ?? 1) : null
-    const nextSpecs: PrereqSpec[] = (specs ?? [])
+    const nextSpecs: PrereqSpec[] = (specs)
       .map((s) => {
         if (s.kind === 'simple') {
           // 仅当 id 命中移除集合且 count 等于目标 count 才移除（null 兜底：兼容旧数据）
@@ -450,7 +450,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     // 同一成员不能同时出现在多个组合（legacy groups + spec group/count 都算）
     const inAnyExistingGroup = new Set<string>([
       ...groups.flat(),
-      ...(specs ?? []).flatMap((s) =>
+      ...(specs).flatMap((s) =>
         s.kind === 'group' || s.kind === 'count' ? s.members.map(groupMemberId) : []
       )
     ])
@@ -460,7 +460,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       return
     }
     const nextSpecs: PrereqSpec[] = [
-      ...(specs ?? []),
+      ...(specs),
       { kind: 'group', members, pick: 1 }
     ]
     await persist({ specs: nextSpecs, rule: 'all', threshold: undefined, clearGroups: true })
@@ -482,12 +482,12 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     // 渲染列表是 excludes + specs 里的 exclude 合并后的，删除时两边都要按索引过滤
     const mergedExcludes: ExcludeSpec[] = [
       ...excludes,
-      ...((specs ?? []).filter((s) => s.kind === 'exclude') as ExcludeSpec[])
+      ...((specs).filter((s) => s.kind === 'exclude') as ExcludeSpec[])
     ]
     const target = mergedExcludes[idx]
     if (!target) return
     const nextExcludes = excludes.filter((e) => e !== target)
-    const nextSpecs = (specs ?? []).filter((s) => s !== target)
+    const nextSpecs = (specs).filter((s) => s !== target)
     // 互斥规则独立于组合/规格，不清理 legacy groups
     await persist({ excludes: nextExcludes, specs: nextSpecs })
   }
@@ -504,8 +504,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     setExcludePickerOpen(false)
   }, [goalId])
 
-  const hasPositiveSpecs = (specs ?? []).some((s) => s.kind !== 'exclude')
-  const hasAnyPrereq = allPrereqIds.length > 0 || (specs ?? []).some((s) => s.kind !== 'exclude')
+  const hasPositiveSpecs = (specs).some((s) => s.kind !== 'exclude')
+  const hasAnyPrereq = allPrereqIds.length > 0 || (specs).some((s) => s.kind !== 'exclude')
 
   return (
     <section className="detail-prereqs">
@@ -514,13 +514,13 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       </h3>
 
       {/* 互斥规则栏（exclude）—— 独立于前置 chip */}
-      {(excludes.length > 0 || (specs ?? []).some((s) => s.kind === 'exclude')) && (
+      {(excludes.length > 0 || (specs).some((s) => s.kind === 'exclude')) && (
         <div className="prereq-excludes">
           <div className="prereq-excludes-title">互斥 / 失效规则</div>
           <ul>
             {[
               ...excludes,
-              ...((specs ?? []).filter((s) => s.kind === 'exclude') as ExcludeSpec[])
+              ...((specs).filter((s) => s.kind === 'exclude') as ExcludeSpec[])
             ].map((ex, i) => (
               <li key={i} className="prereq-exclude">
                 <span className="exclude-label">
