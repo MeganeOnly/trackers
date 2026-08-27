@@ -66,19 +66,15 @@ fn normalize(raw: serde_json::Value) -> Config {
     }
 }
 
-/// 数据目录布局约定。`relations_file` / `config_file` 复用 tracker-core 的约定。
+/// 数据目录布局约定。`relations_file` / `config_file` 直接复用 tracker-core 的版本，
+/// 不在本目录二次包装（保持单点定义）。
 pub mod paths {
     use super::PathBuf;
 
     pub fn books_dir(data_dir: &str) -> PathBuf {
         PathBuf::from(data_dir).join("books")
     }
-    pub fn relations_file(data_dir: &str) -> PathBuf {
-        tracker_core::config::paths::relations_file(data_dir)
-    }
-    pub fn config_file(data_dir: &str) -> PathBuf {
-        tracker_core::config::paths::config_file(data_dir)
-    }
+    pub use tracker_core::config::paths::{config_file, relations_file};
 }
 
 // ==================== 单测 ====================
@@ -142,6 +138,8 @@ mod tests {
     #[test]
     fn paths_helpers() {
         assert!(paths::books_dir("/d").ends_with("books"));
+        // relations_file / config_file 是 tracker-core 的 re-export；端到端
+        // 形状由 tracker-core 自带的单测覆盖，这里只验证引入路径能调通。
         assert!(paths::relations_file("/d").ends_with("relations.json"));
         assert!(paths::config_file("/d").ends_with("config.json"));
     }

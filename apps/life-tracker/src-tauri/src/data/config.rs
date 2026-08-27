@@ -54,19 +54,15 @@ fn normalize(raw: serde_json::Value) -> Config {
     }
 }
 
-/// 数据目录布局约定。`relations_file` / `config_file` 复用 tracker-core 的约定。
+/// 数据目录布局约定。`relations_file` / `config_file` 直接复用 tracker-core 的版本，
+/// 不在本目录二次包装（保持单点定义）。
 pub mod paths {
     use super::PathBuf;
 
     pub fn goals_dir(data_dir: &str) -> PathBuf {
         PathBuf::from(data_dir).join("goals")
     }
-    pub fn relations_file(data_dir: &str) -> PathBuf {
-        tracker_core::config::paths::relations_file(data_dir)
-    }
-    pub fn config_file(data_dir: &str) -> PathBuf {
-        tracker_core::config::paths::config_file(data_dir)
-    }
+    pub use tracker_core::config::paths::{config_file, relations_file};
 }
 
 // ==================== 单测 ====================

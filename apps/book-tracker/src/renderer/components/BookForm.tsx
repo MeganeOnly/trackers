@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Modal } from './Modal'
 import { useBooksStore } from '../store/books'
 import { useSettingsStore } from '../store/settings'
@@ -44,16 +44,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
       ? String(book.progress.total)
       : ''
   )
-  const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!book) return
-    // 读 .md 文件 body 作为初始 notes
-    void book.id
-    setNotes('')
-  }, [book])
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -227,15 +219,6 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             </label>
           </div>
         )}
-        <label className="field">
-          <span>笔记 (Markdown)</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={6}
-            placeholder="## 章节笔记..."
-          />
-        </label>
         {error && <p className="form-error">{error}</p>}
       </form>
     </Modal>
