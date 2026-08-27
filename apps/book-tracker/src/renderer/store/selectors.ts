@@ -1,8 +1,7 @@
-import { useShallow } from 'zustand/react/shallow'
 import { useBooksStore } from './books'
 import { useRelationsStore } from './relations'
 import { computeUnlocked } from '@core'
-import type { Book, Edge } from '@shared/types'
+import type { Book } from '@shared/types'
 
 export function useUnlocked(): { unlocked: Map<string, boolean>; cycles: string[][] } {
   const books = useBooksStore((s) => s.books)
@@ -13,21 +12,6 @@ export function useUnlocked(): { unlocked: Map<string, boolean>; cycles: string[
     edges,
     (id, _requiredCount) => books.some((b) => b.id === id && b.status === 'finished')
   )
-}
-
-export function useBackReferences(): Map<string, Book[]> {
-  const books = useBooksStore((s) => s.books)
-  const edges = useRelationsStore((s) => s.edges)
-  const byId = new Map(books.map((b) => [b.id, b]))
-  const back = new Map<string, Book[]>()
-  for (const e of edges) {
-    for (const prereqId of e.prerequisites) {
-      if (!back.has(prereqId)) back.set(prereqId, [])
-      const target = byId.get(e.to)
-      if (target) back.get(prereqId)!.push(target)
-    }
-  }
-  return back
 }
 
 export function useGroupedByStatus(): Record<Book['status'], Book[]> {
@@ -44,10 +28,4 @@ export function useGroupedByStatus(): Record<Book['status'], Book[]> {
     groups[k].sort((a, b) => a.title.localeCompare(b.title, 'zh'))
   }
   return groups
-}
-
-export function useEdgeFor(bookId: string | null): Edge | null {
-  const edges = useRelationsStore(useShallow((s) => s.edges))
-  if (!bookId) return null
-  return edges.find((e) => e.to === bookId) ?? null
 }

@@ -15,7 +15,7 @@ interface BooksState {
   remove: (id: string) => Promise<void>
 }
 
-export const useBooksStore = create<BooksState>((set, get) => ({
+export const useBooksStore = create<BooksState>((set) => ({
   books: [],
   broken: [],
   selectedId: null,

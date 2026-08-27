@@ -15,7 +15,7 @@ interface GoalsState {
   remove: (id: string) => Promise<void>
 }
 
-export const useGoalsStore = create<GoalsState>((set, get) => ({
+export const useGoalsStore = create<GoalsState>((set) => ({
   goals: [],
   broken: [],
   selectedId: null,
