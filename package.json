@@ -3,16 +3,36 @@
   "version": "0.0.1",
   "private": true,
   "description": "Tracker monorepo: book-tracker + life-tracker sharing tracker-core / tracker-ui",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev:book": "npm --prefix apps/book-tracker run dev",
-    "dev:life": "npm --prefix apps/life-tracker run dev",
-    "dev:vite:book": "npm --prefix apps/book-tracker run dev:vite",
-    "dev:vite:life": "npm --prefix apps/life-tracker run dev:vite",
-    "typecheck:book": "npm --prefix apps/book-tracker run typecheck",
-    "typecheck:life": "npm --prefix apps/life-tracker run typecheck",
-    "test:book": "npm --prefix apps/book-tracker test",
-    "test:life": "npm --prefix apps/life-tracker test",
-    "test:core": "npm --prefix packages/tracker-core test",
+    "dev:book": "npm --workspace book-tracker run dev",
+    "dev:life": "npm --workspace life-tracker run dev",
+    "dev:vite:book": "npm --workspace book-tracker run dev:vite",
+    "dev:vite:life": "npm --workspace life-tracker run dev:vite",
+    "build:book": "npm --workspace book-tracker run build",
+    "build:life": "npm --workspace life-tracker run build",
+    "typecheck": "npm --workspace book-tracker run typecheck && npm --workspace life-tracker run typecheck && npm --workspace tracker-core run typecheck",
+    "typecheck:book": "npm --workspace book-tracker run typecheck",
+    "typecheck:life": "npm --workspace life-tracker run typecheck",
+    "typecheck:core": "npm --workspace tracker-core run typecheck",
+    "test": "npm --workspace tracker-core test && npm --workspace book-tracker test && npm --workspace life-tracker test",
+    "test:book": "npm --workspace book-tracker test",
+    "test:life": "npm --workspace life-tracker test",
+    "test:core": "npm --workspace tracker-core test",
     "test:rust": "cargo test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "gray-matter": "^4.0.3",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^4.1.11"
   }
 }

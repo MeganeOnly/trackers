@@ -19,13 +19,19 @@
 
 ## 二、与 monorepo 的关系（重要）
 
-本应用并入 `trackers` monorepo（仓库根 `<repo-root>`）。**共享逻辑在 monorepo 内核，不要在本目录重新实现/复制**：
+本应用并入 `trackers` monorepo（仓库根 `<repo-root>`），并启用 npm workspaces。**共享逻辑在 monorepo 内核，不要在本目录重新实现/复制**：
 
 - 解锁图 + 环检测：`tracker-core`（TS `packages/tracker-core/src/unlock.ts`、Rust `crates/tracker-core/src/unlock.rs`）—— 以 done map / `isDone` 谓词参数化
 - 进度纯函数：`packages/tracker-core/src/progress.ts` / `crates/tracker-core/src/progress.rs`
 - 原子写 / JSON / 数字 ID / frontmatter / config / data_dir：`crates/tracker-core`
 - 本目录 `src/shared/` 只保留 Goal 领域类型与文案（`formatGoalProgress`、`isGoalDone`）
 - **改共享逻辑去 monorepo 根**，改完一个 commit 两 app 同生效（根 `AGENTS.md` §五 + `docs/shared-boundary.md`）
+
+> **workspaces 安装（必读）**：
+> - 公共 devDependencies（`typescript` / `vite` / `vitest` / `@tauri-apps/cli` / `@vitejs/plugin-react` / `@types/*` / `gray-matter`）**已在根 `package.json`**；本目录 `package.json` 只剩运行时 `dependencies`。
+> - **只在仓库根跑一次 `npm install`**——所有依赖 hoisted 到 `<repo-root>/node_modules/`。**不要在本目录跑 `npm install`**，会绕过 hoist。
+> - 跑 `npm run dev` / `npm test` / `npm run typecheck` 时 npm 自动把根 `node_modules/.bin/` 加到 PATH，`vite` / `tsc` / `vitest` / `tauri` 都找得到，不需要改 PATH。
+> - 完整命令速查见根 `AGENTS.md §六`。
 
 ## 三、目录结构
 
@@ -90,11 +96,22 @@ src/
 ## 六、常用命令
 
 ```bash
+# 装包（workspaces，repo 根跑一次）
+cd <repo-root> && npm install            # 所有依赖 hoisted 到 <repo-root>/node_modules/
+
+# 本目录命令（workspaces 下 npm 会自动找到根的 .bin/）
 cd <repo-root>/apps/life-tracker
 npm run dev            # tauri dev（Vite 1421 + Rust）
 npm run dev:vite       # 纯 renderer（端口 1421，与 book-tracker 的 1420 区分）
 npm run typecheck      # tsc 双段
 npm test               # vitest（tracker-core 共享测试）
+
+# 仓库根命令（不 cd 进 app，等价但更顺）
+cd <repo-root>
+npm run dev:life       # 等价于 apps/life-tracker 下的 npm run dev
+npm run dev:vite:life  # 等价于 apps/life-tracker 下的 npm run dev:vite
+npm run typecheck      # 三端 + core 全 typecheck
+npm run test           # core + book + life vitest 全跑
 
 # Rust 在 repo 根 workspace 统一：
 cd <repo-root> && cargo test -p life-tracker

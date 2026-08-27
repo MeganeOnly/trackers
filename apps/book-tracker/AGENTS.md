@@ -2,13 +2,19 @@
 
 > **给后续 agent 看的开发指南**。本文件应随项目一起 commit；不含本机路径 / 私人化信息。
 
-> **monorepo 迁移后说明（重要）**：本应用已并入 `trackers` monorepo（仓库根 `<repo-root>`）。
+> **monorepo + workspaces 迁移后说明（重要）**：本应用已并入 `trackers` monorepo（仓库根 `<repo-root>`），并启用了 npm workspaces。
 > 共享逻辑已抽到 monorepo 内核，**不要在本目录重新实现/复制**：
 > - 解锁图 + 环检测：`tracker-core`（TS `packages/tracker-core/src/unlock.ts`、Rust `crates/tracker-core/src/unlock.rs`）
 > - 进度纯函数：`packages/tracker-core/src/progress.ts` / `crates/tracker-core/src/progress.rs`
 > - 原子写 / JSON / 数字 ID / frontmatter / config / data_dir：`crates/tracker-core`
 > - 本目录 `src/shared/` 只保留 Book 领域类型与文案（`formatProgress`）；`src/shared/unlock.ts` / `progress.ts` 纯函数已删除
 > - **改共享逻辑去 monorepo 根**，改完一个 commit 两 app 同生效（见根 `AGENTS.md` §五 + `docs/shared-boundary.md`）
+
+> **workspaces 安装（必读）**：
+> - 公共 devDependencies（`typescript` / `vite` / `vitest` / `@tauri-apps/cli` / `@vitejs/plugin-react` / `@types/*` / `gray-matter`）**已在根 `package.json`**；本目录 `package.json` 只剩运行时 `dependencies`。
+> - **只在仓库根跑一次 `npm install`**——所有依赖 hoisted 到 `<repo-root>/node_modules/`。**不要在本目录跑 `npm install`**，会绕过 hoist。
+> - 跑 `npm run dev` / `npm test` / `npm run typecheck` 时 npm 自动把根 `node_modules/.bin/` 加到 PATH，`vite` / `tsc` / `vitest` / `tauri` 都找得到，不需要改 PATH。
+> - 完整命令速查见根 `AGENTS.md §六`。
 
 ## 一、定位
 
@@ -229,9 +235,11 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 ## 九、常用命令
 
 ```bash
+# 装包（workspaces，repo 根跑一次）
+cd <repo-root> && npm install            # 所有依赖 hoisted 到 <repo-root>/node_modules/
+
 # 开发
-npm install              # 装包
-npm run dev              # tauri dev(启动 Vite + 编译 Rust + 打开原生窗口，带热重载)
+npm run dev              # tauri dev(启动 Vite + 编译 Rust + 打开原生窗口，带热重载，Vite 1420)
 npm run dev:vite         # 只跑 Vite dev server(1420)，不编译 Rust(纯 renderer 调试用)
 
 # 构建
@@ -241,6 +249,13 @@ npm run build:vite       # 只跑 vite build(产物: dist/，供 tauri build 消
 # 校验
 npm run typecheck        # tsc 双段(node: vite.config.ts；web: renderer + shared + @core)
 npm test                 # vitest run（tracker-core 共享纯函数，见 vitest.config.ts）
+
+# 仓库根命令（不 cd 进 app）
+cd <repo-root>
+npm run dev:book         # 等价于上面的 npm run dev
+npm run dev:life         # 等价于 apps/life-tracker 的 npm run dev
+npm run typecheck        # 三端 + core 全 typecheck
+npm run test             # core + book + life vitest 全跑
 
 # Rust 后端（workspace 统一在 repo 根跑）
 cd <repo-root> && cargo test            # workspace 全量（tracker-core + book-tracker + life-tracker）

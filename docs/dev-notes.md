@@ -13,6 +13,78 @@
 
 ---
 
+## 2026-08：启用 npm workspaces，monorepo 体积从 410 MB 砍到 140 MB
+
+### 1. [共享] 现象：本地工作目录四个 node_modules 加起来 410 MB，"占空间大"
+
+- **现象**：`<repo-root>` 仓库本地，`apps/book-tracker` 147 MB / `apps/life-tracker` 180 MB /
+  `packages/tracker-core` 60 MB / 根 `node_modules` 23 MB——**四个 node_modules 410 MB，
+  4900+ 个 packages 几乎全重复**（`typescript` / `vite` / `vitest` / `@tauri-apps/cli` /
+  `@vitejs/plugin-react` / `@types/*` / `gray-matter` / `esbuild` / `rollup` / `rolldown` /
+  `babel` / `lightningcss` 都装了 2~3 份）。`npm install` 一次要 60 秒。
+- **根因**：仓库根 `package.json` 用 `npm --prefix apps/...` 串起来两 app——**这是"假 workspace"**，
+  根 package.json 没有 `"workspaces"` 字段，npm 不知道这是 monorepo。结果 `apps/<name>/package.json`
+  自己声明完整 `devDependencies`，每个 app 各自 `npm install` 一遍完整工具链。
+- **修复**（一次性迁移）：
+  1. 根 `package.json` 加 `"workspaces": ["apps/*", "packages/*"]` + 把 9 个共享 devDeps
+     （`typescript` / `vite` / `vitest` / `@tauri-apps/cli` / `@vitejs/plugin-react` / `@types/node`
+     / `@types/react` / `@types/react-dom` / `gray-matter`）上提到根 `devDependencies`；
+  2. `apps/book-tracker/package.json` / `apps/life-tracker/package.json` 把 `devDependencies`
+     块整段删掉，只留 `dependencies`（运行时）；
+  3. `packages/tracker-core/package.json` 同上（只留 `dependencies: { }` 与 scripts）；
+  4. 删 4 个 `node_modules/` + 3 个旧 `package-lock.json`（单 app 的 lockfile 删掉，根
+     `package-lock.json` 是唯一 source of truth，npm workspaces 模式锁文件只能有一个）；
+  5. 仓库根跑 `npm install` 一次，npm 自动把所有 devDep hoisted 到根 `node_modules/`；
+  6. 把 `start.bat` 改 workspace-aware（菜单 6 = root install；测试菜单改成
+     `npm run test:core` / `test:book` / `test:life` / `cargo test` 串联）。
+- **效果（实测）**：
+  - 4 个 node_modules 总和 **410 MB → 140 MB（-66%，省 270 MB）**；
+  - `npm install` 60s → 1m（首次）；后续增量 < 5s；
+  - book/life 各 app 目录不再有自己的 `node_modules/`（只有 root 处的 hoisted tree）；
+  - `npm run dev` / `npm test` / `npm run typecheck` 从 app 目录跑也能找到 vite/tsc/vitest/tauri
+    ——npm 自动把根 `node_modules/.bin/` 加到 PATH，不需要改任何脚本或环境变量。
+
+### 2. [共享] 教训：npm workspaces 必须配 workspaces 字段，纯串 prefix 不会生效
+
+- **教训**：把 `npm --prefix apps/foo run dev` 写在根 scripts 里，**不是 workspaces**——这只是
+  "用 npm CLI 串起来多个独立 npm 项目"。hoist 只在 root `package.json` 声明了
+  `"workspaces": [...]` 时才会发生；没声明的话，每个 prefix 子目录都按独立 package 处理、
+  各自装自己的 `node_modules/`。
+- **教训**：workspaces 模式下 **从 app 目录跑 `npm install` 是 anti-pattern**：会写到
+  `apps/<name>/node_modules/`、绕过 hoist、跟根 lockfile 不一致。要么从根跑
+  `npm install`（会同时处理所有 workspaces），要么用 `npm install -w <name>`。
+- **教训**：workspaces 模式下 **单 app 的 `package-lock.json` 不能有**：npm workspaces 锁文件
+  只能有一个（在根）；子目录如果有自己的 lockfile，会让 `npm install` 行为不一致（不同步
+  hoist 决策）。迁移时三个 app/package-lock.json 全删。
+- **教训**：不要给 `tracker-core` 加 `private: false` 或 `publish`——workspaces 共享靠
+  `file:` 路径 / hoisted bin，不需要发布；`name: "tracker-core"` 已经够 alias 用了。
+  不要为"看起来更规范"改成 `@trackers/core`——会破坏 `tsconfig.web.json` 里的 `@core/*` alias。
+
+### 3. [共享] 经验：hoist 后 vitest/vite 的 ESM warning 是已知非致命问题
+
+- **现象**：hoist 之后跑 `npm run test:life`（life-tracker vitest），stderr 出现：
+  `(!) Your Vite config uses features that are unsupported by configLoader: 'native' ... 
+   ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1)`
+- **根因**：workspaces 下 vitest 把 `vitest.config.ts` 加载为 CJS，而里面写的是 `import`（ESM）。
+  book-tracker 没这警告，life-tracker 有——区别仅是 life 的 vitest.config 里 `include` 是数组、
+  触发了 Vite 6 的 native configLoader 探测（Vite 6 默认 loader 跟 TS 不兼容，会回退并报警告）。
+- **现状**：**测试 101/101 全部通过**，警告是 Vite 6 future-deprecation，非 fatal。PowerShell
+  把 stderr 转成 RemoteException，exit code 1 但测试结果是对的（看 stderr 与 test 输出分离）。
+- **修复**（后续）：把 `vitest.config.ts` 重命名为 `vitest.config.mts`（强制 ESM），或者
+  `apps/life-tracker/package.json` 加 `"type": "module"`（跟 tsconfig.web.json 不冲突，
+  只影响该目录的 .js/.mjs 默认解析，.ts 不受影响）。记录在此，不在本次 workspaces 迁移里改。
+
+### 4. [共享] 回归
+
+- 全 `npm run test` 全绿：tracker-core 47/47 + book-tracker 47/47 + life-tracker 101/101 = **195 vitest**；
+- 三端 `npm run typecheck` 全绿；
+- `npm run dev:book` / `npm run dev:life` 启动验证 vite 二进制可达（dev 不在本轮跑完——不破坏
+  scripts 即可，不需为增量改 60s 重启 tauri window 跑 cargo 编译）。
+- workspace `npm ls --workspace <name> --depth=0`：三个 workspace 的依赖都正确解析，
+  公共 devDep（typescript / vite / vitest / @tauri-apps/cli 等）只装一份。
+
+---
+
 ## 2026-08：LifeTracker 关系图节点挤成团（countable spec 多次添加产生平行边）
 
 ### 1. [life-tracker] 现象：关系图节点挤成一团、与 book-tracker 视觉差异明显

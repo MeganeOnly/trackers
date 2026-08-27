@@ -4,12 +4,20 @@
 
 ## 一、定位
 
-本仓库是**两个 Tauri 2 桌面应用的共享 monorepo**：
+本仓库是**两个 Tauri 2 桌面应用的共享 monorepo**，启用 **npm workspaces**（`apps/*` + `packages/*` 共享根 `node_modules/`）：
 
 - `apps/book-tracker` —— 下位书籍追踪器（想读的书 + 前置依赖 + 解锁）
 - `apps/life-tracker` —— 人生目标追踪器（大目标 + 前置依赖 + 解锁，如"国奖 ← 三好 + 两篇 SCI"）
 
 两个应用共享一套"前置依赖图 + 解锁 + 文件存储 + 配置 + 数据目录"内核（`tracker-core`），以及少量 UI 基座（`tracker-ui`）。**共享部分一处改、两 app 同时生效**；领域差异留在各自 app。
+
+**workspaces 约定（避免误区）**：
+
+- **公共 devDependencies 必须上提到根 `package.json`**（`typescript` / `vite` / `vitest` / `@tauri-apps/cli` / `@vitejs/plugin-react` / `@types/*` / `gray-matter`）；各 app 只保留运行时 `dependencies`。
+- **从根 `npm install` 一次**即可，所有公共 devDep 自动 hoisted 到 `<repo-root>/node_modules/`；apps/* 与 packages/* 不再各自装一份。
+- **从 app 目录跑 `npm run dev` / `vite` / `tsc` / `vitest`** 时，npm 会把根 `node_modules/.bin/` 加到 PATH，所以 `vite` / `tsc` / `vitest` / `tauri` 二进制都能找到，**不需要**显式改 PATH 或用相对路径。
+- **不要**在 app 目录跑 `npm install`（会把 node_modules 写到 `apps/<name>/node_modules/`、绕过 hoist、跟根 lockfile 不一致）。
+- 单 app 的 `package-lock.json` 已删（2026-08 迁移到 workspaces 时清理）；根 `package-lock.json` 是唯一 source of truth。
 
 ## 二、目录结构
 
@@ -54,7 +62,7 @@ renderer 永远不能 import src-tauri；Rust 端也不能 import renderer
 ## 五、core 改动流程
 
 1. 改 `packages/tracker-core` 或 `crates/tracker-core`，同步补/改测试（vitest + cargo test）
-2. 验证：`npm --prefix packages/tracker-core test` + `cargo test -p tracker-core`
+2. 验证：`npm run test:core` + `cargo test -p tracker-core`（全跑用 `npm run test` + `npm run test:rust`）
 3. 一个 commit 提交（core 改动同时惠及两 app，无需跨仓）
 
 领域改动（只动一个 app）：只改对应 `apps/<name>/`，物理上不影响另一个。
@@ -62,21 +70,28 @@ renderer 永远不能 import src-tauri；Rust 端也不能 import renderer
 ## 六、常用命令
 
 ```bash
-# 根
-cargo test                  # workspace 全量 Rust 测试
-npm run test:core           # tracker-core TS 测试
+# 安装（workspaces，repo 根跑一次）
+npm install                                # 公共 devDep 全部 hoisted 到根 node_modules/
 
-# book-tracker
+# 根（不 cd 进 app）
+npm run dev:book                           # tauri dev book-tracker
+npm run dev:life                           # tauri dev life-tracker
+npm run dev:vite:book                      # 仅 vite book-tracker
+npm run dev:vite:life                      # 仅 vite life-tracker
+npm run typecheck                          # 三端 + core 全 typecheck
+npm run test                               # core + book + life vitest 全跑
+npm run test:core                          # 仅 tracker-core vitest
+npm run test:book / test:life              # 单 app vitest
+npm run build:book / build:life            # 单 app tauri build
+cargo test                                 # Rust workspace 全量测试
+
+# 进 app 目录跑也行（workspaces 找到二进制）
 cd apps/book-tracker && npm run dev        # tauri dev（Vite 1420 + Rust）
 cd apps/book-tracker && npm run dev:vite   # 纯 renderer
 cd apps/book-tracker && npm run typecheck
 cd apps/book-tracker && npm test
 
-# life-tracker（Vite 端口 1421）
-cd apps/life-tracker && npm run dev
-cd apps/life-tracker && npm run dev:vite
-cd apps/life-tracker && npm run typecheck
-cd apps/life-tracker && npm test
+# life-tracker 同上（Vite 端口 1421）
 ```
 
 > **Windows 环境坑（cargo）**：跑 `cargo` 命令前确保 msys2 的 `ucrt64/bin` 目录在 PATH（linker 与 dlltool 依赖，位置见 `.cargo/config.toml`）。
