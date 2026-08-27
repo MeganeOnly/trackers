@@ -117,6 +117,21 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setBusy(true)
     setError(null)
     try {
+      // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 patch；
+      // 其余情况（非 reading，或 reading 但 current 为空）一律视为 null
+      // —— patch.progress 默认为 null，省去冗余二次赋值。
+      let progress: BookInput['progress'] = null
+      if (status === 'reading') {
+        const c = Number(progressCurrent)
+        if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
+          const tRaw = progressTotal.trim()
+          const t = tRaw === '' ? null : Number(tRaw)
+          progress = {
+            current: Math.floor(c),
+            total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
+          }
+        }
+      }
       const patch: Partial<BookInput> & {
         read_count?: number
         tags?: string[]
@@ -129,24 +144,10 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         year: Number(year) || new Date().getFullYear(),
         translator: translator.trim(),
         status,
-        progress: null,
+        progress,
         read_count: readCount,
         tags: []
       }
-      // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 patch
-      if (status === 'reading') {
-        const c = Number(progressCurrent)
-        if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
-          const tRaw = progressTotal.trim()
-          const t = tRaw === '' ? null : Number(tRaw)
-          patch.progress = {
-            current: Math.floor(c),
-            total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
-          }
-        }
-      }
-      // status 不是 reading 时主动清空 progress（用户主动清除意图）
-      if (status !== 'reading') patch.progress = null
       await update(cur.id, patch)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 1500)
