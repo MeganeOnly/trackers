@@ -178,7 +178,9 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           patch.progress = g.progress
         }
       } else if (status === 'in_progress') {
-        // 非 countable 沿用旧行为：仅 in_progress 时写 progress
+        // 非 countable 沿用旧行为：仅 in_progress 时写 progress；
+        // 否则（非 in_progress）patch.progress 已在初始 null，
+        // 由下方 `else` 分支兜底显式 null。
         const c = Number(progressCurrent)
         if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
           const tRaw = progressTotal.trim()
@@ -188,8 +190,6 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             total: t !== null && Number.isFinite(t) && t > 0 ? Math.floor(t) : null
           }
         }
-        // 非 in_progress 时主动清空 progress（用户主动清除意图）
-        if (status !== 'in_progress') patch.progress = null
       } else {
         // 非 countable 且非 in_progress：清空 progress
         patch.progress = null
