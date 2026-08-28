@@ -78,6 +78,7 @@ src/
 - `deadline` / `progress` 只在有值时写盘；`progress` 写盘判断与 book-tracker 同款（避免污染）
 - `pinned`（置顶到『进行中』栏）只在 `true` 时写盘，缺省 `false`；旧文件无该字段按 `false` 处理
 - `hidden`（日常模式『现在能推进』中收起）同样只在 `true` 时写盘、缺省 `false`；纯展示层不影响解锁，仅对 `not_started` / `in_progress` 有展示意义（隐藏目标进『已收起』折叠栏，状态切到 done/shelved/abandoned 时自动回归各自状态栏）
+- `collapsed`（编辑模式侧栏收起）同上款写盘判断；**与 `hidden` 完全正交**，纯展示层、不影响 status / 解锁 / CleanMode；**所有 status 都允许**，从 EditMode 侧栏的 status 分组移到侧栏底部『已收起』分组
 - `progress.current >= progress.total` → 视为已达成（`isGoalDone`）
 - 数据目录：`<data_dir>/goals/` + `relations.json` + `config.json`（%APPDATA%/life-tracker 存 data_dir 指针）
 

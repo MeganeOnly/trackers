@@ -55,6 +55,12 @@ export interface Goal {
   pinned: boolean
   /** 日常模式收起：状态为未开始/进行中时，从『现在能推进的目标』列表隐藏（纯展示，不影响解锁） */
   hidden: boolean
+  /**
+   * 编辑模式侧栏收起：所有 status 都允许；从 EditMode 侧栏的 status 分组里移到
+   * 底部『已收起』分组，纯展示层，不影响 status / 解锁 / CleanMode 的 hidden 语义。
+   * 与 hidden 字段完全独立（hidden 控 CleanMode『现在能推进』；collapsed 控 EditMode 侧栏）。
+   */
+  collapsed: boolean
   /** ISO 8601 字符串 */
   created: string
   /** ISO 8601 字符串 */

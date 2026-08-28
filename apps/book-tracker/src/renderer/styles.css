@@ -260,6 +260,7 @@ button:focus-visible {
 .status-dot.status-finished { background: var(--status-finished); }
 .status-dot.status-shelved { background: var(--status-shelved); }
 .status-dot.status-abandoned { background: var(--status-abandoned); }
+.status-dot.status-collapsed { background: var(--muted); }
 
 .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 .book-detail { max-width: 720px; }
@@ -384,6 +385,31 @@ button:focus-visible {
 }
 .prereq:hover { background: var(--accent-soft); }
 .prereq-missing { cursor: default; opacity: 0.6; }
+
+/* 「完成后将解锁」反相块 —— 与 .prereq 微差异：背景偏柔，标题加正向色提示 */
+.downstream {
+  margin-top: 16px; padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.downstream-title {
+  margin: 0 0 8px; font-size: 13px; font-weight: 500;
+  color: var(--accent);
+}
+.downstream-list { list-style: none; padding: 0; margin: 0; }
+.downstream-item {
+  padding: 6px 10px; border-radius: 4px;
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); margin-bottom: 4px;
+  background: var(--accent-soft);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.downstream-item:hover { background: var(--accent); color: white; }
+.downstream-item .title {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.downstream-missing { cursor: default; opacity: 0.6; }
 .prereq .title {
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -762,6 +788,27 @@ button:focus-visible {
   height: 14px;
   background: var(--border);
   margin: 0 4px;
+}
+/* 关系图右下/左下角布局模式切换按钮（力导向 / 层级） */
+.graph-legend .lg-toggle {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  line-height: 1.4;
+}
+.graph-legend .lg-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.graph-legend .lg-toggle.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  font-weight: 500;
 }
 
 /* ============ BookCard（关系图右侧的书详情卡片） ============ */

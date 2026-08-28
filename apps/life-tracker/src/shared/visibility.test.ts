@@ -14,6 +14,7 @@ function goal(id: string, status: Goal['status'] = 'not_started'): Goal {
     countable: false,
     pinned: false,
     hidden: false,
+    collapsed: false,
     created: '',
     updated: ''
   }

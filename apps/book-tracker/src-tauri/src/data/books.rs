@@ -73,6 +73,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
         status: parse_status(data.get("status")),
         read_count: data.get("read_count").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
         progress: data.get("progress").and_then(tracker_core::progress::parse_progress),
+        collapsed: data.get("collapsed").and_then(|v| v.as_bool()).unwrap_or(false),
         created: data.get("created").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         updated: data.get("updated").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         tags: data
@@ -141,6 +142,7 @@ pub fn write_book(
         status: input.status,
         read_count: 1,
         progress: normalize_progress_input(input.progress.as_ref()),
+        collapsed: input.collapsed,
         created: now.clone(),
         updated: now,
         tags: input.tags.clone().unwrap_or_default(),
@@ -168,6 +170,7 @@ pub fn update_book(
     if let Some(v) = patch.status { merged.status = v; }
     if let Some(v) = patch.read_count { merged.read_count = v; }
     if let Some(v) = &patch.tags { merged.tags = v.clone(); }
+    if let Some(v) = patch.collapsed { merged.collapsed = v; }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -240,6 +243,10 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
             book.tags.iter().cloned().map(serde_json::Value::String).collect(),
         ),
     );
+    // collapsed 仅在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
+    if book.collapsed {
+        fm.insert("collapsed".into(), serde_json::Value::Bool(true));
+    }
     if let Some(p) = &book.progress {
         let mut prog_map = serde_json::Map::new();
         prog_map.insert("current".into(), serde_json::Value::Number(p.current.into()));
@@ -295,6 +302,7 @@ mod tests {
             status: BookStatus::Reading,
             progress: Some(Progress { current: 12, total: Some(100) }),
             tags: Some(vec!["小说".to_string()]),
+            collapsed: false,
         }
     }
 
@@ -477,5 +485,50 @@ mod tests {
         let patch = BookPatch { kind: Some(WorkKind::Movie), ..Default::default() };
         let updated = update_book(&books_dir, &book.id, &patch).unwrap();
         assert_eq!(updated.kind, WorkKind::Movie);
+    }
+
+    #[test]
+    fn collapsed_round_trip_and_omit_when_false() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // collapsed=true → 写盘并读回
+        let mut input = sample_input();
+        input.collapsed = true;
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        assert!(book.collapsed);
+        let raw_true = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw_true.contains("\"collapsed\": true"), "collapsed=true 应写盘");
+        assert!(read_book(&books_dir, &book.id).unwrap().unwrap().collapsed);
+
+        // collapsed=false → 不写盘，读回仍为 false
+        let mut input2 = sample_input();
+        input2.collapsed = false;
+        let ids: HashSet<String> = [book.id.clone()].into_iter().collect();
+        let book2 = write_book(&books_dir, &input2, &ids).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw.contains("collapsed"), "collapsed=false 不应写盘");
+        assert!(!read_book(&books_dir, &book2.id).unwrap().unwrap().collapsed);
+
+        // 旧文件没有 collapsed 字段 → 默认 false（向后兼容）
+        let legacy = books_dir.join("98.md");
+        std::fs::write(&legacy, "---\n{\"id\":\"98\",\"title\":\"旧书2\",\"status\":\"finished\"}\n---\n# 旧书2\n").unwrap();
+        assert!(!read_book(&books_dir, "98").unwrap().unwrap().collapsed);
+
+        // patch.collapsed 只在该字段出现时合并（true / false 都要生效）
+        let patch_true = BookPatch { collapsed: Some(true), ..Default::default() };
+        let updated = update_book(&books_dir, &book.id, &patch_true).unwrap();
+        assert!(updated.collapsed);
+        let patch_false = BookPatch { collapsed: Some(false), ..Default::default() };
+        let updated2 = update_book(&books_dir, &book.id, &patch_false).unwrap();
+        assert!(!updated2.collapsed);
+
+        // 关键不变量：collapsed 不影响 status / read_count（正交语义）
+        let mut input3 = sample_input();
+        input3.status = BookStatus::Finished;
+        input3.collapsed = true;
+        let b3 = write_book(&books_dir, &input3, &HashSet::new()).unwrap();
+        assert_eq!(b3.status, BookStatus::Finished);
+        assert!(b3.collapsed);
     }
 }

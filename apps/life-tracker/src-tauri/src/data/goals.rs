@@ -73,6 +73,7 @@ fn normalize_goal(id: &str, data: &serde_json::Value) -> Goal {
         countable: data.get("countable").and_then(|v| v.as_bool()).unwrap_or(false),
         pinned: data.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false),
         hidden: data.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false),
+        collapsed: data.get("collapsed").and_then(|v| v.as_bool()).unwrap_or(false),
         created: data.get("created").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         updated: data.get("updated").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
@@ -135,6 +136,7 @@ pub fn write_goal(
         countable: input.countable,
         pinned: input.pinned,
         hidden: input.hidden,
+        collapsed: input.collapsed,
         created: now.clone(),
         updated: now,
     };
@@ -160,6 +162,7 @@ pub fn update_goal(
     if let Some(v) = patch.countable { merged.countable = v; }
     if let Some(v) = patch.pinned { merged.pinned = v; }
     if let Some(v) = patch.hidden { merged.hidden = v; }
+    if let Some(v) = patch.collapsed { merged.collapsed = v; }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -231,6 +234,9 @@ fn persist(goals_dir: impl AsRef<Path>, goal: &Goal) -> std::io::Result<()> {
     if goal.hidden {
         fm.insert("hidden".into(), serde_json::Value::Bool(true));
     }
+    if goal.collapsed {
+        fm.insert("collapsed".into(), serde_json::Value::Bool(true));
+    }
 
     let front = serde_json::to_string_pretty(&serde_json::Value::Object(fm))
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -264,6 +270,7 @@ mod tests {
             countable: false,
             pinned: false,
             hidden: false,
+            collapsed: false,
         }
     }
 
@@ -412,6 +419,53 @@ mod tests {
         let patch = GoalPatch { hidden: Some(true), ..Default::default() };
         let updated = update_goal(&goals_dir, &goal.id, &patch).unwrap();
         assert!(updated.hidden);
+    }
+
+    #[test]
+    fn collapsed_round_trip_and_omit_when_false() {
+        let dir = temp_goals_dir();
+        let goals_dir = dir.path().join("goals");
+
+        // collapsed=true → 写盘并读回
+        let mut input = sample_input();
+        input.collapsed = true;
+        let goal = write_goal(&goals_dir, &input, &HashSet::new()).unwrap();
+        assert!(goal.collapsed);
+        let raw_true = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal.id))).unwrap();
+        assert!(raw_true.contains("collapsed"), "collapsed=true 应写盘");
+        assert!(read_goal(&goals_dir, &goal.id).unwrap().unwrap().collapsed);
+
+        // collapsed=false → 不写盘，读回仍为 false
+        let mut input2 = sample_input();
+        input2.collapsed = false;
+        let ids: HashSet<String> = [goal.id.clone()].into_iter().collect();
+        let goal2 = write_goal(&goals_dir, &input2, &ids).unwrap();
+        let raw = std::fs::read_to_string(goals_dir.join(format!("{}.md", goal2.id))).unwrap();
+        assert!(!raw.contains("collapsed"), "collapsed=false 不应写盘");
+        assert!(!read_goal(&goals_dir, &goal2.id).unwrap().unwrap().collapsed);
+
+        // 旧文件没有 collapsed 字段 → 默认 false（向后兼容）
+        let legacy = goals_dir.join("96.md");
+        std::fs::write(&legacy, "---\n{\"id\":\"96\",\"title\":\"旧目标4\",\"status\":\"done\"}\n---\n# 旧目标4\n").unwrap();
+        assert!(!read_goal(&goals_dir, "96").unwrap().unwrap().collapsed);
+
+        // patch.collapsed 只在该字段出现时合并（true / false 都要生效）
+        let patch_true = GoalPatch { collapsed: Some(true), ..Default::default() };
+        let updated = update_goal(&goals_dir, &goal.id, &patch_true).unwrap();
+        assert!(updated.collapsed);
+        let patch_false = GoalPatch { collapsed: Some(false), ..Default::default() };
+        let updated2 = update_goal(&goals_dir, &goal.id, &patch_false).unwrap();
+        assert!(!updated2.collapsed);
+
+        // 关键不变量：collapsed 不影响 status / hidden（正交语义）
+        let mut input3 = sample_input();
+        input3.status = GoalStatus::Done;
+        input3.hidden = true;
+        input3.collapsed = true;
+        let g3 = write_goal(&goals_dir, &input3, &HashSet::new()).unwrap();
+        assert_eq!(g3.status, GoalStatus::Done);
+        assert!(g3.hidden);
+        assert!(g3.collapsed);
     }
 
     #[test]

@@ -59,6 +59,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const [progressTotal, setProgressTotal] = useState<string>(
     book?.progress?.total !== undefined && book.progress.total !== null ? String(book.progress.total) : ''
   )
+  const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -77,6 +78,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setProgressTotal(
       book?.progress?.total !== undefined && book.progress.total !== null ? String(book.progress.total) : ''
     )
+    setCollapsed(book?.collapsed ?? false)
     setError(null)
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,6 +138,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         read_count?: number
         tags?: string[]
         progress?: BookInput['progress']
+        collapsed?: boolean
       } = {
         title: title.trim(),
         kind,
@@ -146,7 +149,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         status,
         progress,
         read_count: readCount,
-        tags: []
+        tags: [],
+        collapsed
       }
       await update(cur.id, patch)
       setSaved(true)
@@ -308,6 +312,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             </label>
           </div>
         )}
+        <label className="form-checkline">
+          <input
+            type="checkbox"
+            checked={collapsed}
+            onChange={(e) => setCollapsed(e.target.checked)}
+          />
+          <span>在编辑模式侧栏中收起（移到『已收起』分组，不影响 status 与解锁）</span>
+        </label>
         {error && <p className="form-error">{error}</p>}
       </div>
 

@@ -73,6 +73,9 @@ pub struct Book {
     pub read_count: u32,
     /// 章节进度;`None` = 未设置
     pub progress: Option<Progress>,
+    /// 编辑模式侧栏收起：所有 status 都允许，从 EditMode 侧栏的 status 分组
+    /// 移到底部『已收起』分组。纯展示，不影响 status / 解锁 / CleanMode 任何行为。
+    pub collapsed: bool,
     /// ISO 8601 字符串
     pub created: String,
     /// ISO 8601 字符串
@@ -93,6 +96,9 @@ pub struct BookInput {
     pub progress: Option<Progress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    /// 编辑模式侧栏收起（默认 false；create 时由表单传入）
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 /// 更新书的 patch(全字段可选)。
@@ -124,6 +130,9 @@ pub struct BookPatch {
     pub read_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    /// 编辑模式侧栏收起
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

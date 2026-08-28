@@ -62,6 +62,9 @@ pub struct Goal {
     pub pinned: bool,
     /// 日常模式收起：not_started / in_progress 时从『现在能推进的目标』列表隐藏（纯展示，不影响解锁）
     pub hidden: bool,
+    /// 编辑模式侧栏收起：所有 status 都允许，从 EditMode 侧栏的 status 分组移到
+    /// 底部『已收起』分组。纯展示，不影响 status / 解锁 / CleanMode 的 hidden 语义。
+    pub collapsed: bool,
     /// ISO 8601 字符串
     pub created: String,
     /// ISO 8601 字符串
@@ -84,6 +87,9 @@ pub struct GoalInput {
     pub pinned: bool,
     #[serde(default)]
     pub hidden: bool,
+    /// 编辑模式侧栏收起（默认 false）
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 /// 更新目标的 patch(全字段可选)。
@@ -116,6 +122,9 @@ pub struct GoalPatch {
     /// 日常模式收起
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,
+    /// 编辑模式侧栏收起
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

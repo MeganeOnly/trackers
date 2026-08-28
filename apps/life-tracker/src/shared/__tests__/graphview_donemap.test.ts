@@ -31,6 +31,7 @@ function goal(over: Partial<Goal> & { id: string }): Goal {
     countable: over.countable ?? false,
     pinned: false,
     hidden: false,
+    collapsed: false,
     created: '2024-01-01',
     updated: '2024-01-01'
   }

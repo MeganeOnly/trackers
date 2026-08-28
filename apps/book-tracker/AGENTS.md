@@ -158,6 +158,7 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 - `progress` 字段写为 `"progress": { "current": 12, "total": 100 }`（单行 JSON）或省略（无进度时）
 - 字段缺损 / 类型错误时**容错为 `null`**，不抛错——否则会破坏旧书文件
 - 不要把 `progress: null` 写进 frontmatter（`write_book` 已经做了"有值才写"的判断）
+- `collapsed`（编辑模式侧栏收起）同上款「仅 `true` 时写盘、缺省 `false`」；**所有 status 都允许**，从 EditMode 侧栏的 status 分组移到侧栏底部『已收起』分组，纯展示层、不影响 status / 解锁 / CleanMode 任何行为
 
 ### `relations.json`（前置关系图）
 
@@ -295,6 +296,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] 日常模式：自动列"现在能看的作品"，按反向度数排序
 - [x] 日常模式：搁置/已读/弃读折叠区
 - [x] 编辑模式：按状态分组的侧边栏
+- [x] **编辑模式：跨 status 的『已收起』分组（`Book.collapsed`，纯展示）**——所有 status 都允许，与 status / 解锁 / CleanMode 完全正交
 - [x] 设置面板：新建作品默认类型 + 展示筛选（全部/按类型，按钮式高亮）
 - [x] 全局搜索（作品名 / 作者 / ID 模糊匹配）
 - [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `e`/`c` 切模式 / `Esc` 清搜索

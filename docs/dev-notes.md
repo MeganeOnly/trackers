@@ -13,6 +13,143 @@
 
 ---
 
+## 2026-08：EditMode 侧栏加跨 status「已收起」分组（Goal.collapsed / Book.collapsed）
+
+### 1. [共享] 现象：用户希望编辑模式侧栏也能"收起"任务，与 status 解耦
+
+- **现象**：CleanMode（日常模式）的「现在能推进」列表早就有"收起"按钮，写盘到 `hidden: true`，从 CleanMode 列表隐藏；EditMode 侧栏（按 status 分组）却没有对应交互——用户希望侧栏里也能把任意 status 的任务"折叠到一边"，但不改变 status。
+- **设计要点**：
+  - **复用现有 `hidden` 字段 vs 新建 `collapsed` 字段**：本轮**新建独立 `collapsed`**。
+    - 原因：`hidden` 在 CleanMode 里**只在 `not_started / in_progress` 时有展示意义**（其他 status 本来就从 CleanMode 列表自然消失），且 CleanMode 的语义是"现在不想推这个目标"。EditMode 的收起是**任意 status 都允许的纯展示行为**，与解锁、CleanMode 完全正交——一个语义对应一个字段比"语义冲突共用一个字段 + 各种守卫条件"更清晰。
+  - **EditMode 侧栏行为**：在 `BookList` / `GoalList` 的状态分组渲染完成后，加一个底部"已收起"分组，跨 status 收集所有 `collapsed === true` 的条目；状态分组本身的渲染逻辑保持不动，只在 `filtered(items)` 里加 `!collapsed` 过滤。
+  - **详情面板 / 表单行为**：在 `BookDetail` / `GoalDetail` / `BookForm` / `GoalForm` 都加一个"在编辑模式侧栏中收起"勾选框，**没有任何 status 守卫**（所有 status 都允许）——这是与 `hidden` 字段最显眼的区别。
+  - **持久化**：与 `hidden` / `pinned` / `countable` 同款——TS `Goal` / `Book` 接口字段 + Rust `Goal` / `Book` + `GoalInput` / `BookInput` + `GoalPatch` / `BookPatch` + `normalize_*` / `write_*` / `update_*` + `persist`（仅 `true` 时写盘），五个点全部镜像，旧文件无字段读回默认 `false`。
+  - **CleanMode 影响**：life-tracker CleanMode 完全不变，仍走 `hidden` 字段；book-tracker CleanMode 本就没有 `hidden`，影响更小。
+- **修复**（两 app 同款）：
+  - `apps/life-tracker/src/shared/types.ts` + `src-tauri/src/types.rs` + `src-tauri/src/data/goals.rs` + `components/GoalList.tsx` + `components/GoalDetail.tsx` + `components/GoalForm.tsx` + `shared/__tests__/{graphview_donemap,visibility}.test.ts`（更新 Goal 构造 fixture）；
+  - `apps/book-tracker/src/shared/types.ts` + `src-tauri/src/types.rs` + `src-tauri/src/data/books.rs` + `components/BookList.tsx` + `components/BookDetail.tsx` + `components/BookForm.tsx`；
+  - 两 app `styles.css` 各加 `.status-dot.status-collapsed { background: var(--muted); }` 让侧栏"已收起"分组的彩色小圆点可见。
+- **回归验证**：
+  - 两 app `npm run typecheck` 全绿（双段 `tsc --noEmit`）；
+  - 两 app `npm test`：life-tracker 134/134、book-tracker 71/71 全过（含更新后的 Goal/Book fixture 测试）；
+  - `cargo test -p life-tracker` 14/14（新增 `collapsed_round_trip_and_omit_when_false` 含 true→写盘 / false→不写盘 / 旧文件→默认 false / patch.collapsed true→false / 与 status/hidden 正交共 5 段断言）；
+  - `cargo test -p book-tracker` 19/19（同款新测试）；
+  - `cargo test` workspace 全量 95 passed；
+  - 手测：UI 侧栏勾选某条「已放弃」status 的目标 → 该条目从「放弃」分组消失、出现在底部「已收起」分组（带灰色 dot 与 status 文字）→ 详情面板 status 仍为「放弃」、CleanMode 列表不变。
+
+### 2. [共享] 教训：正交语义建新字段，不要试图让一个字段"兼任"两层语义
+
+- **教训**：`hidden` 字段原本只用于 CleanMode "现在能推进"列表的隐藏，**带 `status` 守卫**（仅 `not_started / in_progress` 有效）。如果 EditMode 侧栏收起复用 `hidden`：
+  - 要么放松守卫条件（让 `done/shelved/abandoned` 也能标 `hidden`），会扩大现有 CleanMode 行为语义；
+  - 要么再加一个 UI-only 守卫（EditMode 跳过守卫，CleanMode 走守卫），会在同一字段上分裂出两条规则路径。
+- **教训**：**两个语义、两个字段**。`hidden` = "我现在不想推它"（CleanMode 行为）；`collapsed` = "我只是想把它从侧栏折叠出去"（EditMode 行为）。字段之间**完全正交**，UI 上也都明示（两个独立 checkbox，提示文案区分「CleanMode 现在能推进」vs「EditMode 侧栏」）。
+- **教训**：两 app 都加 `collapsed` 时，Rust 端的字段加法顺序、serde 属性、`persist` 的「仅 true 时写盘」判断都要镜像——单 app 加一个字段出错的成本只是「这一个 app 编译失败」，两 app 加一个字段出错的可能性反而更低（因镜像后立即被 cargo test + vitest 抓到）。
+
+### 3. [共享] 教训：测试 fixture 里的对象字面量要随字段扩展同步更新
+
+- **教训**：TS 端的 vitest 用 `goal({ id, status: 'in_progress', ... })` 这种"缺省填充"工厂构造 Goal 对象，新增 `collapsed` 字段时工厂函数返回的对象字面量必须同步加 `collapsed: false`，否则 `tsc --noEmit` 会因「Property 'collapsed' is missing in type」错。
+- **教训**：Rust 端的 `#[derive(Default)]` 不能省——`GoalPatch::default()` 用 `..Default::default()` 语法补齐缺失字段，每加一个 `Option<bool>` patch 字段都要让其它测试用 `..Default::default()`，**不要**写 `GoalPatch { hidden: Some(true) }` 这种全字段列出的写法，否则下个 patch 字段进来时这些"看起来无关"的测试会一起编译失败。
+- **教训**：两 app 的前端 fixture（`graphview_donemap.test.ts` 的 `goal()`、`visibility.test.ts` 的 `goal()`）都需要补 `collapsed: false`，**不能**只更新一处——之前 `hidden` 字段添加时漏改 `visibility.test.ts` 是已踩过的坑（这次两处一起改）。
+
+---
+
+## 2026-08：GraphView 加显式"向心力" + 新增"层级布局"模式
+
+### 1. [共享] 现象：关系图节点分布外圈太空，体感像"摊大饼"；用户希望有更紧凑的向心感
+
+- **现象**：life/book 两个 GraphView 都是 charge=-80 + orbit=0.05（切向）的组合，
+  节点在 (0,0) 周围稳定绕转，但外圈节点普遍飞到 ±150 半径外，整张图视觉上
+  "散得过大"，特别是节点少（5~10 个）时中心一片空白、外围松散；
+  用户原话："向心力可以稍微大一点"。
+- **根因**：切向 orbit 与 charge 斥力的平衡只决定**角速度**，与"稳态半径"无关。
+  d3-force 的 `forceCenter` 在 strength=1 时实际行为是"向**初始化时刻的质心**收敛"
+  （不是向 (0,0) 收敛），半径方向上没有持续向心项，节点最终停在 charge-link-orbit
+  合力 ≈ 0 的位置——而这个位置往往比直觉"中心"远。
+- **修复**（`apps/life-tracker` 与 `apps/book-tracker` 两个 GraphView.tsx 同步）：
+  新增 **`centripetalForce`** 自定义 d3-force——每 tick 给每个节点一个指向 (0,0)
+  的径向速度增量（`vx += -dx/d*s`，`vy += -dy/d*s`），与 `orbitForce` 方向互为
+  正交（一个切向、一个径向）。两个力一起作用时，节点仍能保持绕转，
+  但**轨道半径被向心力收小**，整张图视觉上明显更紧凑。
+  - 强度 0.02（与 orbit 0.05 同数量级但更小，避免节点被拉成黑洞）；
+  - 通过 `motionRef.centripetal` 闭包注入，模式切换时统一控制；
+  - 与 orbit/jitter 共用同一套"鼠标悬停时降到 0.004"的交互感知策略。
+- **回归**：
+  - 两 app `npm run typecheck` 全绿；
+  - life-tracker 134/134 + book-tracker 71/71 vitest 全过；
+  - 边缘节点在 0.02 向心力下半径从 ~150 缩到 ~90（force 模式下数据少时），无
+    "图缩成一点" 副作用；切到 tree 模式后轨道力全 0、不再有任何径向运动。
+
+### 2. [共享] 现象：用户希望新增"固定"布局，"从下往上越后置"
+
+- **现象**：用户要求关系图多一种"更加固定一点"的布局模式——"那种从下网上，
+  是越来越被后置的任务"。语义对应：从下到上 = 叶子 → 根 = depth=0 → depth=max，
+  即"无前置"在最底、"层层后置"的总目标在最顶；且节点位置要稳定、不像力导向
+  那样持续运动（"固定"）。
+- **修复**（同样两个 GraphView.tsx 同步）：
+  - **`computeDepths(nodes, links)`**：DFS 沿 `dependsOn` 边走，
+    `depth = max(prereq 深度) + 1`，叶 = 0。环检测用 `visiting` 集合——
+    回边返回 0 切断递归，避免无限循环；环上节点因此会聚到同一层
+    （视觉上"扎堆"，提示用户数据有环，不是 bug）。
+  - **`applyTreeLayout(nodes, depths)`**：按 depth 分层，canvas 坐标系里
+    `y = (maxDepth - depth) * layerHeight`——depth=0 在屏幕下方（y 最大），
+    depth=max 在屏幕上方（y=0）；同层按 id 排序后水平均匀居中分布。
+    **钉死 fx/fy**：让 d3-force 即便还在 tick 也无法移动节点，
+    保证"位置固定"。
+  - **布局模式 toggle**：`layoutMode: 'force' | 'tree'`，状态切换走
+    `useEffect([layoutMode, data.nodes, data.links])`：
+    - 切 tree：所有动效强度置 0（orbit/jitter/centripetal=0） + 钉位；
+    - 切 force：清掉 fx/fy + 恢复默认力强度（按当前 pointerOver 状态）。
+  - **数据变更时重排**：data 变化（增删 goal）也会在 tree 模式下重新计算 depth
+    并钉位，独立 useEffect 保证 mode 不变也响应；
+  - **高亮钉中心仅 force 模式生效**：tree 模式不再覆盖 applyTreeLayout 的 fx/fy，
+    否则高亮节点会被拽回 (0,0) 破坏层级；
+  - **拖完节点回层级位置**：tree 模式下 `onNodeDragEnd` 立刻重算 depth + 钉回，
+    防止"拖完变自由节点"。
+- **回归**：
+  - 两 app `npm run typecheck` 全绿；
+  - life-tracker 134/134 + book-tracker 71/71 vitest 全过；
+  - 手动验证：leaf 节点（如「掌握基础数学」）恒在最底行，根节点（如「国奖」）
+    恒在最顶行；中间层按深度递增；环上节点肉眼可看出扎堆位置。
+
+### 3. [共享] 教训：d3-force 的 `fx/fy` 是"绝对钉住"，但 tree 模式还要管"拖完回钉"
+
+- **教训**：d3-force 的 `fx/fy` 在赋值后会强制把节点位置锁定到该坐标。
+  但用户拖动节点时 d3-drag 会临时清掉 fx/fy 让节点跟手，**松手时 fx/fy 不会被
+  自动恢复**——这在 force 模式下是想要的（节点保持自由），但在 tree 模式下
+  就成了 bug：用户拖完发现节点"漂走"了，破坏层级。
+- **教训**：在 `onNodeDragEnd` 里手工重钉一遍 `fx/fy` 是最干净的解法；
+  比"全部钉死、用户拖不动"好（允许微调手感），也比"允许自由但下次切模式再钉"
+  好（即时反馈、所见即所得）。
+- **教训**：layer 维度（layerHeight/layerWidth）目前是硬编码常量（130 / 170），
+  没有适配画布尺寸自适应。如果将来要做"画布小图自动缩层间距"，要在
+  `applyTreeLayout` 里把 dims 改成参数化（按 `dims.w` / `dims.h` 计算），
+  不要现在硬塞——目前用户数据规模（<200 节点）下硬编码值视觉上够用。
+
+### 4. [共享] 教训：模式切换 effect 必须解耦"挂载"和"模式变化"两条路径
+
+- **教训**：第一版实现把 `mode + data 变更` 都塞进同一个 useEffect，导致：
+  - data 没变、仅切模式 → effect 跑（正确）；
+  - mode 没变、仅 data 变（增删 goal）→ effect 跑（但因为 mode 没变，分支里什么都不做，
+    tree 模式下不重算 depth、节点扎堆位置不变——bug）。
+- **修复**：拆成两个独立 useEffect：
+  - 一个只在 `layoutMode` 实际变化时切力/钉位（deps: `[layoutMode, data.nodes, data.links]`）；
+  - 一个只响应 `data.nodes/data.links` 变化、在 tree 模式下重算层级（deps 同上，
+    内部 `if (layoutMode !== 'tree') return`）。
+- **教训**：写 React effect 时要明确"这条 effect 的语义触发条件是什么"——
+  是「mode 改变」还是「data 改变」还是「两者」？混在一起短期省事，长期难调。
+  把每条 effect 的 deps 与内部 early-return 一起设计，比"deps 一锅炖"清晰得多。
+
+### 5. [共享] 教训：自定义 d3-force 必须用闭包注入 nodes + 强度
+
+- **教训**：d3-force 在严格模式下调用 force 函数时 `this` 是 undefined，
+  不能写 `this.nodes()`——必须用闭包捕获 `getNodes: () => GraphNode[]` 与
+  `getStrength: () => number`，让 strength 在外部 ref 里变、force 函数读最新值。
+  这条模式之前已经在 orbitForce / jitterForce 上踩过（dev-notes 里有过记录），
+  centripetalForce 是同一套 pattern 的第三次落地——值得作为一个可复用的范式记下：
+  「d3 自定义 force = `(getNodes, getStrength) => (alpha) => void`」。
+
+---
+
 ## 2026-08：relations 不变量校验（`to` 唯一性）
 
 ### 1. [共享] 隐患：`compute_unlocked` 的 `to → Edge` 索引会静默吞掉重复边的前置

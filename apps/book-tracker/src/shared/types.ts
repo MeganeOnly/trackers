@@ -59,6 +59,13 @@ export interface Book {
    * 未设置（null/undefined）= 没有进度记录。允许 status 切换时保留旧值以便续读。
    */
   progress: Progress | null
+  /**
+   * 编辑模式侧栏收起：所有 status 都允许；从 EditMode 侧栏的 status 分组里移到
+   * 底部『已收起』分组，纯展示层，不影响 status / 解锁 / CleanMode 任何行为。
+   * book-tracker 原 CleanMode 只有 status-based 的折叠区（搁置/已读/弃读），
+   * 加上本字段后 EditMode 侧栏新增一个跨 status 的『已收起』分组。
+   */
+  collapsed: boolean
   /** ISO 8601 字符串 */
   created: string
   /** ISO 8601 字符串 */

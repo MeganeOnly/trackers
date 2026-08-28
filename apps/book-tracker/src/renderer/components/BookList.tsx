@@ -26,10 +26,17 @@ export function BookList(): JSX.Element {
   const query = useSearchStore((s) => s.query)
   const worksFilter = useSettingsStore((s) => s.worksFilter)
 
+  // 编辑模式侧栏"已收起"分组：跨 status 收集所有 collapsed=true 的作品，
+  // 它们不再出现在原 status 分组里。book-tracker 原 CleanMode 不受影响（仍按 status 分组）。
+  const collapsedItems = (): Book[] => groups.reading
+    .concat(groups.want, groups.finished, groups.shelved, groups.abandoned)
+    .filter((b) => b.collapsed)
+
   const filtered = (items: Book[]): Book[] =>
     items
       .filter((b) => matchBook(b, query))
       .filter((b) => worksFilter === 'all' || b.kind === worksFilter)
+      .filter((b) => !b.collapsed)
 
   return (
     <div className="book-list">
@@ -72,6 +79,52 @@ export function BookList(): JSX.Element {
           </section>
         )
       })}
+
+      {/* 编辑模式"已收起"分组：跨 status 收集 collapsed=true 的作品；不影响 CleanMode 任何行为 */}
+      <CollapsedSection items={collapsedItems()} worksFilter={worksFilter} />
     </div>
+  )
+}
+
+interface CollapsedSectionProps {
+  items: Book[]
+  worksFilter: string
+}
+
+function CollapsedSection({ items, worksFilter }: CollapsedSectionProps): JSX.Element | null {
+  const selectedId = useBooksStore((s) => s.selectedId)
+  const select = useBooksStore((s) => s.select)
+  const query = useSearchStore((s) => s.query)
+  const filtered = items
+    .filter((b) => matchBook(b, query))
+    .filter((b) => worksFilter === 'all' || b.kind === worksFilter)
+  if (items.length === 0) return null
+  return (
+    <section className="book-list-group book-list-group--collapsed">
+      <h3>
+        <span className="status-dot status-collapsed" title="在编辑模式侧栏已收起" />
+        已收起{' '}
+        <span className="count">
+          ({query ? `${filtered.length}/${items.length}` : items.length})
+        </span>
+      </h3>
+      {filtered.length === 0 ? (
+        <p className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</p>
+      ) : (
+        <ul>
+          {filtered.map((b) => (
+            <li
+              key={b.id}
+              className={selectedId === b.id ? 'selected' : ''}
+              onClick={() => select(b.id)}
+            >
+              <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
+              <span className="title">{b.title}</span>
+              <span className="read-count">{STATUS_LABELS[b.status]}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

@@ -44,6 +44,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
       ? String(book.progress.total)
       : ''
   )
+  const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -65,7 +66,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         translator: translator.trim(),
         status,
         progress: null,
-        tags: []
+        tags: [],
+        collapsed
       }
       // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 input
       if (status === 'reading') {
@@ -219,6 +221,14 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             </label>
           </div>
         )}
+        <label className="form-checkline">
+          <input
+            type="checkbox"
+            checked={collapsed}
+            onChange={(e) => setCollapsed(e.target.checked)}
+          />
+          <span>在编辑模式侧栏中收起（移到『已收起』分组，不影响 status 与解锁）</span>
+        </label>
         {error && <p className="form-error">{error}</p>}
       </form>
     </Modal>
