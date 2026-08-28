@@ -344,10 +344,10 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           <label className="field">
             <span>截止日期</span>
             <input
-              type="text"
+              type="date"
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
-              placeholder="留空 = 无截止（格式：2025-06-30）"
+              placeholder="留空 = 无截止"
             />
             {overdue && <span className="deadline-overdue">已逾期</span>}
           </label>
