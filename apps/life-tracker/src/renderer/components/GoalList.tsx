@@ -103,11 +103,18 @@ interface ItemRowProps {
   g: Goal
   selected: boolean
   onSelect: (id: string) => void
-  /** 是否展示状态徽标（仅在「被收起」内需要：跨 status 都要显示归属状态） */
-  showStatusBadge?: boolean
 }
 
-function ItemRow({ g, selected, onSelect, showStatusBadge }: ItemRowProps): JSX.Element {
+/**
+ * 侧栏一行：标题 + 进度 / 截止日期徽标。
+ *
+ * 不再展示 status 徽标：
+ * - 常规 status 分组：每个分组的 section header 已经标了 status 名 + dot，
+ *   分组内每条都同 status，多余徽标。
+ * - 被收起 bucket 的子分组：同款结构，再加每条 status 徽标跟 sub-header 重复。
+ * - 真要看 status：右侧详情面板有「状态」select + status-pill（EditMode 真正的设置位）。
+ */
+function ItemRow({ g, selected, onSelect }: ItemRowProps): JSX.Element {
   return (
     <li
       className={selected ? 'selected' : ''}
@@ -124,7 +131,6 @@ function ItemRow({ g, selected, onSelect, showStatusBadge }: ItemRowProps): JSX.
       {g.status !== 'in_progress' && g.deadline && (
         <span className="read-count">截止 {g.deadline}</span>
       )}
-      {showStatusBadge && <span className={`status-tag status-${g.status}`}>{STATUS_LABELS[g.status]}</span>}
     </li>
   )
 }
@@ -288,7 +294,6 @@ function CollapsedBucket({
                       g={g}
                       selected={selectedId === g.id}
                       onSelect={onSelect}
-                      showStatusBadge
                     />
                   ))}
                 </ul>

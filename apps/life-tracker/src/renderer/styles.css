@@ -254,11 +254,6 @@ button:focus-visible {
 .goal-list-group li:hover { background: var(--accent-soft); }
 .goal-list-group li.selected { background: var(--accent-soft); font-weight: 500; }
 .goal-list-group li .read-count { font-size: 11px; color: var(--muted); }
-.goal-list-group li .status-tag {
-  font-size: 11px; padding: 1px 6px;
-  border-radius: 8px; background: var(--bg);
-  flex-shrink: 0;
-}
 .goal-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
 
 /* 「被收起」最外层容器 —— 不是一个 status 组，而是『所有被收起的』专用收纳位置 */
