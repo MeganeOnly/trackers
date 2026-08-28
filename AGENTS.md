@@ -29,8 +29,10 @@
 ├── AGENTS.md                     # 本文件
 ├── docs/
 │   ├── shared-boundary.md        # ★ 共享边界清单 + 归属判断规则（改代码前先看）
-│   ├── architecture.md
-│   └── dev-notes.md              # ★ 经验沉淀（整改/增添后如有值得记录的经验追加到这里）
+│   ├── dev-notes.md              # ★ 经验沉淀（整改/增添后如有值得记录的经验追加到这里）
+│   ├── CHANGELOG.md              # 版本演进（v1 / v1.1 ...）
+│   ├── ROADMAP.md                # 后续候选方向（不承诺时间表）
+│   └── user-guide.md             # 用户上手指南
 ├── packages/
 │   ├── tracker-core/             # TS 纯逻辑（无 React）：unlock / progress / 通用类型 + vitest
 │   └── tracker-ui/               # React 基座：Modal / TopBar / GraphView / PrereqEditor / styles-base
