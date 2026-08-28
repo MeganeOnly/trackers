@@ -986,8 +986,22 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-radius: 4px;
   background: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .topbar-icon-btn:hover { background: var(--bg); }
+.topbar-icon-btn--with-badge .badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: white;
+  background: var(--danger);
+  border-radius: 9px;
+}
 
 .graph-modal-body {
   display: flex;
@@ -1134,3 +1148,28 @@ button:focus-visible {
 .deadline-urgent { color: #d97706; font-weight: 500; } /* ≤7 天，琥珀 */
 .deadline-soon { color: #b89627; } /* ≤30 天，土黄 */
 .auto-done-hint { color: var(--status-done); }
+
+/* 回收站 */
+.trash-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.trash-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+}
+.trash-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.trash-item-info .title { font-weight: 500; }
+.trash-item-info .meta { font-size: 12px; }
+.trash-item-actions { display: flex; gap: 6px; }

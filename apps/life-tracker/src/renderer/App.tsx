@@ -4,6 +4,7 @@ import { EditMode } from './pages/EditMode'
 import { CleanMode } from './pages/CleanMode'
 import { GoalForm } from './components/GoalForm'
 import { GraphModal } from './components/GraphModal'
+import { TrashModal } from './components/TrashModal'
 import { useModeStore } from './store/mode'
 import { useGoalsStore } from './store/goals'
 import { useRelationsStore } from './store/relations'
@@ -18,6 +19,7 @@ export default function App(): JSX.Element {
 
   const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
 
   useEffect(() => {
     // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
@@ -82,12 +84,13 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} />
+      <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} onTrash={() => setTrashOpen(true)} />
       <div className="app-body">
         <EditModeWrapper />
       </div>
       {formOpen && <GoalForm goal={null} onClose={() => setFormOpen(false)} />}
       {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
+      {trashOpen && <TrashModal onClose={() => setTrashOpen(false)} />}
     </div>
   )
 }

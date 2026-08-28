@@ -1,18 +1,28 @@
 import { useEffect, useRef } from 'react'
 import { useModeStore } from '../store/mode'
 import { useSearchStore } from '../store/search'
+import { useTrashStore } from '../store/trash'
 
 interface TopBarProps {
   onAdd?: () => void
   onGraph?: () => void
+  onTrash?: () => void
 }
 
-export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onTrash }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
   const setQuery = useSearchStore((s) => s.set)
+  const trashCount = useTrashStore((s) => s.entries.length)
+  const loadTrash = useTrashStore((s) => s.load)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // 启动后拉一次回收站列表（让 TopBar 的角标数字准确）。
+  // 后续打开 TrashModal 时会再拉一次（force refresh）。
+  useEffect(() => {
+    void loadTrash()
+  }, [loadTrash])
 
   // '/' 快捷键聚焦搜索
   useEffect(() => {
@@ -51,6 +61,16 @@ export function TopBar({ onAdd, onGraph }: TopBarProps): JSX.Element {
         />
       </div>
       <div className="topbar-right">
+        {onTrash && (
+          <button
+            className="topbar-icon-btn topbar-icon-btn--with-badge"
+            onClick={onTrash}
+            title={trashCount > 0 ? `回收站 (${trashCount})` : '回收站'}
+          >
+            <span>回收站</span>
+            {trashCount > 0 && <span className="badge">{trashCount}</span>}
+          </button>
+        )}
         {onGraph && (
           <button className="topbar-icon-btn" onClick={onGraph} title="关系图 (g)">
             图

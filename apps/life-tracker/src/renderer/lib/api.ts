@@ -13,7 +13,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import type { Goal, GoalInput, Config, Edge } from '@shared/types'
-import type { BrokenEntry, ElectronAPI } from '@shared/api'
+import type { BrokenEntry, ElectronAPI, TrashEntry } from '@shared/api'
 
 export const api: ElectronAPI & {
   app: {
@@ -39,6 +39,12 @@ export const api: ElectronAPI & {
   data: {
     pickDir: () => invoke<string | null>('data_pick_dir'),
     revealInExplorer: () => invoke<void>('data_reveal_in_explorer')
+  },
+  trash: {
+    list: () => invoke<TrashEntry[]>('trash_list'),
+    restore: (id, deletedAt) => invoke<Goal>('trash_restore', { id, deletedAt }),
+    purge: (id, deletedAt) => invoke<void>('trash_purge', { id, deletedAt }),
+    empty: () => invoke<number>('trash_empty')
   },
   app: {
     ensureDataDir: () => invoke<string>('app_ensure_data_dir')

@@ -13,13 +13,11 @@
 //! 测试可执行文件可以正常加载。
 
 pub mod data;
+pub mod service;
 pub mod types;
 
 #[cfg(not(test))]
 pub mod commands;
-
-#[cfg(not(test))]
-pub mod service;
 
 #[cfg(not(test))]
 mod tauri_app {
@@ -71,6 +69,10 @@ mod tauri_app {
                 commands::config_set,
                 commands::data_pick_dir,
                 commands::data_reveal_in_explorer,
+                commands::trash_list,
+                commands::trash_restore,
+                commands::trash_purge,
+                commands::trash_empty,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

@@ -8,7 +8,7 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::data::goals::{BrokenEntry as DataBrokenEntry, GoalListResult};
-use crate::service::{config as cfg_svc, data_dir, goals, relations};
+use crate::service::{config as cfg_svc, data_dir, goals, relations, trash};
 use crate::types::{Edge, Goal, GoalInput, GoalPatch};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
@@ -77,7 +77,7 @@ pub fn goals_progress_bump(id: String, delta: i32) -> Result<Goal, String> {
 
 #[tauri::command]
 pub fn goals_delete(id: String) -> Result<(), String> {
-    let dir = goals_dir()?;
+    let dir = data_dir_path()?;
     goals::delete_goal(&dir, &id).map_err(|e| e.to_string())
 }
 
@@ -151,4 +151,35 @@ pub fn data_reveal_in_explorer<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     app.opener()
         .open_path(dir, None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+// ==================== trash commands ====================
+
+/// 列出回收站条目（按删除时间倒序）。
+#[tauri::command]
+pub fn trash_list() -> Result<Vec<trash::TrashEntry>, String> {
+    let dir = data_dir_path()?;
+    trash::list_trash(&dir).map_err(|e| e.to_string())
+}
+
+/// 从回收站还原一个目标到 goals/ + 合并回 relations。
+/// 引入循环依赖时返回 Err，goals/<id>.md 也会回滚。
+#[tauri::command]
+pub fn trash_restore(id: String, deleted_at: i64) -> Result<Goal, String> {
+    let dir = data_dir_path()?;
+    trash::restore_from_trash(&dir, &id, deleted_at).map_err(|e| e.to_string())
+}
+
+/// 永久删除一个回收站条目。
+#[tauri::command]
+pub fn trash_purge(id: String, deleted_at: i64) -> Result<(), String> {
+    let dir = data_dir_path()?;
+    trash::purge_from_trash(&dir, &id, deleted_at).map_err(|e| e.to_string())
+}
+
+/// 清空回收站，返回删除的文件总数。
+#[tauri::command]
+pub fn trash_empty() -> Result<usize, String> {
+    let dir = data_dir_path()?;
+    trash::empty_trash(&dir).map_err(|e| e.to_string())
 }
