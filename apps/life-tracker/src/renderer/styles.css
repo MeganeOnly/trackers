@@ -211,12 +211,39 @@ button:focus-visible {
 .detail-panel { flex: 1; padding: 32px 40px; overflow-y: auto; }
 
 .goal-list { display: flex; flex-direction: column; gap: 18px; }
-.goal-list-group h3 {
-  margin: 0 0 6px; font-size: 12px; font-weight: 600;
-  color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+/* 可点击折叠 header —— 5 个 status 分组 + 「被收起」内 5 个 status 子分组都用这套样式 */
+.goal-list-group .group-header,
+.goal-list-group .group-header--sub {
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  width: 100%;
+  font: inherit;
+  font-size: 12px; font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
   display: flex; align-items: center; gap: 6px;
+  user-select: none;
 }
-.goal-list-group h3 .count { font-weight: 400; color: var(--muted); }
+.goal-list-group .group-header:hover,
+.goal-list-group .group-header--sub:hover { background: rgba(0, 0, 0, 0.03); }
+.goal-list-group .group-header .count,
+.goal-list-group .group-header--sub .count { font-weight: 400; color: var(--muted); }
+.goal-list-group .group-header .caret,
+.goal-list-group .group-header--sub .caret {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.goal-list-group .group-header:focus-visible,
+.goal-list-group .group-header--sub:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
 .goal-list-group ul { list-style: none; padding: 0; margin: 0; }
 .goal-list-group li {
   padding: 5px 8px; border-radius: 4px;
@@ -227,7 +254,36 @@ button:focus-visible {
 .goal-list-group li:hover { background: var(--accent-soft); }
 .goal-list-group li.selected { background: var(--accent-soft); font-weight: 500; }
 .goal-list-group li .read-count { font-size: 11px; color: var(--muted); }
+.goal-list-group li .status-tag {
+  font-size: 11px; padding: 1px 6px;
+  border-radius: 8px; background: var(--bg);
+  flex-shrink: 0;
+}
 .goal-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
+
+/* 「被收起」最外层容器 —— 不是一个 status 组，而是『所有被收起的』专用收纳位置 */
+.goal-list-group--collapsed-bucket {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.bucket-header {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 0 6px;
+}
+.bucket-header .count { font-weight: 400; }
+.bucket-subs { display: flex; flex-direction: column; gap: 10px; padding-left: 8px; }
+/* 子分组比外层缩进更深、header 字号略小、group-name 不再 uppercase */
+.goal-list-group--sub .group-header--sub {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
 
 .status-dot {
   display: inline-block; width: 8px; height: 8px;
@@ -921,9 +977,18 @@ button:focus-visible {
   border-radius: 3px;
   cursor: pointer;
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-start;   /* 左对齐：标题紧跟勾选图标，分类/徽标后续展开 */
   gap: 8px;
   font-size: 13px;
+}
+.prereq-picker li .title {
+  flex: 1 1 auto;                /* 标题撑满剩余宽度，长标题省略号收尾 */
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .prereq-picker li:hover { background: var(--accent-soft); }
 
