@@ -13,6 +13,26 @@ const STATUS_LABELS: Record<GoalStatus, string> = {
 }
 
 const STATUS_ORDER: GoalStatus[] = ['in_progress', 'not_started', 'done', 'shelved', 'abandoned']
+/**
+ * 侧栏常规分组渲染顺序：「放弃」按用户要求仅在「被收起」bucket 内出现，
+ * 所以常规 4 组只用 in_progress / not_started / done / shelved。
+ */
+const REGULAR_STATUS_ORDER: GoalStatus[] = ['in_progress', 'not_started', 'done', 'shelved']
+/**
+ * 「被收起」bucket 内的子分组渲染顺序：全 5 个 status 都展示，
+ * 包括 abandoned —— 放弃的目标一律归 bucket（用户明确要求"放弃仅在收起中"）。
+ */
+const BUCKET_STATUS_ORDER: GoalStatus[] = STATUS_ORDER
+
+/**
+ * 判断目标是否该归到「被收起」bucket：
+ * - 用户手动勾 `collapsed` 走通用路径；
+ * - status === 'abandoned' 时**无论** collapsed 是 true 还是 false，一律归
+ *   bucket（语义：放弃等同于收起，与隐藏 / 清理语义捆绑）。
+ */
+function inBucket(g: Goal, status: GoalStatus): boolean {
+  return g.collapsed || status === 'abandoned'
+}
 
 /** localStorage 持久化键：哪些侧栏 section 当前处于『收起』状态 */
 const COLLAPSED_SECTIONS_STORAGE_KEY = 'life-tracker:sidebar:collapsed-sections'
@@ -116,8 +136,9 @@ export function GoalList(): JSX.Element {
   const query = useSearchStore((s) => s.query)
   const { isCollapsed, toggle } = useCollapsibleSections()
 
-  // 编辑模式侧栏"被收起"：跨 status 收集 collapsed=true 的目标，按原 status
-  // 子分组展示（与 STATUS_ORDER 同序）。语义与 CleanMode 的 hidden 字段独立。
+  // 编辑模式侧栏"被收起"：跨 status 收集 (collapsed=true OR status=abandoned)
+  // 的目标，按 status 子分组展示。被 abandoned 直接归 bucket（用户要求"放弃仅在
+  // 收起中"），所以常规分组不再渲染 放弃 这一行。
   const collapsedByStatus = useMemo<Record<GoalStatus, Goal[]>>(() => {
     const out: Record<GoalStatus, Goal[]> = {
       not_started: [],
@@ -126,24 +147,25 @@ export function GoalList(): JSX.Element {
       shelved: [],
       abandoned: []
     }
-    for (const status of STATUS_ORDER) {
-      out[status] = groups[status].filter((g) => g.collapsed)
+    for (const status of BUCKET_STATUS_ORDER) {
+      out[status] = groups[status].filter((g) => inBucket(g, status))
     }
     return out
   }, [groups])
 
   const collapsedTotal = useMemo(
-    () => STATUS_ORDER.reduce((sum, s) => sum + collapsedByStatus[s].length, 0),
+    () => BUCKET_STATUS_ORDER.reduce((sum, s) => sum + collapsedByStatus[s].length, 0),
     [collapsedByStatus]
   )
 
-  const filtered = (items: Goal[]): Goal[] =>
-    items.filter((b) => matchGoal(b, query)).filter((b) => !b.collapsed)
+  // 常规分组过滤：搜索匹配 + 排除进 bucket 的（手动 collapsed 或 abandoned）
+  const filtered = (items: Goal[], status: GoalStatus): Goal[] =>
+    items.filter((b) => matchGoal(b, query)).filter((b) => !inBucket(b, status))
 
   return (
     <div className="goal-list">
-      {STATUS_ORDER.map((status) => {
-        const items = filtered(groups[status])
+      {REGULAR_STATUS_ORDER.map((status) => {
+        const items = filtered(groups[status], status)
         const totalCount = groups[status].length
         const sectionKey = `status:${status}`
         const collapsed = isCollapsed(sectionKey)
@@ -187,9 +209,9 @@ export function GoalList(): JSX.Element {
         )
       })}
 
-      {/* 「被收起」区域：跨 status 收集 collapsed=true 的目标，按 status 再分子分组
-          （与上方 5 个 status 分组同款结构，只是统一收束到一块 → 用户有清晰的『所有
-           被收起的』位置感）。非 collapsed 的目标永远不进来。 */}
+      {/* 「被收起」区域：跨 status 收集 (collapsed=true OR status=abandoned) 的目标，
+          按 status 再分子分组（与上方 status 分组同款结构，统一收束到一块 → 用户
+          有清晰的『所有被收起的 / 放弃的』位置感）。abandoned 一律归 bucket。 */}
       <CollapsedBucket
         collapsedByStatus={collapsedByStatus}
         collapsedTotal={collapsedTotal}
@@ -231,7 +253,7 @@ function CollapsedBucket({
         <span className="count">({collapsedTotal})</span>
       </header>
       <div className="bucket-subs">
-        {STATUS_ORDER.map((status) => {
+        {BUCKET_STATUS_ORDER.map((status) => {
           const items = collapsedByStatus[status].filter((g) => matchGoal(g, query))
           if (items.length === 0) return null
           const totalForStatus = collapsedByStatus[status].length
