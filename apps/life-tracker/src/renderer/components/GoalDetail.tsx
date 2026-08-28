@@ -386,42 +386,44 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             </label>
           </div>
         )}
-        {status === 'in_progress' && (
+        <div className="form-checkline-group">
+          {status === 'in_progress' && (
+            <label className="form-checkline">
+              <input
+                type="checkbox"
+                checked={pinned}
+                onChange={(e) => setPinned(e.target.checked)}
+              />
+              <span title="日常模式顶部『进行中』栏置顶展示（仅 in_progress 生效）">置顶进行中</span>
+            </label>
+          )}
+          {(status === 'not_started' || status === 'in_progress') && (
+            <label className="form-checkline">
+              <input
+                type="checkbox"
+                checked={hidden}
+                onChange={(e) => setHidden(e.target.checked)}
+              />
+              <span title="从 CleanMode『现在能推进』列表隐藏（仅 not_started / in_progress 生效，不影响解锁）">日常模式隐藏</span>
+            </label>
+          )}
           <label className="form-checkline">
             <input
               type="checkbox"
-              checked={pinned}
-              onChange={(e) => setPinned(e.target.checked)}
+              checked={collapsed}
+              onChange={(e) => setCollapsed(e.target.checked)}
             />
-            <span title="日常模式顶部『进行中』栏置顶展示（仅 in_progress 生效）">置顶进行中</span>
+            <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
           </label>
-        )}
-        {(status === 'not_started' || status === 'in_progress') && (
           <label className="form-checkline">
             <input
               type="checkbox"
-              checked={hidden}
-              onChange={(e) => setHidden(e.target.checked)}
+              checked={countable}
+              onChange={(e) => setCountable(e.target.checked)}
             />
-            <span title="从 CleanMode『现在能推进』列表隐藏（仅 not_started / in_progress 生效，不影响解锁）">日常模式隐藏</span>
+            <span title="可计数任务 —— 别的目标引用时可指定需要完成多少次（完成次数与 status 解耦）">可计数</span>
           </label>
-        )}
-        <label className="form-checkline">
-          <input
-            type="checkbox"
-            checked={collapsed}
-            onChange={(e) => setCollapsed(e.target.checked)}
-          />
-          <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
-        </label>
-        <label className="form-checkline">
-          <input
-            type="checkbox"
-            checked={countable}
-            onChange={(e) => setCountable(e.target.checked)}
-          />
-          <span title="可计数任务 —— 别的目标引用时可指定需要完成多少次（完成次数与 status 解耦）">可计数</span>
-        </label>
+        </div>
         <label className="field">
           <span>备注 / 描述</span>
           <textarea

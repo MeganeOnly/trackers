@@ -375,6 +375,17 @@ button:focus-visible {
 .form-checkline + .form-checkline {
   margin-top: 4px;
 }
+/* 同一行展示多个 checkbox（GoalForm 加目标 / GoalDetail 编辑目标表单里的置顶/隐藏/收起/可计数四连选） */
+.form-checkline-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+.form-checkline-group .form-checkline {
+  margin-top: 0;
+}
 
 /* clean-mode currently reading 进度 */
 .currently-progress {
