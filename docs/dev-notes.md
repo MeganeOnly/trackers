@@ -85,6 +85,45 @@
 
 ---
 
+## 2026-08：GraphView 悬空引用导致右键控制台一堆"node not found"异常
+
+### 1. [共享] 现象：关系图右键后控制台出现多个红色 `node not found` 异常
+
+- **现象**：life-tracker 关系图右键后（实际触发点在 mount / data reload，right-click
+  只是其中一次会复跑 forceLink.initialize() 的入口），控制台连续抛出
+  `Error: node not found: <id>` —— 每条悬空 link 一次。book-tracker 同套库、
+  同套 link 生成路径，但用户数据悬空少，只看到 1 条异常；life-tracker 数据
+  迁移 / 手工编辑 history 较乱，悬空多 → 一堆红字。
+- **根因**：react-force-graph-2d 内部用 d3-force-3d 的 `forceLink`。`initialize()`
+  会把 `link.source` / `link.target`（字符串）替换成 node 对象，找不到就抛
+  `new Error("node not found: " + nodeId)`。两 app GraphView 旧实现都把
+  `edge.prerequisites`（含「旧裸 id 兜底」或已删除 goal）原样塞进 `links`，
+  没跟 `computeUnlocked` 那样 `prerequisites.filter((p) => idSet.has(p))` 过滤。
+  reheat / 重新挂载 / 右键 hoverObj 重算等都会触发 `initialize()` 复抛 → 控制台一片红。
+- **修复**（`apps/life-tracker/src/renderer/components/GraphView.tsx` 的
+  `deriveLinks` + `book-tracker` 同款 data memo 改造）：
+  - LIFE：`deriveLinks(edge, validIds)` 接收 goal id 集合；mkLink 检测 source/target
+    任一不在集合里就返回 null，specs / 旧 groups / 纯 legacy 三个分支都走同套
+    悬空过滤；refCount 累加前同步过滤 → 节点大小不会被悬空 link 撑大。
+  - BOOK：`data` memo 里建 `bookIds = new Set(...)`，对 `e.prerequisites` 在
+    `refCount` 自增前与 `links` 生成前都做 `bookIds.has(...)` 双端校验。
+  - 语义对齐：`computeUnlocked` 早就 `idSet.has(p)` 忽略悬空 prereq，画图层
+    按同一份"已存在 goal id 集合"过滤；unlock 计算不变（之前就不算悬空 prereq），
+    只少画 / 少累 refCount 几条幽灵边。
+- **回归**：
+  - `apps/life-tracker/src/shared/__tests__/graphview_links.test.ts`
+    加 8 个 case：legacy / specs simple / specs group / specs count / 旧 AND-of-ORs
+    / 全空 / 半空 / 默认路径回归。
+  - life-tracker 110/110 + book-tracker 47/47 + tracker-core 47/47 = 204 vitest 全过；
+    `cargo test --workspace` 全过；两 app typecheck + `vite build` 全绿。
+- **教训**：d3-force-link 的初始化失败是"无声但不静默"的——错误抛出来但 React 不
+  会捕获，结果用户只看到控制台红字，UI 还可能继续渲染（节点出现但 link 缺失）。
+  凡"传给 react-force-graph-2d 的 link"都要走 `validIds` 过滤一遍，
+  与 `computeUnlocked` 的 `idSet.has(p)` 同步；这条不该只放在 unlock 层、画图层
+  也必须独立一遍（force-link 的 `find()` 不会复用 unlock 的预过滤结果）。
+
+---
+
 ## 2026-08：LifeTracker 关系图节点挤成团（countable spec 多次添加产生平行边）
 
 ### 1. [life-tracker] 现象：关系图节点挤成一团、与 book-tracker 视觉差异明显

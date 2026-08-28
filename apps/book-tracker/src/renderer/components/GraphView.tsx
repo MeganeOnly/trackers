@@ -125,10 +125,20 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
   const select = useBooksStore((s) => s.select)
 
   const data = useMemo(() => {
+    // 悬空引用过滤：source/target 不在 books 集合里的 link 一律丢弃，
+    // 避免 d3-force-3d 的 forceLink.initialize() 在 `find(nodeById, X)` 时抛
+    // `Error: node not found: X`（每条悬空 link 一次异常，reheat/重画/重挂载都会复抛，
+    // 控制台"右键一堆 error"的根因即在此）。computeUnlocked 内部早就
+    // `prerequisites.filter((p) => idSet.has(p))` 忽略悬空 prereq，画图层
+    // 按同一份"已存在 goal id 集合"对齐即可。
+    const bookIds = new Set(books.map((b) => b.id))
     const refCount = new Map<string, number>()
     for (const b of books) refCount.set(b.id, 0)
     for (const e of edges) {
-      for (const p of e.prerequisites) refCount.set(p, (refCount.get(p) ?? 0) + 1)
+      for (const p of e.prerequisites) {
+        if (!bookIds.has(p) || !bookIds.has(e.to)) continue
+        refCount.set(p, (refCount.get(p) ?? 0) + 1)
+      }
     }
     const { unlocked } = computeUnlocked(
       books.map((b) => b.id),
@@ -144,12 +154,14 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
       unlocked: unlocked.get(b.id) ?? true
     }))
     const links: GraphLink[] = edges.flatMap((e) =>
-      e.prerequisites.map((p) => ({
-        source: p,
-        target: e.to,
-        rule: e.rule,
-        threshold: e.threshold
-      }))
+      e.prerequisites
+        .filter((p) => bookIds.has(p) && bookIds.has(e.to))
+        .map((p) => ({
+          source: p,
+          target: e.to,
+          rule: e.rule,
+          threshold: e.threshold
+        }))
     )
     return { nodes, links }
   }, [books, edges])

@@ -122,27 +122,45 @@ interface GraphLink {
  *     refCount 也是 specs 数（不是目标数），B 节点大小被夸大、与被几个不同 target 引用无关。
  *   - 旧 AND-of-ORs 路径下，同一 id 出现在多个 groups / `count`/`group` spec 里也会堆积。
  * 卸载只影响『画几条边』：computeUnlocked 仍按 specs 全集判定，解锁语义不变。
+ *
+ * 过滤悬空引用：source / target 不在 `validIds` 里的 link 直接丢弃。
+ *  —— dangling 来源会让 d3-force-3d 在 initialize 阶段抛 `node not found: X`
+ *   （react-force-graph-2d 内部用的就是 d3-force-3d forceLink 的 `find()`）。
+ *   每条悬空 link 一次"node not found"异常，在 GraphView 重新挂载 / 数据变更 /
+ *   force-graph 内部重画时都会被同步抛出 → 控制台一堆红字。
+ *   与 computeUnlocked 的 filter(idSet.has) 对齐：unlock 算法早就忽略悬空 prereq，
+ *   画图层也按同一份"已存在 goal id 集合"过滤即可。
  */
-function deriveLinks(edge: Edge): GraphLink[] {
-  const mkLink = (source: string): GraphLink => ({
-    source,
-    target: edge.to,
-    rule: edge.rule,
-    threshold: edge.threshold
-  })
+function deriveLinks(edge: Edge, validIds: Set<string>): GraphLink[] {
+  const mkLink = (source: string): GraphLink | null => {
+    if (!validIds.has(source) || !validIds.has(edge.to)) return null
+    return {
+      source,
+      target: edge.to,
+      rule: edge.rule,
+      threshold: edge.threshold
+    }
+  }
   const specs: PrereqSpec[] = edge.specs ?? []
   const positiveSpecs = specs.filter((s) => s.kind !== 'exclude')
 
-  // 先按优先级收集边，最后统一去重
+  // 先按优先级收集边，最后统一去重 + 悬空过滤
   const collected: GraphLink[] = []
   if (positiveSpecs.length > 0) {
     for (const s of positiveSpecs) {
       if (s.kind === 'simple') {
-        collected.push(mkLink(s.id))
+        const l = mkLink(s.id)
+        if (l) collected.push(l)
       } else if (s.kind === 'group') {
-        for (const m of s.members) collected.push(mkLink(groupMemberId(m)))
+        for (const m of s.members) {
+          const l = mkLink(groupMemberId(m))
+          if (l) collected.push(l)
+        }
       } else if (s.kind === 'count') {
-        for (const id of s.members) collected.push(mkLink(id))
+        for (const id of s.members) {
+          const l = mkLink(id)
+          if (l) collected.push(l)
+        }
       }
       // exclude 不画边（谓词改写已在 isDone 层处理）
     }
@@ -150,14 +168,22 @@ function deriveLinks(edge: Edge): GraphLink[] {
     // 旧 AND-of-ORs：mandatory prereqs（不在任何 group 里）+ 各 group member
     const inGroup = new Set<string>(edge.groups.flat())
     for (const p of edge.prerequisites) {
-      if (!inGroup.has(p)) collected.push(mkLink(p))
+      if (inGroup.has(p)) continue
+      const l = mkLink(p)
+      if (l) collected.push(l)
     }
     for (const g of edge.groups) {
-      for (const id of g) collected.push(mkLink(id))
+      for (const id of g) {
+        const l = mkLink(id)
+        if (l) collected.push(l)
+      }
     }
   } else {
     // 纯旧数据：直接读 prerequisites（向后兼容老 relations.json）
-    for (const p of edge.prerequisites) collected.push(mkLink(p))
+    for (const p of edge.prerequisites) {
+      const l = mkLink(p)
+      if (l) collected.push(l)
+    }
   }
 
   // (source, target) 去重——见上方注释；refCount 紧接着在本函数外按此集合自增，
@@ -198,12 +224,17 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
     //   §5 兜底逻辑保留），把它们画成边会渲染出与 specs 语义不符的废链接；
     // - 旧 AND-of-ORs 路径（groups）下 mandatory prereqs 与 group members 的视觉差异
     //   应由 deriveLinks 内部按"不在任何 group 里"判定，不能一股脑 flatMap；
-    // - exclude spec 不画边（谓词已在 isDone 改写里处理）。
+    // - exclude spec 不画边（谓词已在 isDone 改写里处理）；
+    // - source / target 不在 goals 里的悬空 link 一律丢弃，避免 d3-force-3d 的
+    //   `find()` 抛 "node not found" 异常（旧数据迁移期常见，已删除 goal 但 edge 仍
+    //   引用其 id 的场景；book-tracker 同款过滤逻辑在 prereq_simulation / computeUnlocked
+    //   里都有，画图层一直没接上才造成"右键一堆 error"的视觉症状）。
+    const goalIds = new Set(goals.map((b) => b.id))
     const links: GraphLink[] = []
     const refCount = new Map<string, number>()
     for (const b of goals) refCount.set(b.id, 0)
     for (const e of edges) {
-      const ls = deriveLinks(e)
+      const ls = deriveLinks(e, goalIds)
       for (const l of ls) {
         const sid = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
         refCount.set(sid, (refCount.get(sid) ?? 0) + 1)

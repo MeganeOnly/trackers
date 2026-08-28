@@ -10,40 +10,67 @@
 //   - countable 任务被多次添加为 simple spec（每次 count 不同）：
 //     旧实现按 specs 1:1 画边 → 同一 source→target N 条平行边，d3-force-link 倍增吸力
 //     把两端拉近 / 渲染重叠 / refCount 膨胀。
+//   - 悬空引用：source / target 不在 goals 集合里的 link 旧实现也照画，
+//     d3-force-3d 的 forceLink.initialize() 会在 `find()` 里抛 `node not found: X`，
+//     一条悬空 link 一次异常，控制台一堆红字（旧数据迁移期常见）。
 
 import { describe, expect, it } from 'vitest'
 import type { Edge, PrereqSpec } from '@core'
 import { groupMemberId } from '@core'
 
 /** 镜像 GraphView.tsx 的 deriveLinks —— 保持这个测试不依赖 renderer 模块 */
-function deriveLinks(edge: Edge): { source: string; target: string; rule: string; threshold?: number }[] {
-  const mkLink = (source: string) => ({
-    source,
-    target: edge.to,
-    rule: edge.rule,
-    threshold: edge.threshold
-  })
+function deriveLinks(
+  edge: Edge,
+  validIds: Set<string>
+): { source: string; target: string; rule: string; threshold?: number }[] {
+  const mkLink = (source: string) => {
+    if (!validIds.has(source) || !validIds.has(edge.to)) return null
+    return {
+      source,
+      target: edge.to,
+      rule: edge.rule,
+      threshold: edge.threshold
+    }
+  }
   const specs: PrereqSpec[] = edge.specs ?? []
   const positiveSpecs = specs.filter((s) => s.kind !== 'exclude')
 
   const collected: { source: string; target: string; rule: string; threshold?: number }[] = []
   if (positiveSpecs.length > 0) {
     for (const s of positiveSpecs) {
-      if (s.kind === 'simple') collected.push(mkLink(s.id))
-      else if (s.kind === 'group') {
-        for (const m of s.members) collected.push(mkLink(groupMemberId(m)))
+      if (s.kind === 'simple') {
+        const l = mkLink(s.id)
+        if (l) collected.push(l)
+      } else if (s.kind === 'group') {
+        for (const m of s.members) {
+          const l = mkLink(groupMemberId(m))
+          if (l) collected.push(l)
+        }
       } else if (s.kind === 'count') {
-        for (const id of s.members) collected.push(mkLink(id))
+        for (const id of s.members) {
+          const l = mkLink(id)
+          if (l) collected.push(l)
+        }
       }
     }
   } else if (edge.groups && edge.groups.length > 0) {
     const inGroup = new Set<string>(edge.groups.flat())
     for (const p of edge.prerequisites) {
-      if (!inGroup.has(p)) collected.push(mkLink(p))
+      if (inGroup.has(p)) continue
+      const l = mkLink(p)
+      if (l) collected.push(l)
     }
-    for (const g of edge.groups) for (const id of g) collected.push(mkLink(id))
+    for (const g of edge.groups) {
+      for (const id of g) {
+        const l = mkLink(id)
+        if (l) collected.push(l)
+      }
+    }
   } else {
-    for (const p of edge.prerequisites) collected.push(mkLink(p))
+    for (const p of edge.prerequisites) {
+      const l = mkLink(p)
+      if (l) collected.push(l)
+    }
   }
 
   // (source, target) 去重——镜像 GraphView 的画图层卸载逻辑。
@@ -58,6 +85,11 @@ function deriveLinks(edge: Edge): { source: string; target: string; rule: string
   })
 }
 
+/** 测试用：把一串 id 都视作合法 goal。 */
+function allValid(...ids: string[]): Set<string> {
+  return new Set(ids)
+}
+
 describe('deriveLinks — specs 路径（v2/v3）', () => {
   it('simple spec → 1 条边', () => {
     const e: Edge = {
@@ -66,7 +98,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       rule: 'all',
       specs: [{ kind: 'simple', id: 'A' }]
     }
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['A'])
+    expect(deriveLinks(e, allValid('T', 'A')).map((l) => l.source)).toEqual(['A'])
   })
 
   it('group spec → N 条候选边（pick=1 等价任选其一）', () => {
@@ -76,7 +108,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       rule: 'all',
       specs: [{ kind: 'group', members: ['B', 'C'], pick: 1 }]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'B', 'C')).map((l) => l.source).sort()).toEqual(['B', 'C'])
   })
 
   it('group spec per-member count 形态 → 仅按 id 拆边（不带 count）', () => {
@@ -86,7 +118,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       rule: 'all',
       specs: [{ kind: 'group', members: [{ id: 'B', count: 2 }, { id: 'C' }], pick: 1 }]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'B', 'C')).map((l) => l.source).sort()).toEqual(['B', 'C'])
   })
 
   it('count spec → N 条候选边', () => {
@@ -96,7 +128,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       rule: 'all',
       specs: [{ kind: 'count', members: ['a', 'b', 'c'], need: 2 }]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['a', 'b', 'c'])
+    expect(deriveLinks(e, allValid('T', 'a', 'b', 'c')).map((l) => l.source).sort()).toEqual(['a', 'b', 'c'])
   })
 
   it('exclude spec → 不画边', () => {
@@ -110,7 +142,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       ]
     }
     // 只有 simple A 画边；exclude 不画
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['A'])
+    expect(deriveLinks(e, allValid('T', 'A')).map((l) => l.source)).toEqual(['A'])
   })
 
   it('specs 含 exclude 但没正向 spec → 回退到 prerequisites 直读', () => {
@@ -121,7 +153,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       specs: [{ kind: 'exclude', trigger: 'X', target: 'A', effect: 'disqualifies' }]
     }
     // exclude-only 时 positiveSpecs 为空 → 走 legacy prerequisites 路径
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['A'])
+    expect(deriveLinks(e, allValid('T', 'A')).map((l) => l.source)).toEqual(['A'])
   })
 
   it('specs 路径下：prerequisites 里的「旧裸 id 兜底」遗留**不**画边', () => {
@@ -132,7 +164,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
       rule: 'all',
       specs: [{ kind: 'simple', id: 'A' }]
     }
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['A'])
+    expect(deriveLinks(e, allValid('T', 'A')).map((l) => l.source)).toEqual(['A'])
   })
 
   it('多条 simple spec 同时存在 → 每条各 1 条边', () => {
@@ -146,7 +178,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
         { kind: 'simple', id: 'C' }
       ]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B', 'C', 'X')).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
   })
 
   it('混合 spec 形态：simple + group + exclude', () => {
@@ -160,7 +192,7 @@ describe('deriveLinks — specs 路径（v2/v3）', () => {
         { kind: 'exclude', trigger: 'X', target: 'A', effect: 'disqualifies' }
       ]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B', 'C', 'X')).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
   })
 })
 
@@ -174,7 +206,7 @@ describe('deriveLinks — 旧 AND-of-ORs（groups）', () => {
     }
     // mandatory: c（在 group 外的）
     // group members: a, b
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['a', 'b', 'c'])
+    expect(deriveLinks(e, allValid('T', 'a', 'b', 'c')).map((l) => l.source).sort()).toEqual(['a', 'b', 'c'])
   })
 
   it('无 mandatory + 多个 group → 仅 group members', () => {
@@ -184,7 +216,7 @@ describe('deriveLinks — 旧 AND-of-ORs（groups）', () => {
       rule: 'all',
       groups: [['a', 'b'], ['c', 'd']]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['a', 'b', 'c', 'd'])
+    expect(deriveLinks(e, allValid('T', 'a', 'b', 'c', 'd')).map((l) => l.source).sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('groups 空数组 → 视为无 groups，回退到 prerequisites', () => {
@@ -194,14 +226,14 @@ describe('deriveLinks — 旧 AND-of-ORs（groups）', () => {
       rule: 'all',
       groups: []
     }
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['a', 'b'])
+    expect(deriveLinks(e, allValid('T', 'a', 'b')).map((l) => l.source)).toEqual(['a', 'b'])
   })
 })
 
 describe('deriveLinks — 纯旧数据（无 specs 无 groups）', () => {
   it('直读 prerequisites', () => {
     const e: Edge = { to: 'T', prerequisites: ['A', 'B'], rule: 'all' }
-    expect(deriveLinks(e).map((l) => l.source)).toEqual(['A', 'B'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source)).toEqual(['A', 'B'])
   })
 
   it('any_of + threshold 也保留在每条 link 上', () => {
@@ -211,7 +243,7 @@ describe('deriveLinks — 纯旧数据（无 specs 无 groups）', () => {
       rule: 'any_of',
       threshold: 2
     }
-    const ls = deriveLinks(e)
+    const ls = deriveLinks(e, allValid('T', 'A', 'B', 'C'))
     expect(ls).toHaveLength(3)
     for (const l of ls) {
       expect(l.rule).toBe('any_of')
@@ -231,7 +263,7 @@ describe('deriveLinks — 与 computeUnlocked 语义对齐（解锁一致性）'
       specs: [{ kind: 'group', members: ['B', 'C'], pick: 1 }]
     }
     // D 在 prerequisites 但不在 specs 里 → 不画
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'B', 'C')).map((l) => l.source).sort()).toEqual(['B', 'C'])
   })
 })
 
@@ -253,7 +285,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
         { kind: 'simple', id: 'B', count: 3 }
       ]
     }
-    const ls = deriveLinks(e)
+    const ls = deriveLinks(e, allValid('T', 'A', 'B', 'C'))
     expect(ls).toHaveLength(1)
     expect(ls[0].source).toBe('B')
     expect(ls[0].target).toBe('T')
@@ -270,7 +302,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
         { kind: 'simple', id: 'B', count: 2 }
       ]
     }
-    expect(deriveLinks(e)).toHaveLength(1)
+    expect(deriveLinks(e, allValid('T', 'B'))).toHaveLength(1)
   })
 
   it('simple + group 出现同 id → 去重（不画两条平行边）', () => {
@@ -284,7 +316,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
         { kind: 'group', members: ['A', 'B'], pick: 1 }
       ]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
   })
 
   it('group spec 含 per-member count 同 id 重复 → 去重', () => {
@@ -297,7 +329,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
         { kind: 'group', members: [{ id: 'A', count: 1 }, { id: 'A' }, { id: 'B' }], pick: 2 }
       ]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
   })
 
   it('count spec 含相同 id 重复成员 → 去重', () => {
@@ -308,7 +340,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
       rule: 'all',
       specs: [{ kind: 'count', members: ['A', 'A', 'B'], need: 2 }]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
   })
 
   it('旧 AND-of-ORs：同一 id 出现在多个 groups → 去重', () => {
@@ -319,7 +351,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
       rule: 'all',
       groups: [['A', 'B'], ['A', 'C']]
     }
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B', 'C', 'X')).map((l) => l.source).sort()).toEqual(['A', 'B', 'C'])
   })
 
   it('多 spec + 多 group 同时出现重复 source → 只画一条', () => {
@@ -336,7 +368,7 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
       groups: [['A', 'X']]
     }
     // 期望：A 出现一次，B/C/X 各一次 → 4 条边
-    expect(deriveLinks(e).map((l) => l.source).sort()).toEqual(['A', 'B', 'C', 'X'])
+    expect(deriveLinks(e, allValid('T', 'A', 'B', 'C', 'X')).map((l) => l.source).sort()).toEqual(['A', 'B', 'C', 'X'])
   })
 
   it('解锁语义不受画图层去重影响（computedUnlocked 仍按 specs 全集判定）', () => {
@@ -352,6 +384,89 @@ describe('deriveLinks — (source, target) 去重（2026-08 修复）', () => {
       ]
     }
     expect(edgeWithDupes.specs).toHaveLength(2) // specs 全集保留
-    expect(deriveLinks(edgeWithDupes)).toHaveLength(1) // 画图层去重为一条
+    expect(deriveLinks(edgeWithDupes, allValid('T', 'B'))).toHaveLength(1) // 画图层去重为一条
+  })
+})
+
+describe('deriveLinks — 悬空引用过滤（2026-08 修复）', () => {
+  // 历史 bug：LIFE 数据迁移 / 手工编辑 relations.json 时常见"旧 edge 引用了已删除 goal"。
+  // 旧实现仍把这些 source/target 不在 goals 里的 link 传给 react-force-graph-2d；
+  // d3-force-3d 的 forceLink.initialize() 会调 `find(nodeById, id)`，
+  // nodeById 里找不到 → 抛 `new Error("node not found: " + nodeId)`。
+  // 每条悬空 link 一次异常，reheat/重画/重新挂载时都会被同步抛出 → 控制台红字一片。
+  // 修：deriveLinks 接收 validIds（goals.id 集合），source/target 不在集合里就丢弃。
+
+  it('legacy data：source 不存在 → 0 条边', () => {
+    const e: Edge = { to: 'T', prerequisites: ['ghost'], rule: 'all' }
+    expect(deriveLinks(e, allValid('T'))).toEqual([]);
+  })
+
+  it('legacy data：target 不存在 → 0 条边', () => {
+    const e: Edge = { to: 'ghost', prerequisites: ['A'], rule: 'all' }
+    expect(deriveLinks(e, allValid('A'))).toEqual([]);
+  })
+
+  it('specs 路径：simple spec 引用不存在的 source → 丢弃', () => {
+    const e: Edge = {
+      to: 'T',
+      prerequisites: ['ghost'],
+      rule: 'all',
+      specs: [{ kind: 'simple', id: 'ghost' }]
+    }
+    expect(deriveLinks(e, allValid('T'))).toEqual([]);
+  })
+
+  it('specs 路径：group spec 部分成员不存在 → 只画存在的', () => {
+    const e: Edge = {
+      to: 'T',
+      prerequisites: ['A', 'B', 'ghost'],
+      rule: 'all',
+      specs: [{ kind: 'group', members: ['A', 'B', 'ghost'], pick: 1 }]
+    }
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
+  })
+
+  it('specs 路径：count spec 部分成员不存在 → 只画存在的', () => {
+    const e: Edge = {
+      to: 'T',
+      prerequisites: ['A', 'B', 'ghost'],
+      rule: 'all',
+      specs: [{ kind: 'count', members: ['A', 'B', 'ghost'], need: 2 }]
+    }
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
+  })
+
+  it('AND-of-ORs：mandatory 含悬空 → 仅画存在的；group member 含悬空同理', () => {
+    const e: Edge = {
+      to: 'T',
+      prerequisites: ['A', 'ghost'],
+      rule: 'all',
+      groups: [['B', 'ghost']]
+    }
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source).sort()).toEqual(['A', 'B'])
+  })
+
+  it('混合：valid 全空 → 0 条边（极端：所有引用都悬空）', () => {
+    const e: Edge = {
+      to: 'T',
+      prerequisites: ['ghost1', 'ghost2'],
+      rule: 'all',
+      specs: [
+        { kind: 'simple', id: 'ghost1' },
+        { kind: 'group', members: ['ghost2'], pick: 1 }
+      ]
+    }
+    expect(deriveLinks(e, allValid('T'))).toEqual([]);
+  })
+
+  it('validIds 全空但 target 在内 → 仍 0 条边（source 全悬空）', () => {
+    // validIds 含 T 而不含任何 member → 没人能连到 T
+    const e: Edge = { to: 'T', prerequisites: ['a', 'b'], rule: 'all' }
+    expect(deriveLinks(e, allValid('T'))).toEqual([]);
+  })
+
+  it('validIds 含全部 → 不变（默认路径回归）', () => {
+    const e: Edge = { to: 'T', prerequisites: ['A', 'B'], rule: 'all' }
+    expect(deriveLinks(e, allValid('T', 'A', 'B')).map((l) => l.source)).toEqual(['A', 'B'])
   })
 })
