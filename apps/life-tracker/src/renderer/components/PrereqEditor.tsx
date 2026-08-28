@@ -37,6 +37,11 @@ interface RenderedRow {
   /** UI 显示用的标签 / 描述 / 当前进度等 */
   label: string
   detail: string
+  /**
+   * 结构化成员（group / count 专用）—— 渲染时每个成员独立边框；
+   * simple / bare 不设此字段，沿用 `detail` 单字符串。
+   */
+  members?: { id: string; label: string }[]
   progress?: { current: number; total: number }
   /** 整条移除时从 edge 里剥掉哪些 id */
   removeIds: string[]
@@ -102,12 +107,13 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
     for (let i = 0; i < groups.length; i++) {
       const members = groups[i]
       for (const m of members) groupMemberIds.add(m)
-      const memberTitles = members.map(nameOf).join(' 或 ')
+      const memberItems = members.map((id) => ({ id, label: nameOf(id) }))
       out.push({
         key: `legacy-group-${i}`,
         spec: { kind: 'group', members, pick: 1 },
         label: `组合 ${i + 1}（任选其一）`,
-        detail: memberTitles,
+        detail: memberItems.map((m) => m.label).join(' 或 '),
+        members: memberItems,
         removeIds: members
       })
     }
@@ -126,42 +132,46 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
         })
       } else if (s.kind === 'group') {
         const { label } = specLabel(s)
-        // 详尽展示：per-member count 写入 detail；
-        // 非 countable 或 count=1 的 member 省略 count（保持简洁）。
+        const members = s.members.map((m) => {
+          const id = groupMemberId(m)
+          const c = groupMemberCount(m)
+          const isCountable = goalById.get(id)?.countable ?? false
+          const title = nameOf(id)
+          let sub: string
+          if (isCountable && c >= 2) {
+            const cur = goalById.get(id)?.progress?.current ?? 0
+            sub = `${cur}/${c}`
+          } else {
+            sub = ''
+          }
+          return { id, label: sub ? `${title}（${sub}）` : title }
+        })
         out.push({
           key: `spec-group-${i}`,
           spec: s,
           label,
-          detail: s.members
-            .map((m): string => {
-              const id = groupMemberId(m)
-              const c = groupMemberCount(m)
-              const isCountable = goalById.get(id)?.countable ?? false
-              if (isCountable && c >= 2) {
-                const cur = goalById.get(id)?.progress?.current ?? 0
-                return `${nameOf(id)} (${cur}/${c})`
-              }
-              return nameOf(id)
-            })
-            .join(' 或 '),
+          detail: members.map((m) => m.label).join(' 或 '),
+          members,
           removeIds: s.members.map(groupMemberId)
         })
       } else {
         const done = s.members.filter((m) => isDone(groupMemberId(m), 1)).length
         const total = s.members.length
         const { label } = specLabel(s)
+        const members = s.members.map((m) => {
+          const id = groupMemberId(m)
+          const c = groupMemberCount(m)
+          const isCountable = goalById.get(id)?.countable ?? false
+          const title = nameOf(id)
+          const sub = isCountable && c >= 2 ? `×${c}` : ''
+          return { id, label: sub ? `${title} ${sub}` : title }
+        })
         out.push({
           key: `spec-count-${i}`,
           spec: s,
           label,
-          detail: s.members
-            .map((m): string => {
-              const id = groupMemberId(m)
-              const c = groupMemberCount(m)
-              const isCountable = goalById.get(id)?.countable ?? false
-              return isCountable && c >= 2 ? `${nameOf(id)} ×${c}` : nameOf(id)
-            })
-            .join('、'),
+          detail: members.map((m) => m.label).join('、'),
+          members,
           progress: { current: done, total },
           removeIds: s.members.map(groupMemberId)
         })
@@ -960,7 +970,7 @@ function PrereqChip({
   groupSel,
   toggleGroupSel
 }: PrereqChipProps): JSX.Element {
-  const { spec, label, detail, progress } = row
+  const { spec, label, detail, members, progress } = row
 
   // simple：渲染成单条『目标 chip』+ 状态 tag
   if (spec.kind === 'simple') {
@@ -1008,7 +1018,7 @@ function PrereqChip({
     )
   }
 
-  // group / count：单 chip 渲染
+  // group / count：label 在 chip header，成员们独立边框小框放在 chip 体里
   const done = progress?.current ?? 0
   const total = progress?.total ?? 0
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
@@ -1020,34 +1030,65 @@ function PrereqChip({
       className={`prereq spec-${spec.kind}${ok ? ' spec-satisfied' : ''}${grouping ? ' spec-locked' : ''}`}
       title={grouping ? '组合 / 计数任务不可再参与组合' : undefined}
     >
-      {label && <span className="spec-label">{label}</span>}
-      <span className="title">{detail}</span>
-      {spec.kind === 'count' && total > 0 && (
-        <>
+      <div className="spec-head">
+        {label && <span className="spec-label">{label}</span>}
+        {spec.kind === 'count' && total > 0 && (
+          <>
+            <span className="progress-text">
+              {done}/{total}
+            </span>
+            <span className="progress-bar spec-progress">
+              <span className="progress-fill" style={{ width: `${pct}%` }} />
+            </span>
+          </>
+        )}
+        {spec.kind === 'group' && total > 0 && (
           <span className="progress-text">
             {done}/{total}
           </span>
-          <span className="progress-bar spec-progress">
-            <span className="progress-fill" style={{ width: `${pct}%` }} />
-          </span>
-        </>
+        )}
+        <button
+          className="prereq-remove"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          title="移除该规则"
+          disabled={grouping}
+        >
+          ×
+        </button>
+      </div>
+      {/* 成员框：每个成员独立边框小框，'组合' 用 或 分隔、'计数' 用 、 分隔 */}
+      {members && members.length > 0 && (
+        <div className="spec-members">
+          {members.map((m, idx) => {
+            const sep = spec.kind === 'group' ? '或' : '、'
+            return (
+              <span key={m.id} className="spec-member-wrap">
+                {idx > 0 && <span className="spec-sep">{sep}</span>}
+                <span
+                  className="spec-member"
+                  onClick={() => onSelect(m.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSelect(m.id)
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  title={`跳转到《${m.label}》`}
+                >
+                  {m.label}
+                </span>
+              </span>
+            )
+          })}
+        </div>
       )}
-      {spec.kind === 'group' && total > 0 && (
-        <span className="progress-text">
-          {done}/{total}
-        </span>
-      )}
-      <button
-        className="prereq-remove"
-        onClick={(e) => {
-          e.stopPropagation()
-          onRemove()
-        }}
-        title="移除该规则"
-        disabled={grouping}
-      >
-        ×
-      </button>
+      {/* 兜底（无结构化成员时，沿用原来的字符串 detail） */}
+      {!members && <span className="title">{detail}</span>}
     </li>
   )
 }

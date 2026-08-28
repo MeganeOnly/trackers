@@ -426,6 +426,49 @@ button:focus-visible {
 .prereq.spec-group,
 .prereq.spec-count {
   cursor: default;          /* 整组 chip 不再点击导航 */
+  flex-direction: column;   /* 头行 + 成员区两段 */
+  align-items: stretch;
+}
+/* group / count 头部：label + 进度 + 移除按钮排在第一行 */
+.prereq.spec-group .spec-head,
+.prereq.spec-count .spec-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+/* group / count 成员区：把每个成员独立小框，虚线外框圈住整组，区分"组"与"成员"两层 */
+.prereq .spec-members {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 4px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.prereq .spec-sep {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 2px;
+  user-select: none;
+}
+.prereq .spec-member {
+  cursor: pointer;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.prereq .spec-member:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .prereq.spec-group .title,
 .prereq.spec-count .title {
