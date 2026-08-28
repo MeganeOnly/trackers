@@ -5,6 +5,8 @@ import { useUnlocked } from '../store/selectors'
 import { useSearchStore, matchGoal } from '../store/search'
 import { isGoalDone } from '@shared/types'
 import { computeDailyHidden } from '@shared/visibility'
+import { URGENCY_WEIGHT, daysUntil, urgencyOf } from '@shared/deadline'
+import type { DeadlineUrgency } from '@shared/deadline'
 import type { Goal, GoalStatus } from '@shared/types'
 
 const STATUS_LABELS: Record<GoalStatus, string> = {
@@ -31,11 +33,12 @@ const RESTORE_TO: Record<GoalStatus, GoalStatus> = {
   abandoned: 'not_started'
 }
 
-function todayStr(): string {
-  const d = new Date()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${m}-${day}`
+/** 紧迫度 → CSS 类名（颜色档位）。 */
+function urgencyClass(u: DeadlineUrgency): string | undefined {
+  if (u === 'overdue') return 'deadline-overdue'
+  if (u === 'urgent') return 'deadline-urgent'
+  if (u === 'soon') return 'deadline-soon'
+  return undefined
 }
 
 export function CleanMode(): JSX.Element {
@@ -69,7 +72,10 @@ export function CleanMode(): JSX.Element {
       .filter((g) => matchGoal(g, query))
       .map((goal) => ({ goal, refCount: refCount.get(goal.id) ?? 0 }))
       .sort((a, b) => {
-        if (b.refCount !== a.refCount) return b.refCount - a.refCount
+        // 排序：deadline 紧迫度权重 + 被引用次数（高 = 优先），平手按标题中文序
+        const scoreA = URGENCY_WEIGHT[urgencyOf(a.goal.deadline)] + a.refCount
+        const scoreB = URGENCY_WEIGHT[urgencyOf(b.goal.deadline)] + b.refCount
+        if (scoreA !== scoreB) return scoreB - scoreA
         return a.goal.title.localeCompare(b.goal.title, 'zh')
       })
   }, [goals, edges, unlocked, query, blockedByDeadParent])
@@ -163,7 +169,8 @@ export function CleanMode(): JSX.Element {
       ) : (
         <ul className="clean-list">
           {doableList.map(({ goal, refCount }) => {
-            const overdue = !!goal.deadline && goal.deadline < todayStr()
+            const u = urgencyOf(goal.deadline)
+            const d = goal.deadline ? daysUntil(goal.deadline) : null
             return (
               <li key={goal.id} className="clean-item">
                 <div className="clean-item-left">
@@ -171,10 +178,12 @@ export function CleanMode(): JSX.Element {
                   <span className="author muted">
                     {goal.category || '未分类'}
                     {goal.deadline && (
-                      <span className={overdue ? 'deadline-overdue' : undefined}>
+                      <span className={urgencyClass(u)}>
                         {' · '}
                         {goal.deadline}
-                        {overdue && ' 已逾期'}
+                        {u === 'overdue' && ` 已逾期 ${Math.abs(d ?? 0)} 天`}
+                        {u === 'urgent' && ` 还剩 ${d} 天`}
+                        {u === 'soon' && ` ${d} 天后到期`}
                       </span>
                     )}
                     {goal.progress &&

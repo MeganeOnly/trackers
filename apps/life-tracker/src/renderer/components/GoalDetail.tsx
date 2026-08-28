@@ -4,6 +4,7 @@ import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { progressPercent } from '@core'
 import { formatGoalProgress } from '@shared/progress'
+import { daysUntil, urgencyOf } from '@shared/deadline'
 import type { Goal, GoalInput, GoalStatus } from '@shared/types'
 
 interface GoalDetailProps {
@@ -32,6 +33,23 @@ function todayStr(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${m}-${day}`
+}
+
+/** 截止日期右侧的「紧迫度」文案：未填 / >30 天不显示；≤30 黄色；≤7 橙色；逾期红色。 */
+function deadlineHint(deadline: string): JSX.Element | null {
+  if (!deadline) return null
+  const u = urgencyOf(deadline)
+  const d = daysUntil(deadline)
+  if (u === 'overdue') {
+    return <span className="deadline-overdue">已逾期 {Math.abs(d ?? 0)} 天</span>
+  }
+  if (u === 'urgent') {
+    return <span className="deadline-urgent">还剩 {d} 天</span>
+  }
+  if (u === 'soon') {
+    return <span className="deadline-soon">{d} 天后到期</span>
+  }
+  return null
 }
 
 /**
@@ -103,7 +121,6 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
   const isUnlocked = unlocked.get(g.id) ?? true
   const cycle = cycles.find((c) => c.includes(g.id))
   const pct = progressPercent(g.progress)
-  const overdue = !!deadline && status !== 'done' && deadline < todayStr()
 
   async function handleBump(delta: number): Promise<void> {
     const updated = await bumpProgress(g.id, delta)
@@ -349,7 +366,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
               onChange={(e) => setDeadline(e.target.value)}
               placeholder="留空 = 无截止"
             />
-            {overdue && <span className="deadline-overdue">已逾期</span>}
+            {deadlineHint(deadline)}
           </label>
         </div>
         <label className="field">

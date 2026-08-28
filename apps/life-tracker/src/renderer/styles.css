@@ -1131,4 +1131,6 @@ button:focus-visible {
 
 /* 逾期 / 进度已满提示 */
 .deadline-overdue { color: var(--danger); font-weight: 500; }
+.deadline-urgent { color: #d97706; font-weight: 500; } /* ≤7 天，琥珀 */
+.deadline-soon { color: #b89627; } /* ≤30 天，土黄 */
 .auto-done-hint { color: var(--status-done); }
