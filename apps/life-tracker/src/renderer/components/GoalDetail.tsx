@@ -326,7 +326,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             </button>
           </div>
           <p className="muted countable-hint">
-            可计数任务：status 与完成次数解耦；其他目标通过引用次数（如「完成 2 次」）控制解锁。
+            可计数任务：status 与完成次数解耦；其他目标通过引用次数（如「(0/2)」）控制解锁。
           </p>
         </section>
       )}
@@ -412,7 +412,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
             checked={collapsed}
             onChange={(e) => setCollapsed(e.target.checked)}
           />
-          <span>在编辑模式侧栏中收起（移到『已收起』分组，不影响 status 与解锁）</span>
+          <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
         </label>
         <label className="form-checkline">
           <input

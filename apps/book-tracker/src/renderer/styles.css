@@ -263,6 +263,21 @@ button:focus-visible {
 .status-dot.status-collapsed { background: var(--muted); }
 
 .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
+
+/* 详情面板 / 加作品表单 里的复选框行（侧栏收起等） */
+.form-checkline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.form-checkline + .form-checkline {
+  margin-top: 4px;
+}
 .book-detail { max-width: 720px; }
 /* 编辑模式下详情标题直接是输入框（不再需要额外的「编辑」弹窗） */
 .detail-title-input {

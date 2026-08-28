@@ -13,6 +13,40 @@
 
 ---
 
+## 2026-08：详情面板 checkbox 简洁标签 + 悬停 tooltip（GoalDetail / GoalForm / BookDetail / BookForm）
+
+### 1. [共享] 现象：详情面板里 checkbox 标签长、间距大，hover 又看不到详细语义
+
+- **现象**：编辑模式详情面板（GoalDetail / BookDetail）的 checkbox 区有 3~4 个（life-tracker: 置顶 / 隐藏 / 侧栏收起 / 可计数），每个标签都很长（"置顶到『进行中』栏（日常模式顶部展示）"），互相间距 12px，整块占满小半屏；点开看才知道语义，hover 又没有详细说明。
+- **根因**：旧实现把"语义 + 适用条件"塞进 label 文本作为单行说明，没有走 tooltip；间距用 `margin-top: 12px` 也很宽松，挤占纵向空间。
+- **修复**（两 app 同款）：
+  - **简洁 label**：life-tracker 4 个改成 4 字短词——「置顶进行中 / 日常模式隐藏 / 侧栏收起 / 可计数」；book-tracker 1 个改成「侧栏收起」。
+  - **悬停 tooltip**：每个 label `<span>` 加 `title=` 属性，写详细语义 + 适用条件（"日常模式顶部『进行中』栏置顶展示（仅 in_progress 生效）"等）。鼠标悬停即看，符合"标签简洁、说明悬停"的常见 UI 模式。
+  - **间距收紧**：`.form-checkline { margin-top: 12px → 6px }` + 新增 `.form-checkline + .form-checkline { margin-top: 4px }`（连续 checkbox 之间更近）；book-tracker 之前完全没定义 `.form-checkline`（BookDetail/BookForm 用的是裸 class 走浏览器默认样式），这次顺手补齐同款定义。
+- **回归**：两 app typecheck + vitest 全绿；cargo test 不变。
+
+### 2. [共享] 教训：checkbox 详情走 tooltip 而非塞进 label
+
+- **教训**：详情面板复选框的语义（"在哪生效 / 影响什么"）放在 label 文本里，会让 label 越长越无法一眼扫读。规范是：**label 只放关键词（4~6 字最佳），详细说明走 `title=` tooltip**。这样 hover 时看到完整说明、扫读时只看短词，密度与可达性兼顾。
+- **教训**：间距用 `gap`（flex）+ 相邻兄弟选择器 `+ .form-checkline` 比无条件 `margin-top` 好——第一项与上方表单字段的间距可以保持大一些（呼吸感），连续 checkbox 之间紧凑（密度），不冲突。
+
+---
+
+## 2026-08：PrereqEditor countable 任务前置展示改 (current/N)
+
+### 1. [life-tracker] 现象：countable 任务作为前置时 chip 上「完成 N 次」展示有歧义
+
+- **现象**：PrereqEditor 把一个 countable 任务作为 simple spec 前置时，chip 上挂一个 count-tag 写「完成 N 次」——`完成 1 次` 容易读成"做一次"，但其本意是"该 countable 任务需累计完成 N 次才算满足该前置"，跟普通任务的「做一次就 done」语义不同。`完成 2 次` 也偏冗长，且不能体现"已做几次"。
+- **根因**：旧实现把"要求次数"当静态信息写死成 `完成 N 次`，没暴露进度（已做 / 还差几次），countable 任务的语义核心就是「完成次数累加」却被丢掉了。
+- **修复**（`apps/life-tracker/src/renderer/components/PrereqEditor.tsx` `PrereqChip`）：
+  - `countTagText` 分支：`g?.countable` 时改为 `(${g.progress?.current ?? 0}/${spec.count ?? 1})`——ratio 形式，跟同文件 spec-count / spec-group 已有的 `done/total` 文案同款（视觉密度也一致）；
+  - 非 countable 且 `spec.count >= 2` 仍保持 `×N`——非 countable 任务没有 progress.current 可引用，ratio 没意义；
+  - spec-group member 列表（line 140）一并改：`isCountable && c >= 2` 时 `${nameOf(id)} (${cur}/${c})`，跟 simple chip 同款；spec-count member 列表（line 158）不动——该 spec 自身已经渲染了独立进度条，再叠加 member 级 ratio 反而冗余。
+- **关联文案同步**：`GoalDetail.tsx` 可计数 hint「其他目标通过引用次数（如『完成 2 次』）控制解锁」改成「如『(0/2)』」，与新格式对齐。
+- **回归**：life-tracker typecheck 双段全绿；vitest 134/134 全过（含 update Goal fixture 的 graphview_donemap / visibility 测试）；cargo test 不变（不动 Rust）。
+
+---
+
 ## 2026-08：EditMode 侧栏加跨 status「已收起」分组（Goal.collapsed / Book.collapsed）
 
 ### 1. [共享] 现象：用户希望编辑模式侧栏也能"收起"任务，与 status 解耦

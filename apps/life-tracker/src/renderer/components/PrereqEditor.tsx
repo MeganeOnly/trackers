@@ -137,7 +137,11 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
               const id = groupMemberId(m)
               const c = groupMemberCount(m)
               const isCountable = goalById.get(id)?.countable ?? false
-              return isCountable && c >= 2 ? `${nameOf(id)} ×${c}` : nameOf(id)
+              if (isCountable && c >= 2) {
+                const cur = goalById.get(id)?.progress?.current ?? 0
+                return `${nameOf(id)} (${cur}/${c})`
+              }
+              return nameOf(id)
             })
             .join(' 或 '),
           removeIds: s.members.map(groupMemberId)
@@ -963,12 +967,16 @@ function PrereqChip({
     const g = goalById.get(spec.id)
     const isGroupSel = grouping && groupSel.has(spec.id)
     // count 标签规则：
-    //   - spec.count >= 2  → ×N（沿用旧行为）
-    //   - 目标是 countable → 始终显示 count（包括 count=1，用「完成 N 次」更贴近用户语境）
+    //   - 目标是 countable → 始终显示「(current/N)」ratio（current=N 即满足）
+    //   - 非 countable 且 spec.count >= 2 → ×N（沿用旧行为；countable 字段不适用 ratio）
     const showCountTag = g?.countable || (spec.count !== undefined && spec.count >= 2)
     const countTagText = (() => {
       const n = spec.count ?? 1
-      return g?.countable ? `完成 ${n} 次` : `×${n}`
+      if (g?.countable) {
+        const cur = g.progress?.current ?? 0
+        return `(${cur}/${n})`
+      }
+      return `×${n}`
     })()
     return (
       <li

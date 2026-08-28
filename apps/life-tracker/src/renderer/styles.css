@@ -365,11 +365,15 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: 6px;
   font-size: 13px;
   color: var(--muted);
   cursor: pointer;
   user-select: none;
+}
+/* 多个连续 checkbox 之间的间距收紧（hover tooltip 详情，标签保持简短） */
+.form-checkline + .form-checkline {
+  margin-top: 4px;
 }
 
 /* clean-mode currently reading 进度 */

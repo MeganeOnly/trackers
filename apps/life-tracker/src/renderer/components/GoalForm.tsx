@@ -226,7 +226,7 @@ export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
             checked={collapsed}
             onChange={(e) => setCollapsed(e.target.checked)}
           />
-          <span>在编辑模式侧栏中收起（移到『已收起』分组，不影响 status 与解锁）</span>
+          <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
         </label>
         <label className="form-checkline">
           <input
