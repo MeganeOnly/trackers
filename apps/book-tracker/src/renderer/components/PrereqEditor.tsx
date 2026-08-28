@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
+import { useUnlocked } from '../store/selectors'
 import { detectCycles, formatIssues, validateEdges } from '@core'
 import type { Book, Edge, UnlockRule } from '@shared/types'
 
@@ -21,12 +22,21 @@ export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {
   const edges = useRelationsStore((s) => s.edges)
   const setAll = useRelationsStore((s) => s.setAll)
   const select = useBooksStore((s) => s.select)
+  const { relations } = useUnlocked()
 
   const myEdge = edges.find((e) => e.to === bookId)
   const prereqIds = myEdge?.prerequisites ?? []
   const rule: UnlockRule = myEdge?.rule ?? 'all'
   const threshold = myEdge?.threshold ?? prereqIds.length
   const groups: string[][] = myEdge?.groups ?? []
+  // 「完成后将解锁」= 直接被本作品阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  const downstreamIds = relations.get(bookId)?.blocks ?? []
+  const downstreamBooks = downstreamIds
+    .map((id) => books.find((b) => b.id === id))
+    .filter((b): b is Book => Boolean(b))
+  const missingDownstreamIds = downstreamIds.filter(
+    (id) => !books.some((b) => b.id === id)
+  )
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState('')
@@ -287,6 +297,33 @@ export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {
         ))}
         {prereqIds.length === 0 && <li className="muted empty-hint">无前置 —— 此作品永远解锁</li>}
       </ul>
+
+      {/* 反向视角：完成本作品会直接推动谁解锁。仅显示直接一步可达的邻居 */}
+      {(downstreamBooks.length > 0 || missingDownstreamIds.length > 0) && (
+        <div className="downstream">
+          <h4 className="downstream-title">
+            完成后将解锁 <span className="muted">({downstreamIds.length} 部)</span>
+          </h4>
+          <ul className="downstream-list">
+            {downstreamBooks.map((b) => (
+              <li
+                key={b.id}
+                className={`downstream-item status-${b.status}`}
+                onClick={() => select(b.id)}
+              >
+                <span className="title">{b.title}</span>
+                <span className={`status-tag status-${b.status}`}>{STATUS_LABELS[b.status]}</span>
+              </li>
+            ))}
+            {missingDownstreamIds.map((id) => (
+              <li key={id} className="downstream-item downstream-missing">
+                <span className="title">{id}</span>
+                <span className="muted">未找到</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="prereq-actions">
         <button className="add-prereq" onClick={() => setPickerOpen((v) => !v)}>

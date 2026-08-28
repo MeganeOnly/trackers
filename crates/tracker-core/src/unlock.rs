@@ -53,6 +53,18 @@ fn is_spec_satisfied<F: Fn(&str, u32) -> bool>(
     }
 }
 
+/// 节点在依赖图中的双向关系：
+/// - `blocks` —— 我**直接**阻塞的下游节点（完成我会推动它们的解锁进度）
+/// - `blocked_by` —— 我**直接**被哪些上游节点阻塞（解锁我还需要这些先完成）
+///
+/// 仅含**直接**一步可达的邻居；不做传递闭包（避免把整张图塞进每个节点）。
+/// UI 需要"完成我会解锁 X、Y、Z（链式传递）"时，可在调用方基于 `blocks` 自己 BFS。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BlockingRelation {
+    pub blocks: Vec<String>,
+    pub blocked_by: Vec<String>,
+}
+
 /// 给定条目 id 列表 + 关系 + 完成谓词，计算每个条目是否解锁。
 ///
 /// `is_done(id, required_count)`：
@@ -275,6 +287,94 @@ pub fn collect_excludes(edges: &[Edge]) -> Vec<PrereqSpec> {
         }
     }
     out
+}
+
+/// 计算关系图中每个节点的**直接**双向邻居：`blocks`（下游）与 `blocked_by`（上游）。
+///
+/// 语义要点：
+/// - 仅走 `edge.prerequisites` + `edge.specs`（simple / group / count 成员）—— **`exclude`
+///   不算正向引用**，它是谓词改写规则，不会单独建立一条"我在阻塞谁"的边。
+/// - 同一对节点若被多条 edge 重复指向，会被去重（BTreeSet 收尾 + 物化成 `Vec`）。
+/// - 不存在的节点 id 也会出现在 Map 里（值是空 Vec）—— 这样调用方按 id 取 `.blocks`
+///   不会拿到默认值。Map 的 key 集合 == 出现在任意 edge 两端的 id 全集。
+/// - 不做传递闭包：`A → B → C` 中 `A.blocks = [B]`、`B.blocks = [C]`，需要链式影响自己 BFS。
+/// - 时间 O(E)，空间 O(N + E)。
+pub fn compute_blocking_relations(edges: &[Edge]) -> HashMap<String, BlockingRelation> {
+    let mut blocks: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+    let mut blocked_by: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+
+    fn ensure(
+        blocks: &mut HashMap<String, std::collections::BTreeSet<String>>,
+        blocked_by: &mut HashMap<String, std::collections::BTreeSet<String>>,
+        id: &str,
+    ) {
+        blocks.entry(id.to_string()).or_default();
+        blocked_by.entry(id.to_string()).or_default();
+    }
+
+    for e in edges {
+        let refs = collect_prereq_ids(e);
+        if refs.is_empty() {
+            continue;
+        }
+        // e.to 被 refs 中每个 id 阻塞；refs 中每个 id 阻塞 e.to
+        ensure(&mut blocks, &mut blocked_by, &e.to);
+        let to_blocked = blocked_by.get_mut(&e.to).expect("just ensured");
+        for r in &refs {
+            to_blocked.insert(r.clone());
+        }
+        for r in &refs {
+            ensure(&mut blocks, &mut blocked_by, r);
+            blocks.get_mut(r).expect("just ensured").insert(e.to.clone());
+        }
+    }
+
+    // 物化成 BlockingRelation；合并两表的 key
+    let mut all_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    all_ids.extend(blocks.keys().cloned());
+    all_ids.extend(blocked_by.keys().cloned());
+
+    all_ids
+        .into_iter()
+        .map(|id| {
+            let rel = BlockingRelation {
+                blocks: blocks.get(&id).cloned().unwrap_or_default().into_iter().collect(),
+                blocked_by: blocked_by.get(&id).cloned().unwrap_or_default().into_iter().collect(),
+            };
+            (id, rel)
+        })
+        .collect()
+}
+
+/// 取一条 edge 的全部正向引用 id（来自 prerequisites + specs 中的 simple / group / count）。
+fn collect_prereq_ids(edge: &Edge) -> Vec<String> {
+    let mut ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for p in &edge.prerequisites {
+        ids.insert(p.clone());
+    }
+    if let Some(specs) = &edge.specs {
+        for s in specs {
+            match s {
+                PrereqSpec::Simple { id, .. } => {
+                    ids.insert(id.clone());
+                }
+                PrereqSpec::Group { members, .. } => {
+                    for m in members {
+                        ids.insert(m.id().to_string());
+                    }
+                }
+                PrereqSpec::Count { members, .. } => {
+                    for m in members {
+                        ids.insert(m.clone());
+                    }
+                }
+                PrereqSpec::Exclude { .. } => {
+                    // exclude 不参与正向引用
+                }
+            }
+        }
+    }
+    ids.into_iter().collect()
 }
 
 // ==================== 单测 ====================
@@ -830,5 +930,167 @@ mod tests {
         let s = r#"["a","b"]"#;
         let m: Vec<GroupMember> = serde_json::from_str(s).unwrap();
         assert_eq!(m, vec![GroupMember::Id("a".to_string()), GroupMember::Id("b".to_string())]);
+    }
+
+    // ========== compute_blocking_relations ==========
+
+    fn rel<'a>(map: &'a HashMap<String, BlockingRelation>, id: &str) -> &'a BlockingRelation {
+        map.get(id).unwrap_or_else(|| panic!("missing id: {id}"))
+    }
+
+    #[test]
+    fn blocking_relations_empty() {
+        let r = compute_blocking_relations(&[]);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn blocking_relations_single_edge() {
+        // a → b: a.blocks=[b], b.blocked_by=[a]
+        let edges = vec![edge("b", &["a"], UnlockRule::All)];
+        let r = compute_blocking_relations(&edges);
+        assert_eq!(rel(&r, "a").blocks, vec!["b".to_string()]);
+        assert!(rel(&r, "a").blocked_by.is_empty());
+        assert!(rel(&r, "b").blocks.is_empty());
+        assert_eq!(rel(&r, "b").blocked_by, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn blocking_relations_chain_no_transitive() {
+        // a → b → c: a 直接 blocks b（不传递到 c）
+        let edges = vec![
+            edge("b", &["a"], UnlockRule::All),
+            edge("c", &["b"], UnlockRule::All),
+        ];
+        let r = compute_blocking_relations(&edges);
+        assert_eq!(rel(&r, "a").blocks, vec!["b".to_string()]);
+        assert_eq!(rel(&r, "b").blocks, vec!["c".to_string()]);
+        assert!(rel(&r, "c").blocks.is_empty());
+        // 关键: a 不直接 blocks c
+        assert!(!rel(&r, "a").blocks.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn blocking_relations_fan_in() {
+        // b 和 c 都依赖 a → a.blocks=[b, c]
+        let edges = vec![
+            edge("b", &["a"], UnlockRule::All),
+            edge("c", &["a"], UnlockRule::All),
+        ];
+        let r = compute_blocking_relations(&edges);
+        let mut blocks = rel(&r, "a").blocks.clone();
+        blocks.sort();
+        assert_eq!(blocks, vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn blocking_relations_fan_out() {
+        // c 依赖 [a, b]: c.blocked_by=[a, b]; a/b.blocks=[c]
+        let edges = vec![Edge {
+            to: "c".to_string(),
+            prerequisites: ids(&["a", "b"]),
+            rule: UnlockRule::All,
+            ..Default::default()
+        }];
+        let r = compute_blocking_relations(&edges);
+        let mut blocked = rel(&r, "c").blocked_by.clone();
+        blocked.sort();
+        assert_eq!(blocked, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(rel(&r, "a").blocks, vec!["c".to_string()]);
+        assert_eq!(rel(&r, "b").blocks, vec!["c".to_string()]);
+    }
+
+    #[test]
+    fn blocking_relations_dedup() {
+        // 两条边都指向同一个 c,前置都是 a —— 去重
+        let edges = vec![
+            Edge {
+                to: "c".to_string(),
+                prerequisites: ids(&["a"]),
+                rule: UnlockRule::All,
+                ..Default::default()
+            },
+            Edge {
+                to: "c".to_string(),
+                prerequisites: ids(&["a"]),
+                rule: UnlockRule::All,
+                ..Default::default()
+            },
+        ];
+        let r = compute_blocking_relations(&edges);
+        assert_eq!(rel(&r, "a").blocks, vec!["c".to_string()]);
+        assert_eq!(rel(&r, "c").blocked_by, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn blocking_relations_exclude_does_not_link() {
+        // exclude 是谓词改写,不在正向引用里 —— x 不会出现在 map 里
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a"]),
+            rule: UnlockRule::All,
+            specs: None,
+            excludes: Some(vec![PrereqSpec::Exclude {
+                trigger: "x".to_string(),
+                target: "a".to_string(),
+                effect: ExcludeEffect::Disqualifies,
+            }]),
+            ..Default::default()
+        }];
+        let r = compute_blocking_relations(&edges);
+        assert!(r.contains_key("a"), "a 是 t 的前置,进入 map");
+        assert!(r.contains_key("t"));
+        assert!(!r.contains_key("x"), "exclude 的 trigger 不进入正向引用图");
+    }
+
+    #[test]
+    fn blocking_relations_specs_simple_group_count() {
+        // specs 含 simple / group / count,各自成员都参与正向引用
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: vec![],
+            rule: UnlockRule::All,
+            groups: None,
+            specs: Some(vec![
+                PrereqSpec::Simple { id: "a".to_string(), count: None },
+                PrereqSpec::Group {
+                    members: vec![GroupMember::Id("b".to_string()), GroupMember::Id("c".to_string())],
+                    pick: Some(1),
+                },
+                PrereqSpec::Count {
+                    members: vec!["d".to_string(), "e".to_string()],
+                    need: 2,
+                },
+            ]),
+            excludes: None,
+            ..Default::default()
+        }];
+        let r = compute_blocking_relations(&edges);
+        let mut blocked = rel(&r, "t").blocked_by.clone();
+        blocked.sort();
+        assert_eq!(blocked, vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string(), "e".to_string()]);
+        for id in ["a", "b", "c", "d", "e"] {
+            assert_eq!(rel(&r, id).blocks, vec!["t".to_string()]);
+        }
+    }
+
+    #[test]
+    fn blocking_relations_prereq_plus_specs_dedup() {
+        // 同一 id 既在 prerequisites 也在 specs.simple —— 去重
+        let edges = vec![Edge {
+            to: "t".to_string(),
+            prerequisites: ids(&["a", "b"]),
+            rule: UnlockRule::All,
+            specs: Some(vec![
+                PrereqSpec::Simple { id: "a".to_string(), count: None },
+                PrereqSpec::Simple { id: "c".to_string(), count: None },
+            ]),
+            excludes: None,
+            ..Default::default()
+        }];
+        let r = compute_blocking_relations(&edges);
+        let mut blocked = rel(&r, "t").blocked_by.clone();
+        blocked.sort();
+        assert_eq!(blocked, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 }

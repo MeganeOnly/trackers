@@ -21,36 +21,54 @@
 // 本模块只**报告**问题，不修改数据、不阻止任何操作 —— 调用方决定如何呈现。
 
 import type { Edge } from './types'
+import { detectCycles } from './unlock'
 
 /** 违规代码：同一个 `to` 存在多条前置边。 */
 export const CODE_DUPLICATE_TO = 'duplicate_to'
 
+/** 违规代码：关系图中存在循环依赖（环上节点全部锁死）。 */
+export const CODE_CYCLE = 'cycle'
+
+/** 所有违规代码的联合类型（便于调用方 switch / 分流）。 */
+export type EdgeIssueCode = typeof CODE_DUPLICATE_TO | typeof CODE_CYCLE
+
 /** 一条不变量违规。 */
 export interface EdgeIssue {
   /** 机器可读代码，见 `CODE_*` 常量（便于调用方分流，不依赖文案）。 */
-  code: typeof CODE_DUPLICATE_TO
-  /** 涉及的 `edge.to`。 */
+  code: EdgeIssueCode
+  /** 涉及的 `edge.to`（环检测场景下取环的第一个节点）。 */
   to: string
   /** 人读说明（中文，可直接展示给用户）。 */
   message: string
+  /**
+   * 仅 `code === CODE_CYCLE` 时存在：环的完整路径（首尾相同，例如 `["a","b","c","a"]`）。
+   * 非环问题此字段缺省。
+   */
+  cycle?: string[]
 }
 
 /**
  * 校验 edges 的不变量，返回全部违规（空数组 = 无问题）。
  *
- * 当前唯一检查：**`to` 唯一性**。
+ * 当前检查：
+ * - **`to` 唯一性**：重复 `to` 会让 `computeUnlocked` 静默覆盖（详见模块顶部注释）。
+ * - **环检测**：`computeUnlocked` 已自带环检测并把环上节点置 false；本函数也独立报一份，
+ *   让"关系图是否健康"这个事实有单一通道输出，便于 UI / 日志 / 后端 write 时统一处理。
  *
- * 返回顺序按各 `to` 在 `edges` 中**首次出现的顺序**（`Map` 保序），因此输出稳定、
- * 可直接用于测试断言与两端结果比对。
+ * 输出顺序：
+ * - `duplicate_to` 在前（按首次出现顺序）
+ * - `cycle` 在后（按 detectCycles 报告顺序）
+ *
+ * 输出稳定（无 `Set` 迭代顺序依赖），可直接用于测试断言与两端结果比对。
  */
 export function validateEdges(edges: Edge[]): EdgeIssue[] {
-  // Map 保持插入顺序 —— 首次出现顺序即输出顺序
+  const issues: EdgeIssue[] = []
+
+  // 1) duplicate_to：Map 保持插入顺序，首次出现顺序即输出顺序
   const counts = new Map<string, number>()
   for (const e of edges) {
     counts.set(e.to, (counts.get(e.to) ?? 0) + 1)
   }
-
-  const issues: EdgeIssue[] = []
   for (const [to, n] of counts) {
     if (n > 1) {
       issues.push({
@@ -60,6 +78,19 @@ export function validateEdges(edges: Edge[]): EdgeIssue[] {
       })
     }
   }
+
+  // 2) cycle：复用 unlock.ts 的 detectCycles（同一份实现，避免重复 DFS）
+  for (const cycle of detectCycles(edges)) {
+    // cycle 形如 ["a","b","c","a"]，取首节点作 to（与现有 schema 兼容）
+    const head = cycle[0] ?? ''
+    issues.push({
+      code: CODE_CYCLE,
+      to: head,
+      message: `存在循环依赖: ${cycle.join(' → ')}`,
+      cycle
+    })
+  }
+
   return issues
 }
 

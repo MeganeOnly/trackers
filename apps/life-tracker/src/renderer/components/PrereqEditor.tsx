@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
+import { useUnlocked } from '../store/selectors'
 import { buildDonePredicate } from '@shared/done'
 import { detectCycles, formatIssues, groupMemberCount, groupMemberId, validateEdges } from '@core'
 import type {
@@ -65,6 +66,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   const edges = useRelationsStore((s) => s.edges)
   const setAll = useRelationsStore((s) => s.setAll)
   const select = useGoalsStore((s) => s.select)
+  const { relations } = useUnlocked()
 
   const myEdge = edges.find((e) => e.to === goalId) ?? null
   const rule = myEdge?.rule ?? 'all'
@@ -184,6 +186,13 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
   }, [groups, specs, allPrereqIds, goalById, isDone])
 
   const missingIds = allPrereqIds.filter((id) => !goalById.has(id))
+
+  // 「完成后将解锁」= 直接被本目标阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  const downstreamIds = relations.get(goalId)?.blocks ?? []
+  const downstreamGoals = downstreamIds
+    .map((id) => goalById.get(id))
+    .filter((g): g is Goal => Boolean(g))
+  const missingDownstreamIds = downstreamIds.filter((id) => !goalById.has(id))
 
   // 已 added simple spec 同 id 的次数（用于 picker 视觉提示）
   const simpleSpecCountById = useMemo(() => {
@@ -623,6 +632,34 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       )}
 
       {!hasAnyPrereq && <p className="muted empty-hint">无前置 —— 此目标永远解锁</p>}
+
+      {/* 反向视角：完成本目标会直接推动谁解锁。仅显示直接一步可达的邻居 */}
+      {(downstreamGoals.length > 0 || missingDownstreamIds.length > 0) && (
+        <div className="downstream">
+          <h4 className="downstream-title">
+            完成后将解锁 <span className="muted">({downstreamIds.length} 个)</span>
+          </h4>
+          <ul className="downstream-list">
+            {downstreamGoals.map((g) => (
+              <li
+                key={g.id}
+                className={`downstream-item status-${g.status}`}
+                onClick={() => select(g.id)}
+              >
+                <span className="title">{g.title}</span>
+                {g.category && <span className="muted">{g.category}</span>}
+                <span className={`status-tag status-${g.status}`}>{STATUS_LABELS[g.status]}</span>
+              </li>
+            ))}
+            {missingDownstreamIds.map((id) => (
+              <li key={id} className="downstream-item downstream-missing">
+                <span className="title">{id}</span>
+                <span className="muted">未找到</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="prereq-actions">
         <button className="add-prereq" onClick={() => setPickerOpen((v) => !v)}>

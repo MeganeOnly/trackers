@@ -26,30 +26,41 @@
 use std::collections::HashMap;
 
 use crate::types::Edge;
+use crate::unlock::detect_cycles;
 
 /// 违规代码：同一个 `to` 存在多条前置边。
 pub const CODE_DUPLICATE_TO: &str = "duplicate_to";
+
+/// 违规代码：关系图中存在循环依赖（环上节点全部锁死）。
+pub const CODE_CYCLE: &str = "cycle";
 
 /// 一条不变量违规。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeIssue {
     /// 机器可读代码，见 `CODE_*` 常量（便于调用方分流，不依赖文案）。
     pub code: &'static str,
-    /// 涉及的 `edge.to`。
+    /// 涉及的 `edge.to`（环检测场景下取环的第一个节点）。
     pub to: String,
     /// 人读说明（中文，可直接展示给用户）。
     pub message: String,
+    /// 仅 `code == CODE_CYCLE` 时存在：环的完整路径（首尾相同，例如 `["a","b","c","a"]`）。
+    /// 非环问题此字段为 `None`。
+    pub cycle: Option<Vec<String>>,
 }
 
 /// 校验 edges 的不变量，返回全部违规（空 `Vec` = 无问题）。
 ///
-/// 当前唯一检查：**`to` 唯一性**。
+/// 当前检查：
+/// - **`to` 唯一性**：重复 `to` 会让 `compute_unlocked` 静默覆盖（详见模块顶部注释）。
+/// - **环检测**：`compute_unlocked` 已自带环检测并把环上节点置 false；本函数也独立报一份，
+///   让"关系图是否健康"这个事实有单一通道输出，便于 UI / 日志 / 后端 write 时统一处理。
 ///
-/// 返回顺序按各 `to` 在 `edges` 中**首次出现的顺序**，不受 `HashMap` 迭代顺序影响，
-/// 因此输出稳定、可直接用于测试断言与日志比对。
+/// 输出顺序：`duplicate_to` 在前（按首次出现顺序），`cycle` 在后（按 `detect_cycles` 报告顺序）。
 pub fn validate_edges(edges: &[Edge]) -> Vec<EdgeIssue> {
+    let mut issues = Vec::new();
+
+    // 1) duplicate_to：单独记首次出现顺序，HashMap 迭代顺序不确定
     let mut counts: HashMap<&str, usize> = HashMap::new();
-    // 单独记首次出现顺序，保证输出稳定（HashMap 迭代顺序不确定）
     let mut order: Vec<&str> = Vec::new();
     for e in edges {
         let n = counts.entry(e.to.as_str()).or_insert(0);
@@ -58,8 +69,6 @@ pub fn validate_edges(edges: &[Edge]) -> Vec<EdgeIssue> {
         }
         *n += 1;
     }
-
-    let mut issues = Vec::new();
     for to in order {
         let n = counts[to];
         if n > 1 {
@@ -70,9 +79,23 @@ pub fn validate_edges(edges: &[Edge]) -> Vec<EdgeIssue> {
                     "目标 {to} 有 {n} 条前置边；解锁计算只会采用最后一条，另外 {} 条的前置条件会被静默丢弃",
                     n - 1
                 ),
+                cycle: None,
             });
         }
     }
+
+    // 2) cycle：复用 unlock::detect_cycles（同一份实现，避免重复 DFS）
+    for cycle in detect_cycles(edges) {
+        let head = cycle.first().cloned().unwrap_or_default();
+        let path = cycle.join(" → ");
+        issues.push(EdgeIssue {
+            code: CODE_CYCLE,
+            to: head,
+            message: format!("存在循环依赖: {path}"),
+            cycle: Some(cycle),
+        });
+    }
+
     issues
 }
 
@@ -191,5 +214,89 @@ mod tests {
             "确认覆盖行为存在，这正是 validate_edges 要报告的隐患"
         );
         assert_eq!(validate_edges(&edges).len(), 1, "该数据应被校验捕获");
+    }
+
+    // ========== cycle 检测 ==========
+
+    #[test]
+    fn cycle_acyclic_reports_none() {
+        let edges = vec![edge("b", &["a"])];
+        let issues: Vec<_> = validate_edges(&edges)
+            .into_iter()
+            .filter(|i| i.code == CODE_CYCLE)
+            .collect();
+        assert!(issues.is_empty(), "无环时不报 cycle");
+    }
+
+    #[test]
+    fn cycle_two_node_reported() {
+        let edges = vec![edge("a", &["b"]), edge("b", &["a"])];
+        let issues: Vec<_> = validate_edges(&edges)
+            .into_iter()
+            .filter(|i| i.code == CODE_CYCLE)
+            .collect();
+        assert_eq!(issues.len(), 1, "只报一个 cycle");
+        let issue = &issues[0];
+        let cyc = issue.cycle.as_ref().expect("cycle 应填");
+        assert_eq!(cyc.len(), 3, "环路径含首尾");
+        assert_eq!(cyc[0], cyc[2], "首尾相同");
+        // 集合恰为 {a, b}
+        let unique: std::collections::BTreeSet<_> = cyc.iter().take(2).collect();
+        assert_eq!(unique.len(), 2);
+        assert!(issue.message.contains("循环依赖"));
+        assert_eq!(issue.to, cyc[0], "to 字段 = 环首节点");
+    }
+
+    #[test]
+    fn cycle_self_loop_reported() {
+        let edges = vec![edge("a", &["a"])];
+        let issues: Vec<_> = validate_edges(&edges)
+            .into_iter()
+            .filter(|i| i.code == CODE_CYCLE)
+            .collect();
+        assert_eq!(issues.len(), 1);
+        let cyc = issues[0].cycle.as_ref().unwrap();
+        assert_eq!(cyc, &vec!["a".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn cycle_long_chain_reported() {
+        let edges = vec![
+            edge("b", &["a"]),
+            edge("c", &["b"]),
+            edge("a", &["c"]),
+        ];
+        let issues: Vec<_> = validate_edges(&edges)
+            .into_iter()
+            .filter(|i| i.code == CODE_CYCLE)
+            .collect();
+        assert_eq!(issues.len(), 1);
+        let cyc = issues[0].cycle.as_ref().unwrap();
+        assert_eq!(cyc.len(), 4, "a→b→c→a 共 4 个");
+        assert_eq!(cyc[0], cyc[3]);
+    }
+
+    #[test]
+    fn cycle_and_duplicate_to_ordering() {
+        // 同一数据集同时有 duplicate_to 与 cycle —— 输出顺序: duplicate 先, cycle 后
+        let edges = vec![
+            edge("t", &["x"]),
+            edge("t", &["y"]),
+            edge("a", &["b"]),
+            edge("b", &["a"]),
+        ];
+        let issues = validate_edges(&edges);
+        let dup = issues.iter().position(|i| i.code == CODE_DUPLICATE_TO);
+        let cyc = issues.iter().position(|i| i.code == CODE_CYCLE);
+        assert!(dup.is_some() && cyc.is_some());
+        assert!(dup.unwrap() < cyc.unwrap(), "duplicate 在 cycle 前");
+    }
+
+    #[test]
+    fn format_issues_works_with_cycle() {
+        let edges = vec![edge("a", &["b"]), edge("b", &["a"])];
+        let msg = format_issues(&validate_edges(&edges));
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("循环依赖"));
     }
 }

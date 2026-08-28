@@ -27,4 +27,5 @@ pub mod validate;
 pub use types::{
     Edge, ExcludeEffect, PrereqSpec, Progress, RelationsFile, UnlockResult, UnlockRule,
 };
-pub use validate::{validate_edges, EdgeIssue, CODE_DUPLICATE_TO};
+pub use unlock::{compute_blocking_relations, BlockingRelation};
+pub use validate::{validate_edges, EdgeIssue, CODE_CYCLE, CODE_DUPLICATE_TO};

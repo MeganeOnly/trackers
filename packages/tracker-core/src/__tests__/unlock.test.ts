@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeUnlocked, detectCycles } from '../unlock'
+import { computeBlockingRelations, computeUnlocked, detectCycles } from '../unlock'
 import type { Edge } from '../types'
 
 describe('computeUnlocked', () => {
@@ -129,5 +129,125 @@ describe('detectCycles', () => {
     const edges: Edge[] = [{ to: 'a', prerequisites: ['a'], rule: 'all' }]
     const cycles = detectCycles(edges)
     expect(cycles.length).toBeGreaterThan(0)
+  })
+})
+
+describe('computeBlockingRelations', () => {
+  it('空图返回空 Map', () => {
+    expect(computeBlockingRelations([]).size).toBe(0)
+  })
+
+  it('单边 a→b：a.blocks=[b], b.blockedBy=[a]', () => {
+    const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('a')?.blocks).toEqual(['b'])
+    expect(r.get('a')?.blockedBy).toEqual([])
+    expect(r.get('b')?.blocks).toEqual([])
+    expect(r.get('b')?.blockedBy).toEqual(['a'])
+  })
+
+  it('孤立节点也出现在 Map 里（blocks/blockedBy 都为空）', () => {
+    const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
+    const r = computeBlockingRelations(edges)
+    expect(r.has('a')).toBe(true)
+    expect(r.has('b')).toBe(true)
+  })
+
+  it('链 a→b→c：a 直接 blocks b，b 直接 blocks c；不做传递', () => {
+    const edges: Edge[] = [
+      { to: 'b', prerequisites: ['a'], rule: 'all' },
+      { to: 'c', prerequisites: ['b'], rule: 'all' }
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('a')?.blocks).toEqual(['b'])
+    expect(r.get('b')?.blocks).toEqual(['c'])
+    expect(r.get('c')?.blocks).toEqual([])
+    // 关键：不传递 —— a 不直接 blocks c
+    expect(r.get('a')?.blocks.includes('c')).toBe(false)
+  })
+
+  it('多对一汇合：b/c 都依赖 a → a.blocks=[b,c]', () => {
+    const edges: Edge[] = [
+      { to: 'b', prerequisites: ['a'], rule: 'all' },
+      { to: 'c', prerequisites: ['a'], rule: 'all' }
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('a')?.blocks.sort()).toEqual(['b', 'c'])
+  })
+
+  it('一对多拆分：c 依赖 [a,b] → c.blockedBy=[a,b]', () => {
+    const edges: Edge[] = [
+      { to: 'c', prerequisites: ['a', 'b'], rule: 'all' }
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('c')?.blockedBy.sort()).toEqual(['a', 'b'])
+    expect(r.get('a')?.blocks).toEqual(['c'])
+    expect(r.get('b')?.blocks).toEqual(['c'])
+  })
+
+  it('重复引用去重', () => {
+    const edges: Edge[] = [
+      { to: 'c', prerequisites: ['a'], rule: 'all' },
+      { to: 'c', prerequisites: ['a'], rule: 'all' } // duplicate_to 情况
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('a')?.blocks).toEqual(['c'])
+    expect(r.get('c')?.blockedBy).toEqual(['a'])
+  })
+
+  it('exclude spec 不建立 blocks/blockedBy 边（它是谓词改写规则）', () => {
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['a'],
+        rule: 'all',
+        excludes: [{ kind: 'exclude', trigger: 'x', target: 'a', effect: 'disqualifies' }]
+      }
+    ]
+    const r = computeBlockingRelations(edges)
+    // a 是 t 的前置（来自 prerequisites），进入 blockedBy
+    expect(r.get('a')?.blockedBy).toEqual([])
+    expect(r.get('a')?.blocks).toEqual(['t'])
+    expect(r.get('t')?.blockedBy).toEqual(['a'])
+    // x 通过 exclude 关联到 t，但 exclude 不构成正向引用 → x 不在 map 里
+    expect(r.has('x')).toBe(false)
+    expect(r.has('a')).toBe(true)
+  })
+
+  it('specs 里 simple / group / count 都参与正向引用', () => {
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: [],
+        rule: 'all',
+        specs: [
+          { kind: 'simple', id: 'a' },
+          { kind: 'group', members: ['b', 'c'], pick: 1 },
+          { kind: 'count', members: ['d', 'e'], need: 2 }
+        ]
+      }
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('t')?.blockedBy.sort()).toEqual(['a', 'b', 'c', 'd', 'e'])
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      expect(r.get(id)?.blocks).toEqual(['t'])
+    }
+  })
+
+  it('prerequisites 与 specs 同时给定时合并去重', () => {
+    // 同一 id 既在 prerequisites 也在 specs.simple —— 合并去重
+    const edges: Edge[] = [
+      {
+        to: 't',
+        prerequisites: ['a', 'b'],
+        rule: 'all',
+        specs: [
+          { kind: 'simple', id: 'a' },
+          { kind: 'simple', id: 'c' }
+        ]
+      }
+    ]
+    const r = computeBlockingRelations(edges)
+    expect(r.get('t')?.blockedBy.sort()).toEqual(['a', 'b', 'c'])
   })
 })

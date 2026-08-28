@@ -2,6 +2,19 @@ import type { Edge, ExcludeSpec, PrereqSpec, UnlockResult } from './types'
 import { groupMemberCount, groupMemberId } from './types'
 
 /**
+ * 节点在依赖图中的双向关系：
+ * - `blocks` —— 我**直接**阻塞的下游节点（完成我会推动它们的解锁进度）
+ * - `blockedBy` —— 我**直接**被哪些上游节点阻塞（解锁我还需要这些先完成）
+ *
+ * 仅含**直接**一步可达的邻居；不做传递闭包（避免把整张图塞进每个节点）。
+ * UI 需要"完成我会解锁 X、Y、Z（链式传递）"时，可在调用方基于 `blocks` 自己 BFS。
+ */
+export interface BlockingRelation {
+  blocks: string[]
+  blockedBy: string[]
+}
+
+/**
  * 给定条目 id 列表 + 关系 + 完成判定，计算每个条目是否解锁。
  * - isDone(id, requiredCount)：该条目是否算"已完成"。
  *   - 普通任务：requiredCount 不影响判断（只看自身 done 状态）
@@ -177,4 +190,64 @@ export function detectCycles(edges: Edge[]): string[][] {
 
   for (const node of adj.keys()) dfs(node)
   return cycles
+}
+
+/**
+ * 计算关系图中每个节点的**直接**双向邻居：`blocks`（下游）与 `blockedBy`（上游）。
+ *
+ * 语义要点：
+ * - 仅走 `edge.prerequisites` + `edge.specs`（simple / group / count 成员）—— **`exclude`
+ *   不算正向引用**，它是谓词改写规则，不会单独建立一条"我在阻塞谁"的边。
+ * - 同一对节点若被多条 edge 重复指向，会被去重（Set 收尾）。
+ * - 不存在的节点 id 也会出现在 Map 里（值是空数组）—— 这样调用方按 id 取 `.blocks` 不会
+ *   拿到 undefined。Map 的 key 集合 == 出现在任意 edge 两端的 id 全集。
+ * - 不做传递闭包：`A → B → C` 中 `A.blocks = [B]`、`B.blocks = [C]`，需要链式影响自己 BFS。
+ * - 时间 O(E)，空间 O(N + E)。
+ */
+export function computeBlockingRelations(edges: Edge[]): Map<string, BlockingRelation> {
+  const blocks = new Map<string, Set<string>>()
+  const blockedBy = new Map<string, Set<string>>()
+
+  function ensure(id: string): { blocks: Set<string>; blockedBy: Set<string> } {
+    if (!blocks.has(id)) blocks.set(id, new Set())
+    if (!blockedBy.has(id)) blockedBy.set(id, new Set())
+    return { blocks: blocks.get(id)!, blockedBy: blockedBy.get(id)! }
+  }
+
+  for (const e of edges) {
+    const refs = collectPrereqIds(e)
+    if (refs.length === 0) continue
+    // e.to 被 refs 中每个 id 阻塞；refs 中每个 id 阻塞 e.to
+    const toRel = ensure(e.to)
+    for (const r of refs) toRel.blockedBy.add(r)
+    for (const r of refs) ensure(r).blocks.add(e.to)
+  }
+
+  // Map<id, BlockingRelation> —— 把 Set 物化成数组，冻结可观察形状
+  const out = new Map<string, BlockingRelation>()
+  // 合并两表的 key（blocks / blockedBy 任一表出现过都收）
+  const allIds = new Set<string>([...blocks.keys(), ...blockedBy.keys()])
+  for (const id of allIds) {
+    out.set(id, {
+      blocks: [...(blocks.get(id) ?? new Set())],
+      blockedBy: [...(blockedBy.get(id) ?? new Set())]
+    })
+  }
+  return out
+}
+
+/** 取一条 edge 的全部正向引用 id（来自 prerequisites + specs 中的 simple / group / count）。 */
+function collectPrereqIds(edge: Edge): string[] {
+  const ids = new Set<string>()
+  for (const p of edge.prerequisites) ids.add(p)
+  if (edge.specs) {
+    for (const s of edge.specs) {
+      if (s.kind === 'simple') ids.add(s.id)
+      else if (s.kind === 'group' || s.kind === 'count') {
+        for (const m of s.members) ids.add(groupMemberId(m))
+      }
+      // 'exclude' 不参与正向引用
+    }
+  }
+  return [...ids]
 }
