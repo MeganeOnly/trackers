@@ -13,6 +13,56 @@
 
 ---
 
+## 2026-08：book-tracker 加「作品排名」（两两对比 Elo）
+
+### 1. [book-tracker] 现象：用户希望给"看过的作品"做排名，二选一判断
+
+- **现象**：用户提出新需求——给已读作品做排名。交互方式是"两两对比"（二选一判断哪个更喜欢），每次对比写入历史，由算法产出全序。"同类"指同一 WorkKind（书 vs 书、电影 vs 电影），不跨类。状态 = `finished` 才进入候选池。
+- **设计要点**：
+  - **算法选 Elo**：用户交给我选。Elo 收敛快、对随便点几下的容错性好、配对灵活；插入排序 O(n log n) 更直接但要求每次找到全序中正确插入位置（用户认知负担重）；tier list 太粗。
+  - **pool 派生**：由前端持有 books 全量 + kind 过滤后**实时派生**当前池（不存盘）。理由：用户改 status / 删书会立即影响池子；存盘同步会引入额外失效路径。
+  - **数据最小化**：rankings.json 只持久化 `history` + 算法参数（`initial_rating` / `k_factor`），**评分由前端从 history 重算**。删书后被删的条目自动从评分里消失（recomputeRatings 跳过 a/b 不全在 pool 内的条目），不需要专门清理。
+  - **服务端覆盖 ts**：前端构造 PairwiseResult 时 `ts: ''`，后端 `service::ranking::append_result` 用 `now_iso()` 覆盖再写盘——避免前端时钟漂移污染历史时间戳。
+  - **Elo 算法进 core**：虽然是 book-tracker 单 app 需求，但 Elo + pair 选择本身是纯算法（领域无关），按 `shared-boundary.md` 的"未来可能两边都用"标准进 `packages/tracker-core/src/ranking.ts`，TS + Rust 双端镜像。book-tracker 拥有领域侧（pool 从 books 派生、UI、store），共享内核拥有算法侧。
+- **架构落点**（沿用 book-tracker 既有模式）：
+  - `packages/tracker-core/src/ranking.ts` —— `PairwiseResult` / `RankingFile` 类型 + `applyPairwiseResult` / `recomputeRatings` / `countComparisons` / `pickNextPair` 纯函数；
+  - `crates/tracker-core/src/types.rs` —— 镜像 `PairwiseResult` / `PairwiseWinner` / `RankingFile`（含 `Default` + serde default for initial_rating / k_factor）；
+  - `apps/book-tracker/src-tauri/src/data/ranking.rs` —— `read_ranking` / `write_ranking`，缺失文件 + 缺字段都 fallback；
+  - `apps/book-tracker/src-tauri/src/service/ranking.rs` —— `get_ranking` / `append_result`（覆盖 ts）；
+  - `apps/book-tracker/src-tauri/src/commands.rs` + `lib.rs` —— `ranking_get` / `ranking_apply` 命令注册；
+  - `apps/book-tracker/src/shared/api.ts` + `renderer/lib/api.ts` —— `RankingAPI.get() / .apply(result)` 桥接；
+  - `apps/book-tracker/src/renderer/store/ranking.ts` —— zustand store（file / kind / currentPair / sessionCount + `deriveRanking` 派生 helper）；
+  - `apps/book-tracker/src/renderer/components/Ranking{Modal,List,Compare,KindSelect}.tsx` —— UI；
+  - `TopBar.tsx` + `App.tsx` —— 「排」按钮 + 快捷键 `r`。
+
+### 2. [book-tracker] pair 选择策略：A 最少对比 + B 评分最近
+
+- **策略**（`packages/tracker-core/src/ranking.ts::pickNextPair`）：
+  1. A = 对比次数最少的 pool 成员（同等次数随机打破平局）—— 保证每本都被充分比过；
+  2. B = 评分最接近 A 的 pool 成员（排除 A）—— 边界精度优先，Elo 收益最大的"决胜局"；
+  3. pool < 2 返回 null，UI 展示「至少需要 2 个已读作品」空状态。
+- **为什么不选其他策略**：
+  - 纯随机：长尾 user 已经比过 N 次，新进作品没人碰；
+  - 总是从两端（最高 vs 最低）选：边界快速收敛但中部作品排序质量差；
+  - 强制同 kind 不再比：Elo 没有"已稳定"的概念，过早停止反而降序质量。
+- **池过滤语义一致性**：`recomputeRatings` / `countComparisons` 都按 `a/b 都在 pool 才算` 的语义过滤历史——被删的条目不该让剩下的 id 单独"赚"对比数。
+  这条一致是必要的：之前第一版 `countComparisons` 是分别判断 `a` 和 `b` 各自是否在 pool，导致 `history = [{a:1, b:99}]` + `pool = ['1','2']` 时 counts['1'] = 1（实际期望 0），跟 recomputeRatings 行为脱节——会让 pair 选择偏向历史对手已删除的 id。
+
+### 3. [共享] 教训：纯算法即便单 app 需求也优先进 core
+
+- **教训**：「用户只让我做 book-tracker」不等于「代码应该只在 book-tracker」。Elo + pair 选择本身不依赖 Book / Goal 任何领域概念——纯纯的算法。这种"领域无关的纯函数"按 `docs/shared-boundary.md` 的判断规则（两 app 都可能用 / 语义两边完全一致 / 改了不需要两边同步——本次先只 book-tracker 用，但前两条满足）应该进 `packages/tracker-core`。
+- **教训**：进 core 后测试也按既有规范走：`packages/tracker-core/src/__tests__/ranking.test.ts`，vitest 自动被两个 app 的 vitest.config include 拾取，无需额外配置。
+- **教训**：Rust 端序列化器对齐 TS 端：`PairwiseWinner` 用 `#[serde(rename_all = "snake_case")]` 让 `a / b / tie` 与 TS 字符串完全一致；`initial_rating` / `k_factor` 用 `#[serde(default = "...")]` 让旧文件无字段时反序列化不失败（RatingFile::default 兜底）。
+
+### 4. [book-tracker] 教训：服务端覆盖 `ts` 比让前端传更稳
+
+- **教训**：第一直觉是让前端构造完整 `PairwiseResult { a, b, winner, ts: new Date().toISOString() }`，但前端时钟可能被用户改、跨时区差异也容易让历史时间戳出现奇怪偏移。改成「前端 ts 留空、服务端用 now_iso() 覆盖」——前端少传一个字段、少一个容易出错的边界，后端单一时间源。
+- **教训**：前端 store 的 `PairwiseResult` 类型可以保留 `ts: ''` 占位（TS 端 PairwiseResult.ts 是 string），构造时直接 `ts: ''`、序列化由 Tauri 命令参数对象传过去即可。后端 service 层读 entry 后**第一件事**覆盖 ts，避免后续字段冲突。
+
+---
+
+---
+
 ## 2026-08：详情面板 checkbox 简洁标签 + 悬停 tooltip（GoalDetail / GoalForm / BookDetail / BookForm）
 
 ### 1. [共享] 现象：详情面板里 checkbox 标签长、间距大，hover 又看不到详细语义

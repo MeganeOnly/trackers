@@ -1,7 +1,7 @@
 //! 跨进程共享类型定义 —— Rust 端镜像(serde)。
 //!
-//! 通用类型（Edge / Progress / RelationsFile / UnlockResult / UnlockRule）已抽到
-//! `crates/tracker-core`（monorepo 共享内核），本文件只保留 Book 领域类型，
+//! 通用类型（Edge / Progress / RelationsFile / UnlockResult / UnlockRule / PairwiseResult / RankingFile）
+//! 已抽到 `crates/tracker-core`（monorepo 共享内核），本文件只保留 Book 领域类型，
 //! 并 re-export core 的通用类型（保持 `crate::types::Edge` 等引用不变）。
 //!
 //! 与 `src/shared/types.ts` 1:1 对应。前端用 .ts 版本，Rust 端用 .rs 版本，
@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 // 通用类型：来自共享内核（crates/tracker-core）
-pub use tracker_core::{Edge, Progress, RelationsFile, UnlockResult, UnlockRule};
+pub use tracker_core::{Edge, PairwiseResult, Progress, RankingFile, RelationsFile, UnlockResult, UnlockRule};
 
 /// 作品类型。`'book' | 'anime' | 'tv' | 'movie' | 'other'`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

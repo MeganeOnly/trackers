@@ -10,7 +10,9 @@ export type {
   RelationsFile,
   UnlockResult,
   UnlockRule,
-  BrokenEntry
+  BrokenEntry,
+  PairwiseResult,
+  RankingFile
 } from '@core'
 
 import type { Progress } from '@core'

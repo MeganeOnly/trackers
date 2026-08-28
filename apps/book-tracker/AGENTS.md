@@ -61,6 +61,10 @@ src/                              # renderer + shared
 │   ├── PrereqEditor.tsx          # 前置依赖编辑器
 │   ├── GraphView.tsx             # react-force-graph 包装
 │   ├── GraphModal.tsx            # 关系图 modal
+│   ├── RankingModal.tsx          # 作品排名 modal（Elo 两两对比）
+│   ├── RankingList.tsx           # 排名列表视图
+│   ├── RankingCompare.tsx        # 两两对比视图
+│   ├── RankingKindSelect.tsx     # 类型筛选 tab
 │   └── Modal.tsx                 # 通用 modal（footer 槽位）
 ├── pages/
 │   ├── EditMode.tsx              # 编辑模式壳（BookList + BookDetail）
@@ -70,6 +74,7 @@ src/                              # renderer + shared
 │   ├── relations.ts
 │   ├── mode.ts                   # clean / edit
 │   ├── search.ts                 # 全局搜索 query
+│   ├── ranking.ts                # 排名 store（kind / pair / sessionCount）
 │   └── selectors.ts              # useUnlocked / useGroupedByStatus / useEdgeFor
 └── lib/
     └── api.ts                    # Tauri invoke shim（桥接 src-tauri 的 #[tauri::command]）
@@ -83,24 +88,26 @@ src-tauri/                        # Rust 后端
 └── src/
     ├── main.rs                   # 二进制入口
     ├── lib.rs                    # 模块声明 + #[cfg(not(test))] tauri_app::run() + invoke_handler
-    ├── types.rs                  # Book / Edge / Progress / Config / BookPatch 等 serde 镜像
+    ├── types.rs                  # Book / Edge / Progress / Config / BookPatch / RankingFile / PairwiseResult serde 镜像
     ├── progress.rs               # 章节进度纯函数 + 单元测试
     ├── unlock.rs                 # compute_unlocked + 环检测 + 单元测试
     ├── data/                     # 文件 I/O 层
     │   ├── books.rs              # 每本书一个 .md(JSON frontmatter + 手写 split_frontmatter)
     │   ├── relations.rs          # relations.json
     │   ├── config.rs             # config.json
+    │   ├── ranking.rs            # rankings.json（两两对比历史）
     │   ├── files.rs              # atomic_write / ensure_dir / read_json
     │   └── slug.rs               # make_base_id(纯数字 ID)
     ├── service/                  # 业务逻辑层(调用 data/,对 commands 暴露)
     │   ├── books.rs
     │   ├── relations.rs
     │   ├── config.rs             # ConfigPatch(不允许改 data_dir)
+    │   ├── ranking.rs            # ranking 业务封装（get / append，服务端覆盖 ts）
     │   └── data_dir.rs           # 双仓分离 + Mutex<Option<String>> 全局 cache
-    └── commands.rs               # 12 个 #[tauri::command] + 1 个 app_ensure_data_dir
+    └── commands.rs               # 12 + 2 = 14 个 #[tauri::command] + 1 个 app_ensure_data_dir
 
 src/shared/                       # Book 领域类型 + 文案(被 renderer 用,Rust 端有 serde 镜像)
-├── types.ts                      # Book / BookStatus / Config + re-export core 的 Edge/Progress/…
+├── types.ts                      # Book / BookStatus / Config + re-export core 的 Edge/Progress/RankingFile/PairwiseResult
 ├── api.ts                        # ElectronAPI 接口定义(被 renderer 用)
 └── progress.ts                   # formatProgress(领域文案;纯函数在 tracker-core)
 ```
@@ -299,8 +306,14 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] **编辑模式：跨 status 的『已收起』分组（`Book.collapsed`，纯展示）**——所有 status 都允许，与 status / 解锁 / CleanMode 完全正交
 - [x] 设置面板：新建作品默认类型 + 展示筛选（全部/按类型，按钮式高亮）
 - [x] 全局搜索（作品名 / 作者 / ID 模糊匹配）
-- [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `e`/`c` 切模式 / `Esc` 清搜索
+- [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `r` 排名 / `e`/`c` 切模式 / `Esc` 清搜索
 - [x] 关系图（react-force-graph-2d，500 节点流畅）
+- [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
+  - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标
+  - 排名列表 tab：按 Elo 评分倒序，条形图可视化，标题 / 作者 / 对比次数 / 评分
+  - 对比 tab：左右两本候选（标题 + 作者 + 年份 + 国家 + tags），点击选 winner，支持「跳过」「平局」
+  - 池 = `status === 'finished'` 且 `kind === 选中 kind` 的书
+  - 评分算法 + pair 选择策略进 `packages/tracker-core/src/ranking.ts`（领域无关，未来 goal-tracker 可直接复用）
 - [x] 用户数据目录 picker（首次启动）
 - [x] 数据目录结构初始化（picker 完成后同步写 `config.json` + `books/`，避免空壳）
 - [x] 配置文件 `config.json` 持久化（含 `default_work_kind` / `works_filter`）
@@ -347,6 +360,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 <data_dir>/
 ├── books/<id>.md          # 每本书一个文件，id 为纯数字
 ├── relations.json        # 前置关系图（懒创建）
+├── rankings.json         # 排名历史：两两对比记录（懒创建）
 └── config.json           # 用户配置（含 data_dir 自身）
 ```
 

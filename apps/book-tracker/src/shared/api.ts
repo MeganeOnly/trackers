@@ -1,4 +1,4 @@
-import type { Book, BookInput, Config, Edge } from './types'
+import type { Book, BookInput, Config, Edge, PairwiseResult, RankingFile } from './types'
 
 export interface BrokenEntry {
   id: string
@@ -28,6 +28,18 @@ export interface ConfigAPI {
   set(patch: Partial<Config>): Promise<Config>
 }
 
+/**
+ * 两两对比排名 API。
+ *
+ * - `get()` 读 rankings.json（缺失返回默认空文件）
+ * - `apply()` 追加一次结果，服务端覆盖 ts 后写回整文件，返回写后的 RankingFile；
+ *   前端用本地 books 池 + 新 history 重算评分
+ */
+export interface RankingAPI {
+  get(): Promise<RankingFile>
+  apply(result: Pick<PairwiseResult, 'a' | 'b' | 'winner'>): Promise<RankingFile>
+}
+
 export interface DataAPI {
   pickDir(): Promise<string | null>
   revealInExplorer(): Promise<void>
@@ -37,5 +49,6 @@ export interface ElectronAPI {
   books: BookAPI
   relations: RelationsAPI
   config: ConfigAPI
+  ranking: RankingAPI
   data: DataAPI
 }

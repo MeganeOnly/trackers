@@ -25,7 +25,8 @@ pub mod unlock;
 pub mod validate;
 
 pub use types::{
-    Edge, ExcludeEffect, PrereqSpec, Progress, RelationsFile, UnlockResult, UnlockRule,
+    Edge, ExcludeEffect, PairwiseResult, PairwiseWinner, PrereqSpec, Progress, RankingFile,
+    RelationsFile, UnlockResult, UnlockRule,
 };
 pub use unlock::{compute_blocking_relations, BlockingRelation};
 pub use validate::{validate_edges, EdgeIssue, CODE_CYCLE, CODE_DUPLICATE_TO};

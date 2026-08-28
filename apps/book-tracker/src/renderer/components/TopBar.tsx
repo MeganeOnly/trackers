@@ -5,10 +5,11 @@ import { useSearchStore } from '../store/search'
 interface TopBarProps {
   onAdd?: () => void
   onGraph?: () => void
+  onRanking?: () => void
   onSettings?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onSettings }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -60,6 +61,11 @@ export function TopBar({ onAdd, onGraph, onSettings }: TopBarProps): JSX.Element
         {onGraph && (
           <button className="topbar-icon-btn" onClick={onGraph} title="关系图 (g)">
             图
+          </button>
+        )}
+        {onRanking && (
+          <button className="topbar-icon-btn" onClick={onRanking} title="排名 (r)">
+            排
           </button>
         )}
         <div className="mode-toggle" role="tablist" aria-label="模式">

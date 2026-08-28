@@ -4,6 +4,7 @@ import { EditMode } from './pages/EditMode'
 import { CleanMode } from './pages/CleanMode'
 import { BookForm } from './components/BookForm'
 import { GraphModal } from './components/GraphModal'
+import { RankingModal } from './components/RankingModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
@@ -21,6 +22,7 @@ export default function App(): JSX.Element {
 
   const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [rankingOpen, setRankingOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
@@ -70,6 +72,9 @@ export default function App(): JSX.Element {
       } else if (key === 'g') {
         e.preventDefault()
         setGraphOpen((v) => !v)
+      } else if (key === 'r') {
+        e.preventDefault()
+        setRankingOpen((v) => !v)
       } else if (key === 'e') {
         e.preventDefault()
         useModeStore.getState().setMode('edit')
@@ -90,6 +95,7 @@ export default function App(): JSX.Element {
       <TopBar
         onAdd={openAdd}
         onGraph={() => setGraphOpen(true)}
+        onRanking={() => setRankingOpen(true)}
         onSettings={() => setSettingsOpen(true)}
       />
       <div className="app-body">
@@ -97,6 +103,7 @@ export default function App(): JSX.Element {
       </div>
       {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
       {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
+      {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )

@@ -4,12 +4,14 @@
 //! - `books` — 业务规则(create 分配 id / update 合并 patch 等)
 //! - `relations` — 同 data,只加 validate 钩子
 //! - `config` — 同 data
+//! - `ranking` — 两两对比排名历史的读 / 追加（评分由前端实时计算）
 //! - `data_dir` — 双仓分离 + cache + 初始化 + picker
 //!
-//! 缓存策略:data_dir / config 全局缓存,books / relations 实时读(数据可能很大,
+//! 缓存策略:data_dir / config 全局缓存,books / relations / ranking 实时读(数据可能很大,
 //! 实时读避免 cache 失效问题)。
 
 pub mod books;
 pub mod config;
 pub mod data_dir;
+pub mod ranking;
 pub mod relations;

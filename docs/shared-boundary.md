@@ -26,7 +26,8 @@
 | crates/tracker-core: validate.rs（validate_edges / format_issues，relations 不变量校验） | Rust |
 | crates/tracker-core: config.rs（config.json 读写骨架） | Rust |
 | crates/tracker-core: data_dir.rs（双仓 + cache + init_with_picker，app 名参数化） | Rust |
-| packages/tracker-core: unlock.ts / validate.ts / progress.ts / types.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec） | TS |
+| crates/tracker-core: ranking（PairwiseResult / RankingFile / PairwiseWinner；两两对比 Elo 算法） | Rust |
+| packages/tracker-core: unlock.ts / validate.ts / progress.ts / ranking.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec/PairwiseResult/RankingFile + Elo 纯函数） | TS |
 | packages/tracker-ui: Modal / TopBar / GraphView / GraphModal / PrereqEditor / styles-base.css | TS/React |
 
 ### B. 参数化共享（进 core，抽象薄）

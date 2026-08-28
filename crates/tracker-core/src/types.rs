@@ -221,3 +221,63 @@ pub struct UnlockResult {
     /// 循环依赖涉及到的节点列表（每个环一组）
     pub cycles: Vec<Vec<String>>,
 }
+
+/// 单次两两对比结果（`rankings.json` 持久化的最小单元）。
+///
+/// 领域无关：book-tracker 用它给已读作品排名，未来其他 tracker 也可直接复用。
+/// 与 `packages/tracker-core/src/ranking.ts` 的 `PairwiseResult` 1:1。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairwiseResult {
+    /// 选手 A 的 id
+    pub a: String,
+    /// 选手 B 的 id
+    pub b: String,
+    /// 哪一方获胜：`'a'` / `'b'` / `'tie'`
+    pub winner: PairwiseWinner,
+    /// ISO 8601 时间戳
+    pub ts: String,
+}
+
+/// 对比获胜方
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PairwiseWinner {
+    A,
+    B,
+    Tie,
+}
+
+/// 完整的 `rankings.json` 文件结构。
+///
+/// 仅持久化 history + 算法参数，评分由前端实时从 history 重算（与
+/// `packages/tracker-core/src/ranking.ts::recomputeRatings` 对齐）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankingFile {
+    pub version: u32,
+    /// 新条目进入评分池时的初始分数
+    #[serde(default = "default_initial_rating")]
+    pub initial_rating: f64,
+    /// Elo K 因子
+    #[serde(default = "default_k_factor")]
+    pub k_factor: f64,
+    pub history: Vec<PairwiseResult>,
+}
+
+fn default_initial_rating() -> f64 {
+    1500.0
+}
+
+fn default_k_factor() -> f64 {
+    32.0
+}
+
+impl Default for RankingFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            initial_rating: default_initial_rating(),
+            k_factor: default_k_factor(),
+            history: Vec::new(),
+        }
+    }
+}

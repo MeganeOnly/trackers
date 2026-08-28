@@ -5,3 +5,4 @@
 
 pub mod books;
 pub mod config;
+pub mod ranking;

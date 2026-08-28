@@ -8,8 +8,8 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
-use crate::service::{books, config as cfg_svc, data_dir, relations};
-use crate::types::{Book, BookInput, BookPatch, Config, Edge};
+use crate::service::{books, config as cfg_svc, data_dir, ranking, relations};
+use crate::types::{Book, BookInput, BookPatch, Config, Edge, PairwiseResult, RankingFile};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -107,6 +107,24 @@ pub fn config_get() -> Result<Config, String> {
 pub fn config_set(patch: cfg_svc::ConfigPatch) -> Result<Config, String> {
     let dir = data_dir_path()?;
     cfg_svc::set_config(&dir, patch).map_err(|e| e.to_string())
+}
+
+// ==================== ranking commands ====================
+
+/// 读 ranking 文件（缺失 → 默认空 RankingFile）。
+#[tauri::command]
+pub fn ranking_get() -> Result<RankingFile, String> {
+    let dir = data_dir_path()?;
+    ranking::get_ranking(&dir).map_err(|e| e.to_string())
+}
+
+/// 追加一次对比结果；服务端覆盖 ts 后写回整文件，返回写后的 RankingFile。
+///
+/// 前端拿到新 RankingFile 后会用本地 books 池 + 新 history 重算评分。
+#[tauri::command]
+pub fn ranking_apply(result: PairwiseResult) -> Result<RankingFile, String> {
+    let dir = data_dir_path()?;
+    ranking::append_result(&dir, result).map_err(|e| e.to_string())
 }
 
 // ==================== data commands ====================

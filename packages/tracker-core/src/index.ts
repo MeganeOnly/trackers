@@ -9,3 +9,12 @@ export {
   progressPercent,
   bumpProgress
 } from './progress'
+export {
+  defaultRankingFile,
+  expectedScore,
+  applyPairwiseResult,
+  recomputeRatings,
+  countComparisons,
+  pickNextPair
+} from './ranking'
+export type { PairwiseResult, RankingFile } from './ranking'

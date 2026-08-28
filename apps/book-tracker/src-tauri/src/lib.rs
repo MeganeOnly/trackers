@@ -69,6 +69,8 @@ mod tauri_app {
                 commands::relations_set,
                 commands::config_get,
                 commands::config_set,
+                commands::ranking_get,
+                commands::ranking_apply,
                 commands::data_pick_dir,
                 commands::data_reveal_in_explorer,
             ])
