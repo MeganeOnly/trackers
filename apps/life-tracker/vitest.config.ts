@@ -8,9 +8,12 @@ import { resolve } from 'node:path'
 // 别名与 vite.config.ts 一致,保证 import 路径在两套构建下都解析正确。
 export default defineConfig({
   test: {
+    // React 组件集成测试需要 DOM；纯逻辑/共享测试保持默认 node 环境
+    environment: 'jsdom',
     include: [
       '../../packages/tracker-core/src/__tests__/**/*.test.ts',
-      'src/shared/**/*.test.ts'
+      'src/shared/**/*.test.ts',
+      'src/shared/**/*.test.tsx'
     ]
   },
   resolve: {
