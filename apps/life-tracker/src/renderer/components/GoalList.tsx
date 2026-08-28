@@ -251,57 +251,75 @@ function CollapsedBucket({
   toggle
 }: CollapsedBucketProps): JSX.Element | null {
   if (collapsedTotal === 0) return null
+  // 外层 bucket header 自己也走折叠机制（与上方 5 个 status 分组同款 button）：
+  // - 折叠 bucket → 整片「被收起」区块（连同子 sub-section）一起折叠
+  // - 展开 bucket → 各 sub-section 仍按自己独立的 sectionKey 自管折叠
+  const bucketKey = 'collapsed:bucket'
+  const bucketCollapsed = isCollapsed(bucketKey)
   return (
-    <section className="goal-list-group goal-list-group--collapsed-bucket">
-      <header className="bucket-header">
+    <section
+      className={`goal-list-group goal-list-group--collapsed-bucket goal-list-group--collapsible${bucketCollapsed ? ' is-collapsed' : ''}`}
+    >
+      <button
+        type="button"
+        className="group-header group-header--bucket"
+        onClick={() => toggle(bucketKey)}
+        aria-expanded={!bucketCollapsed}
+        title={bucketCollapsed ? '点击展开' : '点击收起'}
+      >
         <span className="status-dot status-collapsed" title="在编辑模式侧栏已收起" />
-        <span className="bucket-name">被收起</span>
+        <span className="group-name">被收起</span>
         <span className="count">({collapsedTotal})</span>
-      </header>
-      <div className="bucket-subs">
-        {BUCKET_STATUS_ORDER.map((status) => {
-          const items = collapsedByStatus[status].filter((g) => matchGoal(g, query))
-          if (items.length === 0) return null
-          const totalForStatus = collapsedByStatus[status].length
-          const subKey = `collapsed:${status}`
-          const subCollapsed = isCollapsed(subKey)
-          return (
-            <section
-              key={status}
-              className={`goal-list-group goal-list-group--sub goal-list-group--collapsible${subCollapsed ? ' is-collapsed' : ''}`}
-            >
-              <button
-                type="button"
-                className="group-header group-header--sub"
-                onClick={() => toggle(subKey)}
-                aria-expanded={!subCollapsed}
-                title={subCollapsed ? '点击展开' : '点击收起'}
+        <span className="caret" aria-hidden="true">
+          {bucketCollapsed ? '▸' : '▾'}
+        </span>
+      </button>
+      {!bucketCollapsed && (
+        <div className="bucket-subs">
+          {BUCKET_STATUS_ORDER.map((status) => {
+            const items = collapsedByStatus[status].filter((g) => matchGoal(g, query))
+            if (items.length === 0) return null
+            const totalForStatus = collapsedByStatus[status].length
+            const subKey = `collapsed:${status}`
+            const subCollapsed = isCollapsed(subKey)
+            return (
+              <section
+                key={status}
+                className={`goal-list-group goal-list-group--sub goal-list-group--collapsible${subCollapsed ? ' is-collapsed' : ''}`}
               >
-                <StatusDot status={status} />
-                <span className="group-name">{STATUS_LABELS[status]}</span>
-                <span className="count">
-                  ({query ? `${items.length}/${totalForStatus}` : totalForStatus})
-                </span>
-                <span className="caret" aria-hidden="true">
-                  {subCollapsed ? '▸' : '▾'}
-                </span>
-              </button>
-              {!subCollapsed && (
-                <ul>
-                  {items.map((g) => (
-                    <ItemRow
-                      key={g.id}
-                      g={g}
-                      selected={selectedId === g.id}
-                      onSelect={onSelect}
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
-          )
-        })}
-      </div>
+                <button
+                  type="button"
+                  className="group-header group-header--sub"
+                  onClick={() => toggle(subKey)}
+                  aria-expanded={!subCollapsed}
+                  title={subCollapsed ? '点击展开' : '点击收起'}
+                >
+                  <StatusDot status={status} />
+                  <span className="group-name">{STATUS_LABELS[status]}</span>
+                  <span className="count">
+                    ({query ? `${items.length}/${totalForStatus}` : totalForStatus})
+                  </span>
+                  <span className="caret" aria-hidden="true">
+                    {subCollapsed ? '▸' : '▾'}
+                  </span>
+                </button>
+                {!subCollapsed && (
+                  <ul>
+                    {items.map((g) => (
+                      <ItemRow
+                        key={g.id}
+                        g={g}
+                        selected={selectedId === g.id}
+                        onSelect={onSelect}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }

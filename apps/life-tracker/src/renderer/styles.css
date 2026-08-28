@@ -263,14 +263,6 @@ button:focus-visible {
   border-top: 1px dashed var(--border);
   display: flex; flex-direction: column; gap: 10px;
 }
-.bucket-header {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.05em;
-  padding: 0 6px;
-}
-.bucket-header .count { font-weight: 400; }
 .bucket-subs { display: flex; flex-direction: column; gap: 10px; padding-left: 8px; }
 /* 子分组比外层缩进更深、header 字号略小、group-name 不再 uppercase */
 .goal-list-group--sub .group-header--sub {
