@@ -8,6 +8,7 @@
 //! - `progress`   N/M 进度纯函数
 //! - `frontmatter` markdown `---` frontmatter 拆分 + ISO 时间戳
 //! - `relations`  relations.json 读写 + 边容错
+//! - `validate`   relations 不变量校验（只报告，不改数据、不阻止读写）
 //! - `config`     config.json 读写骨架（领域 Config 由各 app 定义）
 //!
 //! 共享边界约定见仓库根 `docs/shared-boundary.md`。
@@ -21,7 +22,9 @@ pub mod relations;
 pub mod slug;
 pub mod types;
 pub mod unlock;
+pub mod validate;
 
 pub use types::{
     Edge, ExcludeEffect, PrereqSpec, Progress, RelationsFile, UnlockResult, UnlockRule,
 };
+pub use validate::{validate_edges, EdgeIssue, CODE_DUPLICATE_TO};

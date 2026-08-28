@@ -23,9 +23,10 @@
 | crates/tracker-core: slug.rs（make_base_id 数字 ID） | Rust |
 | crates/tracker-core: frontmatter.rs（split_frontmatter / normalize / now_iso） | Rust |
 | crates/tracker-core: unlock.rs（compute_unlocked / detect_cycles） | Rust |
+| crates/tracker-core: validate.rs（validate_edges / format_issues，relations 不变量校验） | Rust |
 | crates/tracker-core: config.rs（config.json 读写骨架） | Rust |
 | crates/tracker-core: data_dir.rs（双仓 + cache + init_with_picker，app 名参数化） | Rust |
-| packages/tracker-core: unlock.ts / progress.ts / types.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec） | TS |
+| packages/tracker-core: unlock.ts / validate.ts / progress.ts / types.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec） | TS |
 | packages/tracker-ui: Modal / TopBar / GraphView / GraphModal / PrereqEditor / styles-base.css | TS/React |
 
 ### B. 参数化共享（进 core，抽象薄）
@@ -53,6 +54,7 @@
 
 ## 变更记录
 
+- v3.1（relations 不变量校验）：新增 `validate` 模块（Rust + TS 1:1），检查「同一个 `to` 只能有一条前置边」——该不变量被 `compute_unlocked` 的 `to → Edge` 索引隐式依赖，破坏时静默丢弃前置条件。**当前只告警不拒绝**（写入路径与读取路径都打警告，不阻断），收紧成硬拒绝只需把 app 层 `set_relations` 的告警改成 validate 闭包的 `Some(msg)`。
 - v3（countable 多次引用）：`GroupSpec.members` 从 `string[]` 升级为 `(string | {id, count?})[]`，支持 per-member count（如 `(B 完成 2 次) OR C 完成`）；旧 `["a","b"]` 形态完全兼容，serde 自定义 visitor 双向兼容。`SimpleSpec` 同 id 可多次添加（不同 count 视为独立实例），`removeRow` 改为按 `(id, count)` 精确匹配。
 - v2（前置规格化）：`Edge` 扩展 `specs: PrereqSpec[]` 与 `excludes: ExcludeSpec[]`，支持『简单 / 二选一组 / 计数 / 互斥』四种前置规格。旧 `rule+threshold+groups` 路径完全兼容（无新字段 → 旧行为）。
 - v1（monorepo 初建）：从 book-tracker 抽取 core，life-tracker 从 core 长出；UI 基座共享列为待办

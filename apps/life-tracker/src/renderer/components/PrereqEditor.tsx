@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
 import { buildDonePredicate } from '@shared/done'
-import { detectCycles, groupMemberCount, groupMemberId } from '@core'
+import { detectCycles, formatIssues, groupMemberCount, groupMemberId, validateEdges } from '@core'
 import type {
   Edge,
   ExcludeSpec,
@@ -347,6 +347,11 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       alert('此修改会造成循环依赖，请先调整其他前置。')
       return
     }
+    // 不变量告警（只警告，不阻止保存）：同一个 to 出现多条边会让 computeUnlocked
+    // 静默丢弃前置条件。上面的 filter + push 是 upsert 语义，正常不会触发；
+    // 这里守的是将来改动这段拼接逻辑时无声引入重复边。详见 @core 的 validate 模块。
+    const invariantMsg = formatIssues(validateEdges(updated))
+    if (invariantMsg) console.warn('[PrereqEditor]', invariantMsg)
     await setAll(updated)
   }
 

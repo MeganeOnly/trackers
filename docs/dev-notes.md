@@ -13,7 +13,61 @@
 
 ---
 
-## 2026-08：启用 npm workspaces，monorepo 体积从 410 MB 砍到 140 MB
+## 2026-08：relations 不变量校验（`to` 唯一性）
+
+### 1. [共享] 隐患：`compute_unlocked` 的 `to → Edge` 索引会静默吞掉重复边的前置
+
+- **现象**（潜在，非当前 bug）：若 `relations.json` 里同一个 `to` 出现两条边，解锁计算只采用
+  **最后一条**，前面所有边的前置条件全部消失——不报错、不警告、不留痕。症状与历史上
+  `normalize_edge` 误用 `..Default::default()` 清空 `specs` / `excludes` 那次事故完全一样
+  （「加了前置或互斥规则但读不到，像被删除了一样」），属于同一类「静默丢前置」。
+- **根因**：`compute_unlocked` 用 `edge_by_to.insert(e.to, ...)`（TS 端 `edgeByTo.set`）把边索引
+  成 `to → Edge`，**隐式假设 `to` 唯一但从不校验**。该不变量此前只由 UI 一层保证——
+  `PrereqEditor` 保存时 `edges.filter((e) => e.to !== <id>)` + push 是 upsert 语义。
+  不受此保护的入口：用户手工编辑 `relations.json`（本地文件应用的常态）、未来的批量导入 /
+  迁移脚本、任何新增写入路径。
+- **修复**：新增 `crates/tracker-core/src/validate.rs` + `packages/tracker-core/src/validate.ts`
+  （1:1 镜像），提供 `validate_edges()` / `format_issues()` 纯函数。挂载点：
+  - Rust：两个 app 的 `service/relations.rs` 在 `get_relations`（读）与 `set_relations`（写）
+    各跑一次，`eprintln!` 告警；
+  - TS：两个 app 的 `PrereqEditor` 在 `setAll` 前跑一次，`console.warn` 告警。
+- **刻意保留的宽松语义**：**只告警，不拒绝**。cycle 仍然硬拒绝（环会让目标永久锁死），
+  但不变量问题不阻断写入——避免历史数据一旦不合规就完全写不进去。要收紧：把 app 层
+  `set_relations` 里那行告警改成 `write_relations` 的 validate 闭包返回 `Some(msg)`。
+- **回归验证**：`npm run test:core`（vitest 55 passed，含 validate 8 条）+ `cargo test`
+  （tracker-core 80 / book-tracker 18 / life-tracker 13，全 0 failed）+ `npm run typecheck` 三端全过。
+  两个 app 的现有 `relations.json` 体检结果为「`to` 全部唯一」，启用告警不误伤存量数据。
+
+### 2. [共享] 校验函数要和它防的行为绑在同一个测试里
+
+- **注意点**：`validate_edges` 单独测「能报出重复」意义有限——真正要钉住的是
+  「重复确实会导致前置丢失」这个行为。两端都加了同名回归锚点
+  （Rust `duplicate_to_really_drops_prerequisites_in_compute_unlocked`、
+  TS `重复 to 确实会让前置条件被静默丢弃`）：构造两条同 `to` 的边（一条要 x、一条要 y），
+  只让 x 完成，断言目标**锁住**。
+- **作用**：若将来把 `compute_unlocked` 改成合并同 `to` 的多条边，这两个测试会失败，
+  直接提示同步放宽或删除 `duplicate_to` 检查，避免校验规则与实际行为悄悄脱节。
+
+### 3. [共享] 输出顺序要显式稳定，不能靠 HashMap / 对象迭代顺序
+
+- **注意点**：`validate_edges` 的返回顺序按各 `to` 在 `edges` 中**首次出现的顺序**。
+  Rust 端 `HashMap` 迭代顺序不确定，因此单独用 `Vec<&str> order` 记首次出现；
+  TS 端靠 `Map` 天然保序。两端都有「多处重复按首次出现顺序输出」的测试断言。
+- **原因**：输出不稳定会让测试间歇性失败，也让两端日志无法直接比对——双语言镜像实现
+  尤其需要可比对的确定性输出。
+
+### 4. [环境] PowerShell 下 `npm` / `cargo` 的两个假失败信号
+
+- **现象 A**：`npm run <script>` 报 `npm.ps1 cannot be loaded because running scripts is
+  disabled on this system`（PSSecurityException）。
+  **规避**：调 `npm.cmd run <script>`，不改机器的 ExecutionPolicy。
+- **现象 B**：`cargo test 2>&1 | ...` 全部测试 `test result: ok, 0 failed` 但退出码是 1。
+  **根因**：cargo 把编译进度写 stderr，`2>&1` 合并后 PowerShell 将其包成
+  `NativeCommandError` 对象，污染退出码。**判据**：以 `test result:` 行的 `failed` 计数为准，
+  不要仅看退出码就断定测试失败。
+
+---
+
 
 ### 1. [共享] 现象：本地工作目录四个 node_modules 加起来 410 MB，"占空间大"
 

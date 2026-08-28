@@ -9,15 +9,37 @@ use std::path::Path;
 use crate::types::{Book, BookStatus, Edge, UnlockResult};
 use tracker_core::relations as data;
 use tracker_core::unlock::{compute_unlocked, detect_cycles};
+use tracker_core::validate::{format_issues, validate_edges};
+
+/// 不变量校验的告警出口 —— **只警告，不阻止读写**。
+///
+/// 当前唯一检查是「同一个 `to` 只能有一条前置边」（详见 `tracker_core::validate`）：
+/// 破坏它会让 `compute_unlocked` 静默丢弃前置条件。UI 的 upsert 语义保证了这点，
+/// 但手工编辑 `relations.json` / 未来的导入路径不受此保护。
+///
+/// 要收紧成硬拒绝：把 `set_relations` 的 validate 闭包里这段警告改成返回 `Some(msg)`。
+fn warn_invariants(edges: &[Edge], phase: &str) {
+    if let Some(msg) = format_issues(&validate_edges(edges)) {
+        eprintln!("[book-tracker][warn] {phase} relations: {msg}");
+    }
+}
 
 /// 读 relations → 返回 edges(空数组兜底)。
+///
+/// 顺带跑一次不变量校验并告警：手工编辑 `relations.json` 是主要风险入口，
+/// 读取时报告能让问题第一时间暴露，而不是等解锁结果算错才被察觉。
 pub fn get_relations(data_dir: impl AsRef<Path>) -> std::io::Result<Vec<Edge>> {
     let file = data::read_relations(data_dir)?;
+    warn_invariants(&file.edges, "读取");
     Ok(file.edges)
 }
 
 /// 写 relations(带 cycle 检测)。
+///
+/// cycle 仍然**硬拒绝**（会让环上作品永久锁死）；不变量问题目前只**告警**，
+/// 不阻止写入 —— 避免历史数据一旦不合规就完全写不进去。
 pub fn set_relations(data_dir: impl AsRef<Path>, edges: Vec<Edge>) -> std::io::Result<()> {
+    warn_invariants(&edges, "写入");
     data::write_relations(data_dir, &edges, Some(&|edges| {
         let cycles = detect_cycles(edges);
         if cycles.is_empty() {
