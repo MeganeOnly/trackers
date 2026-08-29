@@ -201,7 +201,8 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
 
   const missingIds = allPrereqIds.filter((id) => !goalById.has(id))
 
-  // 「完成后将解锁」= 直接被本目标阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  // 「完成后推动解锁」= 直接被本目标阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  // 用「推动」而非「解锁」——完成本目标只是下游解锁的必要条件之一,通常还要等其它前置也达成
   const downstreamIds = relations.get(goalId)?.blocks ?? []
   const downstreamGoals = downstreamIds
     .map((id) => goalById.get(id))
@@ -651,7 +652,7 @@ export function PrereqEditor({ goalId }: PrereqEditorProps): JSX.Element {
       {(downstreamGoals.length > 0 || missingDownstreamIds.length > 0) && (
         <div className="downstream">
           <h4 className="downstream-title">
-            完成后将解锁 <span className="muted">({downstreamIds.length} 个)</span>
+            完成后推动解锁 <span className="muted">({downstreamIds.length} 个)</span>
           </h4>
           <ul className="downstream-list">
             {downstreamGoals.map((g) => (

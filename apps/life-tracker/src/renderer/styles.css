@@ -634,7 +634,7 @@ button:focus-visible {
 .member-count-row .threshold-input { width: 56px; }
 .member-count-row .muted { font-size: 12px; }
 
-/* 「完成后将解锁」反相块 —— 与 .prereq-chips 微差异：背景偏柔，标题加正向色提示 */
+/* 「完成后推动解锁」反相块 —— 与 .prereq-chips 微差异：背景偏柔，标题加正向色提示 */
 .downstream {
   margin: 12px 0;
   padding-top: 12px;

@@ -401,7 +401,7 @@ button:focus-visible {
 .prereq:hover { background: var(--accent-soft); }
 .prereq-missing { cursor: default; opacity: 0.6; }
 
-/* 「完成后将解锁」反相块 —— 与 .prereq 微差异：背景偏柔，标题加正向色提示 */
+/* 「完成后推动解锁」反相块 —— 与 .prereq 微差异：背景偏柔，标题加正向色提示 */
 .downstream {
   margin-top: 16px; padding-top: 12px;
   border-top: 1px dashed var(--border);

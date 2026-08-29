@@ -29,7 +29,8 @@ export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {
   const rule: UnlockRule = myEdge?.rule ?? 'all'
   const threshold = myEdge?.threshold ?? prereqIds.length
   const groups: string[][] = myEdge?.groups ?? []
-  // 「完成后将解锁」= 直接被本作品阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  // 「完成后推动解锁」= 直接被本作品阻塞的下游节点（不传递;链式影响由调用方自 BFS）
+  // 用「推动」而非「解锁」——完成本作品只是下游解锁的必要条件之一,通常还要等其它前置也达成
   const downstreamIds = relations.get(bookId)?.blocks ?? []
   const downstreamBooks = downstreamIds
     .map((id) => books.find((b) => b.id === id))
@@ -302,7 +303,7 @@ export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {
       {(downstreamBooks.length > 0 || missingDownstreamIds.length > 0) && (
         <div className="downstream">
           <h4 className="downstream-title">
-            完成后将解锁 <span className="muted">({downstreamIds.length} 部)</span>
+            完成后推动解锁 <span className="muted">({downstreamIds.length} 部)</span>
           </h4>
           <ul className="downstream-list">
             {downstreamBooks.map((b) => (
