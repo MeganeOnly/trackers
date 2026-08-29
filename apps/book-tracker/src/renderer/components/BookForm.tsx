@@ -29,6 +29,44 @@ function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[
   return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
 }
 
+/**
+ * 根据作品类型返回"作者"字段的最佳标签:
+ * - book → 作者（默认）
+ * - anime / tv → 原作 / 主创（漫画原作、动画监督、电视剧导演等）
+ * - movie → 导演
+ * - other → 作者 / 主创（兜底）
+ */
+function authorLabelFor(kind: WorkKind): string {
+  switch (kind) {
+    case 'anime': return '原作 / 主创'
+    case 'tv': return '原作 / 主创'
+    case 'movie': return '导演'
+    case 'other': return '作者 / 主创'
+    case 'book': return '作者'
+  }
+}
+
+/** 译者字段只对书显示（动画/电视剧/电影/其他 通常无译者） */
+function translatorLabelFor(kind: WorkKind): string | null {
+  return kind === 'book' ? '译者' : null
+}
+
+/** 年份字段按类型给出更具体的标签 */
+function yearLabelFor(kind: WorkKind): string {
+  switch (kind) {
+    case 'book': return '出版年份'
+    case 'anime': return '开始年份'
+    case 'tv': return '首播年份'
+    case 'movie': return '上映年份'
+    case 'other': return '年份'
+  }
+}
+
+/** 国家字段对书的语义其实是"原产国"，对影视是"制片国家/地区" */
+function countryLabelFor(kind: WorkKind): string {
+  return kind === 'book' ? '原产国 / 地区' : '制片国家 / 地区'
+}
+
 export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const create = useBooksStore((s) => s.create)
   const update = useBooksStore((s) => s.update)
@@ -162,17 +200,17 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             </select>
           </label>
           <label className="field">
-            <span>作者 / 主创</span>
+            <span>{authorLabelFor(kind)} *</span>
             <input value={author} onChange={(e) => setAuthor(e.target.value)} required />
           </label>
         </div>
         <div className="field-row">
           <label className="field">
-            <span>国家 / 地区</span>
+            <span>{countryLabelFor(kind)}</span>
             <input value={country} onChange={(e) => setCountry(e.target.value)} />
           </label>
           <label className="field">
-            <span>年份</span>
+            <span>{yearLabelFor(kind)}</span>
             <input
               type="number"
               value={year}
@@ -182,10 +220,12 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             />
           </label>
         </div>
-        <label className="field">
-          <span>译者</span>
-          <input value={translator} onChange={(e) => setTranslator(e.target.value)} />
-        </label>
+        {translatorLabelFor(kind) && (
+          <label className="field">
+            <span>{translatorLabelFor(kind)}</span>
+            <input value={translator} onChange={(e) => setTranslator(e.target.value)} />
+          </label>
+        )}
         <div className="field-row">
           <label className="field">
             <span>状态</span>

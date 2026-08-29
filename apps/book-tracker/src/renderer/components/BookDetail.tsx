@@ -35,6 +35,33 @@ function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[
   return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
 }
 
+// 类型相关字段标签 —— 详情内联编辑的 label 要和加作品表单一致,
+// 共享函数搬到 shared 段成本不划算,这里就近复制一份
+function authorLabelFor(kind: WorkKind): string {
+  switch (kind) {
+    case 'anime': return '原作 / 主创'
+    case 'tv': return '原作 / 主创'
+    case 'movie': return '导演'
+    case 'other': return '作者 / 主创'
+    case 'book': return '作者'
+  }
+}
+function translatorLabelFor(kind: WorkKind): string | null {
+  return kind === 'book' ? '译者' : null
+}
+function yearLabelFor(kind: WorkKind): string {
+  switch (kind) {
+    case 'book': return '出版年份'
+    case 'anime': return '开始年份'
+    case 'tv': return '首播年份'
+    case 'movie': return '上映年份'
+    case 'other': return '年份'
+  }
+}
+function countryLabelFor(kind: WorkKind): string {
+  return kind === 'book' ? '原产国 / 地区' : '制片国家 / 地区'
+}
+
 /**
  * 编辑模式右侧的书详情 = 内联可编辑表单：
  * - 所有字段直接可编辑，点「保存」统一写盘，不再需要额外的「编辑」弹窗
@@ -249,7 +276,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             </select>
           </label>
           <label className="field">
-            <span>年份</span>
+            <span>{yearLabelFor(kind)}</span>
             <input
               type="number"
               value={year}
@@ -261,17 +288,19 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         </div>
         <div className="field-row">
           <label className="field">
-            <span>作者 / 主创</span>
-            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者名" />
+            <span>{authorLabelFor(kind)}</span>
+            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者名 / 导演名 / 主创名" />
           </label>
-          <label className="field">
-            <span>译者</span>
-            <input value={translator} onChange={(e) => setTranslator(e.target.value)} placeholder="如：范晔" />
-          </label>
+          {translatorLabelFor(kind) && (
+            <label className="field">
+              <span>{translatorLabelFor(kind)}</span>
+              <input value={translator} onChange={(e) => setTranslator(e.target.value)} placeholder="如：范晔" />
+            </label>
+          )}
         </div>
         <div className="field-row">
           <label className="field">
-            <span>国家 / 地区</span>
+            <span>{countryLabelFor(kind)}</span>
             <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="如：中国" />
           </label>
           <label className="field">
