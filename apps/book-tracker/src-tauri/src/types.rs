@@ -89,6 +89,10 @@ pub struct Book {
     /// 避免污染;老文件缺字段 / `notes: ""` 都视为无笔记（向后兼容）。
     #[serde(default)]
     pub notes: String,
+    /// 主演(影视专用)。仅 `kind === 'movie' | 'tv'` 时在 UI 表单暴露（位置与书的"译者"对称）——
+    /// 写盘策略同 `notes` / `translator`:空串不写 frontmatter,老文件缺字段 → ""。
+    #[serde(default)]
+    pub starring: String,
 }
 
 /// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'notes'>`
@@ -110,6 +114,9 @@ pub struct BookInput {
     /// 用户笔记 —— 默认空串（无笔记）
     #[serde(default)]
     pub notes: String,
+    /// 主演(影视专用) —— 默认空串（无主演）
+    #[serde(default)]
+    pub starring: String,
 }
 
 /// 更新书的 patch(全字段可选)。
@@ -151,6 +158,9 @@ pub struct BookPatch {
     /// 用户笔记 —— `None` 不改,`Some("")` 清空
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// 主演 —— `None` 不改,`Some("")` 清空
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starring: Option<String>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

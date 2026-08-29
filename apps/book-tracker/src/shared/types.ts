@@ -87,6 +87,12 @@ export interface Book {
    * - 字段缺损 / 老文件 → 空串（向后兼容;不会迁移 body 旧文本到 notes）
    */
   notes: string
+  /**
+   * 主演(影视专用)。仅 `kind === 'movie' | 'tv'` 时在 UI 表单暴露（位置与书的"译者"对称）——
+   * 解决"电影 / 电视剧 也需要一个主要贡献者字段"的诉求。
+   * 存储策略同 `notes` / `translator`:空串不写盘,老文件缺字段 → 空串(向后兼容)。
+   */
+  starring: string
 }
 
 /** 配置文件（数据目录自带） */

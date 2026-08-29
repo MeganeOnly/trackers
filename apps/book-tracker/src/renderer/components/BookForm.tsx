@@ -51,6 +51,14 @@ function translatorLabelFor(kind: WorkKind): string | null {
   return kind === 'book' ? '译者' : null
 }
 
+/**
+ * 主演字段只对 movie / tv 显示 —— 与"译者"位置对称,UI 不会同时出现两个。
+ * anime 没放进来 —— anime 的等价概念是"声优",措辞不一样;用户当前只问 movie/tv。
+ */
+function starringLabelFor(kind: WorkKind): string | null {
+  return kind === 'movie' || kind === 'tv' ? '主演' : null
+}
+
 /** 年份字段按类型给出更具体的标签 */
 function yearLabelFor(kind: WorkKind): string {
   switch (kind) {
@@ -94,6 +102,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
+  const [starring, setStarring] = useState<string>(book?.starring ?? '')
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,7 +130,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           .map((s) => s.trim())
           .filter((s) => s.length > 0),
         collapsed,
-        notes: notes
+        notes: notes,
+        starring: starring
       }
       // 仅当 status 是「进行中」(reading/watching) 且填了 current 时才把 progress 写进 input
       if (status === 'reading' || status === 'watching') {
@@ -228,6 +238,16 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           <label className="field">
             <span>{translatorLabelFor(kind)}</span>
             <input value={translator} onChange={(e) => setTranslator(e.target.value)} />
+          </label>
+        )}
+        {starringLabelFor(kind) && (
+          <label className="field">
+            <span>{starringLabelFor(kind)}</span>
+            <input
+              value={starring}
+              onChange={(e) => setStarring(e.target.value)}
+              placeholder="如：基努·里维斯, 劳伦斯·菲什伯恩"
+            />
           </label>
         )}
         <div className="field-row">

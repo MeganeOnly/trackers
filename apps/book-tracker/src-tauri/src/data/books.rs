@@ -82,6 +82,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default(),
         notes: data.get("notes").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        starring: data.get("starring").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
 }
 
@@ -149,6 +150,7 @@ pub fn write_book(
         updated: now,
         tags: input.tags.clone().unwrap_or_default(),
         notes: input.notes.clone(),
+        starring: input.starring.clone(),
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -176,6 +178,8 @@ pub fn update_book(
     if let Some(v) = patch.collapsed { merged.collapsed = v; }
     // notes: `None` = 不改,`Some("")` = 清空,`Some(s)` = 写为 s
     if let Some(v) = &patch.notes { merged.notes = v.clone(); }
+    // starring 同 notes
+    if let Some(v) = &patch.starring { merged.starring = v.clone(); }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -253,6 +257,10 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
     if !book.notes.is_empty() {
         fm.insert("notes".into(), serde_json::Value::String(book.notes.clone()));
     }
+    // starring 同 notes
+    if !book.starring.is_empty() {
+        fm.insert("starring".into(), serde_json::Value::String(book.starring.clone()));
+    }
     // collapsed 仅在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
     if book.collapsed {
         fm.insert("collapsed".into(), serde_json::Value::Bool(true));
@@ -315,6 +323,7 @@ mod tests {
             tags: Some(vec!["小说".to_string()]),
             collapsed: false,
             notes: String::new(),
+            starring: String::new(),
         }
     }
 
@@ -545,6 +554,55 @@ mod tests {
         let patch_set = BookPatch { notes: Some("新笔记".to_string()), ..Default::default() };
         let set = update_book(&books_dir, &book3.id, &patch_set).unwrap();
         assert_eq!(set.notes, "新笔记");
+    }
+
+    /// starring(主演)字段写盘 / 读回 / patch 合并 / 空串不写盘 的回归测试。
+    /// 与 notes 共享同一策略 —— 验证影视类型(movie/tv)的"主演"字段不污染 frontmatter。
+    #[test]
+    fn starring_round_trip_and_omit_when_empty() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 非空 starring 写盘 + 读回
+        let mut input = sample_input();
+        input.kind = WorkKind::Movie;
+        input.starring = "基努·里维斯, 劳伦斯·菲什伯恩".to_string();
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"starring\""), "starring 应写盘");
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        assert_eq!(read_back.starring, "基努·里维斯, 劳伦斯·菲什伯恩");
+
+        // 2) 空 starring 不写盘
+        let mut input2 = sample_input();
+        input2.kind = WorkKind::Movie;
+        input2.starring = String::new();
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw2.contains("starring"), "空 starring 不应写盘");
+        assert_eq!(read_book(&books_dir, &book2.id).unwrap().unwrap().starring, "");
+
+        // 3) 老文件缺 starring 字段 → 读回为 ""
+        let legacy = books_dir.join("88.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"88\",\"title\":\"老影视\",\"status\":\"finished\",\"kind\":\"movie\"}\n---\n# 老影视\n",
+        )
+        .unwrap();
+        assert_eq!(read_book(&books_dir, "88").unwrap().unwrap().starring, "");
+
+        // 4) patch 合并:None 不改,Some("") 清空,Some(s) 写为 s
+        let book3 = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        assert_eq!(book3.starring, "基努·里维斯, 劳伦斯·菲什伯恩");
+        let patch_none = BookPatch { ..Default::default() };
+        let updated = update_book(&books_dir, &book3.id, &patch_none).unwrap();
+        assert_eq!(updated.starring, "基努·里维斯, 劳伦斯·菲什伯恩");
+        let patch_clear = BookPatch { starring: Some(String::new()), ..Default::default() };
+        let cleared = update_book(&books_dir, &book3.id, &patch_clear).unwrap();
+        assert_eq!(cleared.starring, "");
+        let patch_set = BookPatch { starring: Some("新主演".to_string()), ..Default::default() };
+        let set = update_book(&books_dir, &book3.id, &patch_set).unwrap();
+        assert_eq!(set.starring, "新主演");
     }
 
     #[test]

@@ -49,6 +49,9 @@ function authorLabelFor(kind: WorkKind): string {
 function translatorLabelFor(kind: WorkKind): string | null {
   return kind === 'book' ? '译者' : null
 }
+function starringLabelFor(kind: WorkKind): string | null {
+  return kind === 'movie' || kind === 'tv' ? '主演' : null
+}
 function yearLabelFor(kind: WorkKind): string {
   switch (kind) {
     case 'book': return '出版年份'
@@ -95,6 +98,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
+  const [starring, setStarring] = useState<string>(book?.starring ?? '')
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -116,6 +120,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     )
     setCollapsed(book?.collapsed ?? false)
     setNotes(book?.notes ?? '')
+    setStarring(book?.starring ?? '')
     setTagsText((book?.tags ?? []).join(', '))
     setError(null)
     setSaved(false)
@@ -177,6 +182,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         progress?: BookInput['progress']
         collapsed?: boolean
         notes?: string
+        starring?: string
       } = {
         title: title.trim(),
         kind,
@@ -192,7 +198,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           .map((s) => s.trim())
           .filter((s) => s.length > 0),
         collapsed,
-        notes
+        notes,
+        starring
       }
       await update(cur.id, patch)
       setSaved(true)
@@ -300,6 +307,12 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             <label className="field">
               <span>{translatorLabelFor(kind)}</span>
               <input value={translator} onChange={(e) => setTranslator(e.target.value)} placeholder="如：范晔" />
+            </label>
+          )}
+          {starringLabelFor(kind) && (
+            <label className="field">
+              <span>{starringLabelFor(kind)}</span>
+              <input value={starring} onChange={(e) => setStarring(e.target.value)} placeholder="如：基努·里维斯, 劳伦斯·菲什伯恩" />
             </label>
           )}
         </div>

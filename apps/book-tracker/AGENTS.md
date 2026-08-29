@@ -162,6 +162,7 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 - 不要把 `progress: null` 写进 frontmatter（`write_book` 已经做了"有值才写"的判断）
 - `collapsed`（编辑模式侧栏收起）同上款「仅 `true` 时写盘、缺省 `false`」；**所有 status 都允许**，从 EditMode 侧栏的 status 分组移到侧栏底部『已收起』分组，纯展示层、不影响 status / 解锁 / CleanMode 任何行为
 - `notes`（用户笔记）同上款「空串不写盘」——避免污染 frontmatter;body 段不再保留 `## 笔记` 占位,旧 body 文本在首次编辑时丢失（v1 取舍,迁移逻辑后续可加）
+- `starring`（主演,仅 movie/tv 字段）同上款「空串不写盘」——避免污染 frontmatter;老文件缺字段 → ""（向后兼容）
 - `tags` 是数组,空数组 `[]` 总是写盘（保留语义 = "用户清空了所有 tag"）
 
 ### `relations.json`（前置关系图）
@@ -299,7 +300,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 ## 十一、已实现功能清单
 
 - [x] 加作品：作品名 / 作品类型（书、动画、电视剧、电影、其他）/ 作者·主创 / 国家 / 年份 / 译者
-  - **类型感知字段标签**：按 `WorkKind` 自动切换"作者/原作/主创/导演"、"出版/开始/首播/上映年份"、"原产国/制片国家"、"译者"字段仅书显示
+  - **类型感知字段标签**：按 `WorkKind` 自动切换"作者/原作/主创/导演"、"出版/开始/首播/上映年份"、"原产国/制片国家"；"译者"仅书显示，"主演"仅 movie/tv 显示 —— 两者位置对称,UI 不会同时出现
 - [x] 编辑作品（Modal 复用加作品表单）
 - [x] 删除作品（confirm 提示）
 - [x] 状态切换（5 种）+ 快速按钮（在详情页）
@@ -318,6 +319,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `r` 排名 / `e`/`c` 切模式 / `Esc` 清搜索
 - [x] **标签**（`Book.tags: string[]`，后端 + UI 全链路打通）：表单逗号分隔输入；GraphView 节点下方画 chip；空串不写盘
 - [x] **笔记**（`Book.notes: string`）—— `<textarea>` 直编辑,不渲染 Markdown(v1 取舍);空串不写盘
+- [x] **主演**（`Book.starring: string`,仅 movie/tv 暴露）—— 与"译者"位置对称;空串不写盘
 - [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
 - [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
   - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标
