@@ -45,13 +45,17 @@ impl WorkKind {
     }
 }
 
-/// 阅读状态。`'want' | 'shelved' | 'reading' | 'finished' | 'abandoned'`
+/// 作品的阅读/观看状态。`'want' | 'shelved' | 'reading' | 'watching' | 'finished' | 'abandoned'`
+///
+/// `watching`（在看）语义与 `reading`（在读）一致 —— 仅非电影类型在 UI 中可选,
+/// 用来解决"看完后再看一遍"时 `reading`（在读）措辞尴尬的问题。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BookStatus {
     Want,
     Shelved,
     Reading,
+    Watching,
     Finished,
     Abandoned,
 }

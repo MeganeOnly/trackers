@@ -13,10 +13,16 @@ const COLLAPSED_SECTIONS: { key: BookStatus; label: string }[] = [
   { key: 'abandoned', label: '弃读' }
 ]
 
-/** 折叠区条目"恢复"的目标状态：搁置/弃读 → 想看，已读 → 在读 */
+/**
+ * 折叠区条目"恢复"的目标状态：
+ * - 搁置/弃读 → 想看（重新进入备选池）
+ * - 已读 → 在读（再次观看）—— 注意:这里固定落到 reading,如果用户偏好 watching
+ *   可在 BookDetail 手动切换；restore 是单步动作,不试图"智能选择" kind 适配的进行中状态
+ */
 const RESTORE_TO: Record<BookStatus, BookStatus> = {
   want: 'want',
   reading: 'reading',
+  watching: 'reading',
   shelved: 'want',
   finished: 'reading',
   abandoned: 'want'
@@ -35,8 +41,9 @@ export function CleanMode(): JSX.Element {
   const byFilter = (b: Book): boolean => worksFilter === 'all' || b.kind === worksFilter
   const visibleBooks = useMemo(() => books.filter(byFilter), [books, worksFilter])
 
+  // 顶部"正在看"指示：合并 reading + watching 两种「进行中」状态
   const nowReading = useMemo(
-    () => visibleBooks.find((b) => b.status === 'reading'),
+    () => visibleBooks.find((b) => b.status === 'reading' || b.status === 'watching'),
     [visibleBooks]
   )
 
@@ -59,7 +66,9 @@ export function CleanMode(): JSX.Element {
   }, [books, edges, unlocked, query, worksFilter])
 
   const collapsedLists: Record<BookStatus, Book[]> = useMemo(() => {
-    const groups: Record<BookStatus, Book[]> = { want: [], shelved: [], reading: [], finished: [], abandoned: [] }
+    const groups: Record<BookStatus, Book[]> = {
+      want: [], shelved: [], reading: [], watching: [], finished: [], abandoned: []
+    }
     for (const b of books) groups[b.status].push(b)
     for (const k of Object.keys(groups) as BookStatus[]) {
       groups[k] = groups[k]

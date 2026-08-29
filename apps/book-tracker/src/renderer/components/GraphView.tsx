@@ -196,6 +196,7 @@ const STATUS_COLORS: Record<BookStatus, string> = {
   want: '#999999',
   shelved: '#c89456',
   reading: '#4a7c59',
+  watching: '#5a8a6c', // 比 reading 略浅一档;同属「进行中」色族
   finished: '#2d5a3a',
   abandoned: '#c0573d'
 }
@@ -204,6 +205,7 @@ const STATUS_LABEL: Record<BookStatus, string> = {
   want: '想看',
   shelved: '搁置',
   reading: '在读',
+  watching: '在看',
   finished: '已读',
   abandoned: '弃读'
 }
@@ -520,6 +522,7 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
       <div className="graph-legend">
         <span className="lg-dot" style={{ background: STATUS_COLORS.want }} />想看
         <span className="lg-dot" style={{ background: STATUS_COLORS.reading }} />在读
+        <span className="lg-dot" style={{ background: STATUS_COLORS.watching }} />在看
         <span className="lg-dot" style={{ background: STATUS_COLORS.finished }} />已读
         <span className="lg-dot" style={{ background: STATUS_COLORS.shelved }} />搁置
         <span className="lg-dot" style={{ background: STATUS_COLORS.abandoned }} />弃读

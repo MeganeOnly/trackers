@@ -11,13 +11,23 @@ interface BookFormProps {
   onClose: () => void
 }
 
-const STATUS_OPTIONS: { value: BookStatus; label: string }[] = [
+const STATUS_BASE_OPTIONS: { value: BookStatus; label: string }[] = [
   { value: 'want', label: '想看' },
   { value: 'shelved', label: '搁置' },
   { value: 'reading', label: '在读' },
   { value: 'finished', label: '已读' },
   { value: 'abandoned', label: '弃读' }
 ]
+
+/**
+ * 在看（watching）仅对非电影类型暴露 —— 电影通常一次看完,无需"在看"中间态。
+ * 非电影（书 / 动画 / 电视剧 / 其他）作品在已看完后再次观看时,可用此状态代替
+ * "在读"措辞更自然。
+ */
+function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[] {
+  if (kind === 'movie') return STATUS_BASE_OPTIONS
+  return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
+}
 
 export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const create = useBooksStore((s) => s.create)
@@ -69,8 +79,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         tags: [],
         collapsed
       }
-      // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 input
-      if (status === 'reading') {
+      // 仅当 status 是「进行中」(reading/watching) 且填了 current 时才把 progress 写进 input
+      if (status === 'reading' || status === 'watching') {
         const c = Number(progressCurrent)
         if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
           const tRaw = progressTotal.trim()
@@ -83,8 +93,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
       }
       if (isEdit && book) {
         const patch: Parameters<typeof update>[1] = { ...input, read_count: readCount }
-        // 编辑模式下，如果 status 不是 reading，主动清空 progress（用户主动清除意图）
-        if (status !== 'reading') patch.progress = null
+        // 编辑模式下,如果 status 不是「进行中」,主动清空 progress（用户主动清除意图）
+        if (status !== 'reading' && status !== 'watching') patch.progress = null
         await update(book.id, patch)
       } else {
         await create(input)
@@ -178,14 +188,14 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           <label className="field">
             <span>状态</span>
             <select value={status} onChange={(e) => setStatus(e.target.value as BookStatus)}>
-              {STATUS_OPTIONS.map((o) => (
+              {statusOptionsFor(kind).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
               ))}
             </select>
           </label>
-          {status === 'reading' && (
+          {(status === 'reading' || status === 'watching') && (
             <label className="field">
               <span>第 N 次看</span>
               <input

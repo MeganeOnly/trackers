@@ -30,6 +30,7 @@ export function useGroupedByStatus(): Record<Book['status'], Book[]> {
     want: [],
     shelved: [],
     reading: [],
+    watching: [],
     finished: [],
     abandoned: []
   }

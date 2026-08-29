@@ -16,17 +16,24 @@ const STATUS_LABELS: Record<BookStatus, string> = {
   want: '想看',
   shelved: '搁置',
   reading: '在读',
+  watching: '在看',
   finished: '已读',
   abandoned: '弃读'
 }
 
-const STATUS_OPTIONS: { value: BookStatus; label: string }[] = [
+const STATUS_BASE_OPTIONS: { value: BookStatus; label: string }[] = [
   { value: 'want', label: '想看' },
   { value: 'shelved', label: '搁置' },
   { value: 'reading', label: '在读' },
   { value: 'finished', label: '已读' },
   { value: 'abandoned', label: '弃读' }
 ]
+
+/** 在看（watching）仅对非电影类型暴露,见 BookForm 同名函数注释 */
+function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[] {
+  if (kind === 'movie') return STATUS_BASE_OPTIONS
+  return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
+}
 
 /**
  * 编辑模式右侧的书详情 = 内联可编辑表单：
@@ -119,11 +126,10 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setBusy(true)
     setError(null)
     try {
-      // 仅当 status === 'reading' 且填了 current 时才把 progress 写进 patch；
-      // 其余情况（非 reading，或 reading 但 current 为空）一律视为 null
-      // —— patch.progress 默认为 null，省去冗余二次赋值。
+      // 仅当 status 是「进行中」(reading/watching) 且填了 current 时才把 progress 写进 patch；
+      // 其余情况一律视为 null —— patch.progress 默认为 null，省去冗余二次赋值。
       let progress: BookInput['progress'] = null
-      if (status === 'reading') {
+      if (status === 'reading' || status === 'watching') {
         const c = Number(progressCurrent)
         if (progressCurrent.trim() !== '' && Number.isFinite(c) && c >= 0) {
           const tRaw = progressTotal.trim()
@@ -187,14 +193,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         <div className="meta-row">
           <span className={`status-pill status-${status}`}>
             {STATUS_LABELS[status]}
-            {status === 'reading' && ` · 第 ${readCount} 次`}
+            {(status === 'reading' || status === 'watching') && ` · 第 ${readCount} 次`}
           </span>
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
         </div>
       </header>
 
-      {status === 'reading' && book.progress !== null && (
+      {(status === 'reading' || status === 'watching') && book.progress !== null && (
         <section className="progress-card">
           <div className="progress-card-header">
             <span className="progress-label">进度</span>
@@ -267,7 +273,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           <label className="field">
             <span>状态</span>
             <select value={status} onChange={(e) => setStatus(e.target.value as BookStatus)}>
-              {STATUS_OPTIONS.map((o) => (
+              {statusOptionsFor(kind).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -275,7 +281,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             </select>
           </label>
         </div>
-        {status === 'reading' && (
+        {(status === 'reading' || status === 'watching') && (
           <div className="field-row">
             <label className="field">
               <span>第 N 次看</span>
@@ -288,7 +294,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             </label>
           </div>
         )}
-        {status === 'reading' && (
+        {(status === 'reading' || status === 'watching') && (
           <div className="field-row progress-fields">
             <label className="field">
               <span>当前进度</span>

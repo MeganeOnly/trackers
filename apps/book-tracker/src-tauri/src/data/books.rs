@@ -19,7 +19,7 @@ use crate::types::{Book, BookInput, BookPatch, BookStatus, WorkKind};
 fn is_valid_status(s: &str) -> bool {
     matches!(
         s,
-        "want" | "shelved" | "reading" | "finished" | "abandoned"
+        "want" | "shelved" | "reading" | "watching" | "finished" | "abandoned"
     )
 }
 
@@ -89,6 +89,7 @@ fn parse_status(v: Option<&serde_json::Value>) -> BookStatus {
         Some("want") => BookStatus::Want,
         Some("shelved") => BookStatus::Shelved,
         Some("reading") => BookStatus::Reading,
+        Some("watching") => BookStatus::Watching,
         Some("finished") => BookStatus::Finished,
         Some("abandoned") => BookStatus::Abandoned,
         _ => BookStatus::Want,
@@ -272,6 +273,7 @@ impl BookStatus {
             BookStatus::Want => "want",
             BookStatus::Shelved => "shelved",
             BookStatus::Reading => "reading",
+            BookStatus::Watching => "watching",
             BookStatus::Finished => "finished",
             BookStatus::Abandoned => "abandoned",
         }
@@ -449,6 +451,36 @@ mod tests {
     fn delete_missing_book_is_ok() {
         let dir = temp_books_dir();
         delete_book(dir.path().join("books"), "never-existed").unwrap();
+    }
+
+    /// watching 状态（"在看"）与 reading 语义一致 —— 是新增的「进行中」状态,
+    /// UI 仅在非电影类型表单中暴露,但 Rust 端序列化/反序列化对所有类型都接受。
+    /// 旧的 .md 文件即使存了 "watching" 也能正常读回（防止未来用户改 frontmatter 时崩）。
+    #[test]
+    fn watching_status_round_trip_and_validation() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) round-trip:写盘 watching → 读回 watching
+        let mut input = sample_input();
+        input.status = BookStatus::Watching;
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        assert_eq!(book.status, BookStatus::Watching);
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"status\": \"watching\""), "frontmatter should contain watching");
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        assert_eq!(read_back.status, BookStatus::Watching);
+
+        // 2) as_str 映射正确
+        assert_eq!(BookStatus::Watching.as_str(), "watching");
+
+        // 3) patch.status = Some(Watching) → 合并生效
+        let mut input2 = sample_input();
+        input2.status = BookStatus::Reading;
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let patch = BookPatch { status: Some(BookStatus::Watching), ..Default::default() };
+        let updated = update_book(&books_dir, &book2.id, &patch).unwrap();
+        assert_eq!(updated.status, BookStatus::Watching);
     }
 
     #[test]

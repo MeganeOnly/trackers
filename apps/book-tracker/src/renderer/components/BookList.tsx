@@ -9,11 +9,13 @@ const STATUS_LABELS: Record<BookStatus, string> = {
   want: '想看',
   shelved: '搁置',
   reading: '在读',
+  watching: '在看',
   finished: '已读',
   abandoned: '弃读'
 }
 
-const STATUS_ORDER: BookStatus[] = ['reading', 'want', 'finished', 'shelved', 'abandoned']
+// 「进行中」(reading/watching) 排在最前；watching 紧接 reading 便于一眼看到同类目
+const STATUS_ORDER: BookStatus[] = ['reading', 'watching', 'want', 'finished', 'shelved', 'abandoned']
 
 function StatusDot({ status }: { status: BookStatus }): JSX.Element {
   return <span className={`status-dot status-${status}`} title={STATUS_LABELS[status]} />
@@ -29,7 +31,7 @@ export function BookList(): JSX.Element {
   // 编辑模式侧栏"已收起"分组：跨 status 收集所有 collapsed=true 的作品，
   // 它们不再出现在原 status 分组里。book-tracker 原 CleanMode 不受影响（仍按 status 分组）。
   const collapsedItems = (): Book[] => groups.reading
-    .concat(groups.want, groups.finished, groups.shelved, groups.abandoned)
+    .concat(groups.watching, groups.want, groups.finished, groups.shelved, groups.abandoned)
     .filter((b) => b.collapsed)
 
   const filtered = (items: Book[]): Book[] =>
@@ -64,7 +66,7 @@ export function BookList(): JSX.Element {
                   >
                     <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
                     <span className="title">{b.title}</span>
-                    {b.status === 'reading' && (
+                    {(b.status === 'reading' || b.status === 'watching') && (
                       <span className="read-count">
                         {b.progress
                           ? `${b.progress.current}${b.progress.total ? `/${b.progress.total}` : '+'}`

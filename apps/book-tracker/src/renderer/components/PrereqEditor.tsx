@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<Book['status'], string> = {
   want: '想看',
   shelved: '搁置',
   reading: '在读',
+  watching: '在看',
   finished: '已读',
   abandoned: '弃读'
 }

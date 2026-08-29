@@ -30,11 +30,18 @@ export const WORK_KIND_LABELS: Record<WorkKind, string> = {
 
 export const WORK_KIND_ORDER: WorkKind[] = ['book', 'anime', 'tv', 'movie', 'other']
 
-/** 书的阅读状态 */
+/**
+ * 作品的阅读/观看状态
+ * - `want` 想看 / `shelved` 搁置 / `finished` 已看完 / `abandoned` 弃看
+ * - `reading` 在读（默认;适用全部类型）
+ * - `watching` 在看（可选;仅非电影类型在表单中暴露。语义与 `reading` 一致,
+ *   标签按作品类型更自然 —— 解决"看完后再看一遍"时 `reading`（在读）措辞尴尬的问题）
+ */
 export type BookStatus =
   | 'want' // 想看
   | 'shelved' // 搁置
   | 'reading' // 在读
+  | 'watching' // 在看（仅非电影类型可选）
   | 'finished' // 已读
   | 'abandoned' // 弃读
 

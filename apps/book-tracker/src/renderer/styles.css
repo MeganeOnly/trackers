@@ -8,6 +8,7 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
   --status-want: #999;
   --status-reading: #4a7c59;
+  --status-watching: #5a8a6c;
   --status-finished: #2d5a3a;
   --status-shelved: #c89456;
   --status-abandoned: #c0573d;
@@ -257,6 +258,7 @@ button:focus-visible {
 }
 .status-dot.status-want { background: var(--status-want); }
 .status-dot.status-reading { background: var(--status-reading); }
+.status-dot.status-watching { background: var(--status-watching); }
 .status-dot.status-finished { background: var(--status-finished); }
 .status-dot.status-shelved { background: var(--status-shelved); }
 .status-dot.status-abandoned { background: var(--status-abandoned); }
@@ -302,6 +304,7 @@ button:focus-visible {
 .status-pill.status-shelved { background: #f7eddc; color: var(--status-shelved); }
 .status-pill.status-abandoned { background: #f7dfd8; color: var(--status-abandoned); }
 .status-pill.status-want { background: #ebebeb; color: var(--muted); }
+.status-pill.status-watching { background: #eaf3ed; color: var(--status-watching); }
 .lock-pill {
   display: inline-block; padding: 3px 10px;
   border-radius: 12px; font-size: 12px;
