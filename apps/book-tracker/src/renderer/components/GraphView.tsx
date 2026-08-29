@@ -185,6 +185,60 @@ function applyTreeLayout(
   }
 }
 
+/**
+ * 节点 tag chip 绘制：把 nodes 的 tags 数组画成一行矩形 chip。
+ *
+ * 设计要点:
+ * - 中心对齐（以 cx 为整行 chip 的几何中心），与标题节点对齐
+ * - 颜色用作品完成态色族（accent-soft 背景 + accent 边框 + 深绿文字），跟 status pill 一致
+ * - chip 数 > 3 时只画前 3 个 + "+N"，防 tag 多时画不下
+ * - chip 间 gap 固定，与节点半径无关（zoom-out 时整行缩放）
+ */
+function drawTagChips(
+  ctx: CanvasRenderingContext2D,
+  tags: string[],
+  cx: number,
+  y: number,
+  scale: number
+): void {
+  const MAX_VISIBLE = 3
+  const visible = tags.slice(0, MAX_VISIBLE)
+  const overflow = tags.length - visible.length
+  const labels = overflow > 0 ? [...visible, `+${overflow}`] : visible
+
+  const chipH = 13 / scale
+  const padX = 5 / scale
+  const gap = 3 / scale
+  const fontSize = 9 / scale
+  ctx.font = `${fontSize}px -apple-system, sans-serif`
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+
+  // 量宽度（先量一次，再决定起点 x 让整行居中）
+  const widths: number[] = labels.map((t) => ctx.measureText(t).width + padX * 2)
+  const totalW = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, widths.length - 1)
+  let x = cx - totalW / 2
+
+  ctx.fillStyle = '#eaf1ec'
+  ctx.strokeStyle = '#4a7c59'
+  ctx.lineWidth = 0.6 / scale
+  for (let i = 0; i < labels.length; i++) {
+    const w = widths[i]
+    ctx.beginPath()
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, w, chipH, 3 / scale)
+    } else {
+      ctx.rect(x, y, w, chipH)
+    }
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = '#2d5a3a'
+    ctx.fillText(labels[i], x + padX, y + chipH / 2)
+    ctx.fillStyle = '#eaf1ec' // 还原背景色,下一轮画下一个 chip
+    x += w + gap
+  }
+}
+
 interface GraphViewProps {
   highlightId?: string | null
   onSelect?: (id: string) => void
@@ -217,6 +271,8 @@ interface GraphNode {
   status: BookStatus
   refCount: number
   unlocked: boolean
+  /** 用户打的 tags —— 在节点下方画成 chip。空数组 = 无 tag,不画 */
+  tags: string[]
   x?: number
   y?: number
   /** d3-force 在 tick 时会写入的字段，自定义 orbit/jitter force 也读这两个 */
@@ -291,7 +347,8 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
       author: b.author,
       status: b.status,
       refCount: refCount.get(b.id) ?? 0,
-      unlocked: unlocked.get(b.id) ?? true
+      unlocked: unlocked.get(b.id) ?? true,
+      tags: b.tags ?? []
     }))
     const links: GraphLink[] = edges.flatMap((e) =>
       e.prerequisites
@@ -510,12 +567,17 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
           nodeCanvasObject={(n, ctx, scale) => {
             if (typeof n.x !== 'number' || typeof n.y !== 'number') return
             if (scale < 1.2) return
-            const fontSize = 11 / scale
-            ctx.font = `${fontSize}px -apple-system, sans-serif`
+            const titleFontSize = 11 / scale
+            ctx.font = `${titleFontSize}px -apple-system, sans-serif`
             ctx.textAlign = 'center'
             ctx.textBaseline = 'top'
             ctx.fillStyle = '#333'
             ctx.fillText(n.title, n.x, n.y + 5)
+            // 节点 tags 在标题下方画成 chip —— 仅 scale 够大时显示,避免缩到 0.5 时铺满画布
+            // tag 数 > 3 时只画前 3 个 + "+N" 提示,防止长 tag 列表撑爆节点
+            if (scale >= 1.6 && n.tags.length > 0) {
+              drawTagChips(ctx, n.tags, n.x, n.y + 5 + titleFontSize * 1.4, scale)
+            }
           }}
         />
       )}

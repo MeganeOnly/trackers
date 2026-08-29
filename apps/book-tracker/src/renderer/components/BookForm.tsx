@@ -94,6 +94,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
+  const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -115,7 +116,10 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         translator: translator.trim(),
         status,
         progress: null,
-        tags: [],
+        tags: tagsText
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
         collapsed,
         notes: notes
       }
@@ -288,6 +292,14 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             onChange={(e) => setNotes(e.target.value)}
             rows={6}
             placeholder="自由写 —— 心得 / 摘录 / 备忘"
+          />
+        </label>
+        <label className="field">
+          <span>标签</span>
+          <input
+            value={tagsText}
+            onChange={(e) => setTagsText(e.target.value)}
+            placeholder="用逗号分隔 —— 如：科幻, 短篇, 2024"
           />
         </label>
         {error && <p className="form-error">{error}</p>}
