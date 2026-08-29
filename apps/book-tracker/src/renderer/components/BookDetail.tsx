@@ -67,6 +67,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     book?.progress?.total !== undefined && book.progress.total !== null ? String(book.progress.total) : ''
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
+  const [notes, setNotes] = useState<string>(book?.notes ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -86,6 +87,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       book?.progress?.total !== undefined && book.progress.total !== null ? String(book.progress.total) : ''
     )
     setCollapsed(book?.collapsed ?? false)
+    setNotes(book?.notes ?? '')
     setError(null)
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,6 +147,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         tags?: string[]
         progress?: BookInput['progress']
         collapsed?: boolean
+        notes?: string
       } = {
         title: title.trim(),
         kind,
@@ -156,7 +159,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         progress,
         read_count: readCount,
         tags: [],
-        collapsed
+        collapsed,
+        notes
       }
       await update(cur.id, patch)
       setSaved(true)
@@ -325,6 +329,15 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             onChange={(e) => setCollapsed(e.target.checked)}
           />
           <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
+        </label>
+        <label className="field">
+          <span>笔记</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={6}
+            placeholder="自由写 —— 心得 / 摘录 / 备忘"
+          />
         </label>
         {error && <p className="form-error">{error}</p>}
       </div>

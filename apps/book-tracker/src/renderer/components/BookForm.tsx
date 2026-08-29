@@ -55,6 +55,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
       : ''
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
+  const [notes, setNotes] = useState<string>(book?.notes ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -77,7 +78,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         status,
         progress: null,
         tags: [],
-        collapsed
+        collapsed,
+        notes: notes
       }
       // 仅当 status 是「进行中」(reading/watching) 且填了 current 时才把 progress 写进 input
       if (status === 'reading' || status === 'watching') {
@@ -238,6 +240,15 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             onChange={(e) => setCollapsed(e.target.checked)}
           />
           <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
+        </label>
+        <label className="field">
+          <span>笔记</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={6}
+            placeholder="自由写 —— 心得 / 摘录 / 备忘"
+          />
         </label>
         {error && <p className="form-error">{error}</p>}
       </form>

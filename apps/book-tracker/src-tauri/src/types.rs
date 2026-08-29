@@ -73,7 +73,7 @@ pub struct Book {
     pub year: i32,
     pub translator: String,
     pub status: BookStatus,
-    /// 第 N 次读;仅 `status == Reading` 时有意义
+    /// 第 N 次读;仅 `status` 是「进行中」(Reading/Watching) 时有意义
     pub read_count: u32,
     /// 章节进度;`None` = 未设置
     pub progress: Option<Progress>,
@@ -85,9 +85,13 @@ pub struct Book {
     /// ISO 8601 字符串
     pub updated: String,
     pub tags: Vec<String>,
+    /// 用户笔记（自由写）。v1 用 `<textarea>` 直编辑 —— 写盘策略:空串不写 frontmatter,
+    /// 避免污染;老文件缺字段 / `notes: ""` 都视为无笔记（向后兼容）。
+    #[serde(default)]
+    pub notes: String,
 }
 
-/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags'>`
+/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'notes'>`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookInput {
     pub title: String,
@@ -103,6 +107,9 @@ pub struct BookInput {
     /// 编辑模式侧栏收起（默认 false；create 时由表单传入）
     #[serde(default)]
     pub collapsed: bool,
+    /// 用户笔记 —— 默认空串（无笔记）
+    #[serde(default)]
+    pub notes: String,
 }
 
 /// 更新书的 patch(全字段可选)。
@@ -111,6 +118,10 @@ pub struct BookInput {
 /// - `None` → 不修改
 /// - `Some(None)` → 显式清空(置 null)
 /// - `Some(Some(p))` → 设置为 p
+///
+/// `notes` 与 progress 不同 —— 用 `Option<String>`（双层包装无意义）:
+/// - `None` → 不改
+/// - `Some(s)` → 写为 s（空串也允许,语义 = "清空笔记"）
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct BookPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -137,6 +148,9 @@ pub struct BookPatch {
     /// 编辑模式侧栏收起
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<bool>,
+    /// 用户笔记 —— `None` 不改,`Some("")` 清空
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

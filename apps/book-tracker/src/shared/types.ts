@@ -61,10 +61,10 @@ export interface Book {
   year: number
   translator: string
   status: BookStatus
-  /** 第 N 次读；仅 status === 'reading' 时有意义 */
+  /** 第 N 次读；仅 status 是「进行中」(reading/watching) 时有意义 */
   read_count: number
   /**
-   * 章节进度；典型用于 status === 'reading' 的连载小说。
+   * 章节进度；典型用于 status 是「进行中」时的连载作品。
    * 未设置（null/undefined）= 没有进度记录。允许 status 切换时保留旧值以便续读。
    */
   progress: Progress | null
@@ -80,6 +80,13 @@ export interface Book {
   /** ISO 8601 字符串 */
   updated: string
   tags: string[]
+  /**
+   * 用户笔记（自由写）。存在 frontmatter `notes` 字段里，v1 渲染策略:
+   * - 详情页 / 加作品表单用 `<textarea>` 直接编辑,不做 Markdown 渲染
+   * - 空串 = 无笔记（不写盘,避免污染 frontmatter）
+   * - 字段缺损 / 老文件 → 空串（向后兼容;不会迁移 body 旧文本到 notes）
+   */
+  notes: string
 }
 
 /** 配置文件（数据目录自带） */

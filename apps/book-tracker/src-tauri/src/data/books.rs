@@ -81,6 +81,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default(),
+        notes: data.get("notes").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
 }
 
@@ -147,6 +148,7 @@ pub fn write_book(
         created: now.clone(),
         updated: now,
         tags: input.tags.clone().unwrap_or_default(),
+        notes: input.notes.clone(),
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -172,6 +174,8 @@ pub fn update_book(
     if let Some(v) = patch.read_count { merged.read_count = v; }
     if let Some(v) = &patch.tags { merged.tags = v.clone(); }
     if let Some(v) = patch.collapsed { merged.collapsed = v; }
+    // notes: `None` = 不改,`Some("")` = 清空,`Some(s)` = 写为 s
+    if let Some(v) = &patch.notes { merged.notes = v.clone(); }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -209,7 +213,8 @@ pub fn delete_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<()>
 }
 
 fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
-    let body = format!("# {}\n\n## 笔记\n\n## 摘录\n", book.title);
+    // body 仅保留标题 heading —— notes 在 frontmatter 里,避免 body 反复重写丢失用户旧笔记
+    let body = format!("# {}\n", book.title);
     // 构造 frontmatter (serde_json::Map)
     let mut fm = serde_json::Map::new();
     fm.insert("id".into(), serde_json::Value::String(book.id.clone()));
@@ -244,6 +249,10 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
             book.tags.iter().cloned().map(serde_json::Value::String).collect(),
         ),
     );
+    // notes 仅在非空时写盘 —— 空串视为"无笔记",避免污染 frontmatter
+    if !book.notes.is_empty() {
+        fm.insert("notes".into(), serde_json::Value::String(book.notes.clone()));
+    }
     // collapsed 仅在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
     if book.collapsed {
         fm.insert("collapsed".into(), serde_json::Value::Bool(true));
@@ -305,6 +314,7 @@ mod tests {
             progress: Some(Progress { current: 12, total: Some(100) }),
             tags: Some(vec!["小说".to_string()]),
             collapsed: false,
+            notes: String::new(),
         }
     }
 
@@ -481,6 +491,60 @@ mod tests {
         let patch = BookPatch { status: Some(BookStatus::Watching), ..Default::default() };
         let updated = update_book(&books_dir, &book2.id, &patch).unwrap();
         assert_eq!(updated.status, BookStatus::Watching);
+    }
+
+    /// notes 字段写盘 / 读回 / patch 合并 / 空串不写盘 的回归测试。
+    /// 不变量:
+    /// - `notes: "..."`（非空）写盘到 frontmatter,读回一致
+    /// - `notes: ""`（空串）不写盘(避免污染 frontmatter);读回为 ""
+    /// - 老文件缺 `notes` 字段 → 读回为 ""（向后兼容）
+    /// - patch.notes = None 不改;Some("") 清空;Some(s) 写为 s
+    #[test]
+    fn notes_round_trip_and_omit_when_empty() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 非空 notes 写盘 + 读回
+        let mut input = sample_input();
+        input.notes = "第一行笔记\n第二行笔记\n第三行".to_string();
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"notes\""), "notes 应写盘");
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        assert_eq!(read_back.notes, "第一行笔记\n第二行笔记\n第三行");
+
+        // 2) 空 notes 不写盘
+        let mut input2 = sample_input();
+        input2.notes = String::new();
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw2.contains("notes"), "空 notes 不应写盘");
+        assert_eq!(read_book(&books_dir, &book2.id).unwrap().unwrap().notes, "");
+
+        // 3) 老文件缺 notes 字段 → 读回为 ""
+        let legacy = books_dir.join("77.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"77\",\"title\":\"老书\",\"status\":\"finished\"}\n---\n# 老书\n",
+        )
+        .unwrap();
+        assert_eq!(read_book(&books_dir, "77").unwrap().unwrap().notes, "");
+
+        // 4) patch 合并:None 不改,Some("") 清空,Some(s) 写为 s
+        let book3 = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        assert_eq!(book3.notes, "第一行笔记\n第二行笔记\n第三行");
+        // patch.notes = None → 不改
+        let patch_none = BookPatch { ..Default::default() };
+        let updated = update_book(&books_dir, &book3.id, &patch_none).unwrap();
+        assert_eq!(updated.notes, "第一行笔记\n第二行笔记\n第三行");
+        // patch.notes = Some("") → 清空
+        let patch_clear = BookPatch { notes: Some(String::new()), ..Default::default() };
+        let cleared = update_book(&books_dir, &book3.id, &patch_clear).unwrap();
+        assert_eq!(cleared.notes, "");
+        // patch.notes = Some("新笔记") → 写为新内容
+        let patch_set = BookPatch { notes: Some("新笔记".to_string()), ..Default::default() };
+        let set = update_book(&books_dir, &book3.id, &patch_set).unwrap();
+        assert_eq!(set.notes, "新笔记");
     }
 
     #[test]

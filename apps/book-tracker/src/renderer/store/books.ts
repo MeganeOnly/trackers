@@ -10,7 +10,7 @@ interface BooksState {
   load: () => Promise<void>
   select: (id: string | null) => void
   create: (input: BookInput) => Promise<Book>
-  update: (id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress'] }) => Promise<Book>
+  update: (id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string }) => Promise<Book>
   bumpProgress: (id: string, delta: number) => Promise<Book>
   remove: (id: string) => Promise<void>
 }
