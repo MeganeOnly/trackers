@@ -838,3 +838,44 @@
   （如 `npm.cmd --prefix apps/life-tracker test`）。
 - 改动后验证：`npm.cmd --prefix apps/<app> run typecheck` + `npm.cmd --prefix apps/<app> test`；
   涉及 Rust 共享内核再加 `cargo test`（repo 根跑，注意 msys2 `ucrt64/bin` 在 PATH）。
+
+---
+
+## 2026-08：book-tracker「在看」状态 / 笔记 / tag UI / 类型感知标签
+
+### 1. [book-tracker] 新增 `BookStatus` 枚举变体时的全仓库字典同步
+
+- **现象**：`types.ts` 的 `BookStatus` 加 `watching` 后,renderer 各组件的 `Record<BookStatus, string>` 字典必须加对应 entry —— `BookList.STATUS_LABELS` / `GraphView.STATUS_LABEL` / `BookDetail.STATUS_LABELS` / `BookForm.STATUS_BASE_OPTIONS` / `PrereqEditor.STATUS_LABELS` 全部要补;`useGroupedByStatus` 的 `Record<Book['status'], Book[]>` 同样。
+- **根因**：`Record<K, V>` 在 TS 里是 `{ [P in K]: V }` —— K 加新变体时所有 K-indexed dict 都会编译报错（`Property 'watching' is missing`），漏一处就 typecheck 红。
+- **修复 / 规避**：加枚举变体后**立刻全仓库 grep** `BookStatus` / `Book['status']` 找所有 `Record<...>` 字典与 union 字面量,逐一补 entry。`STATUS_ORDER` / `RESTORE_TO` 这类数组型映射同样要补。
+- **回归验证**：`npm.cmd run typecheck:book` —— 漏一处立刻红,等于自动体检。
+
+### 2. [book-tracker] 可选字符串字段的"空串不写盘"语义
+
+- **现象**：`notes: string` 这种用户可选字段,如果不区分"无笔记"与"空字符串",空串会写进 frontmatter,污染数据。
+- **根因**：`serde_json` 默认会把空串序列化为 `"notes": ""`,占位且无信息。`progress: Option<Progress>` 已用 `None` 区分"未设置",但 String 字段没有天然的"可选"概念。
+- **修复 / 规避**：Rust 端 `if !book.notes.is_empty() { fm.insert("notes", ...) }`,前端对应 `tags: []` 这种数组相反 —— 空数组 `[]` **要写盘**,因为"用户清空了所有 tag"是有意义的语义（区别于"从未设置"）。两种语义**不能混**,新加可选字段前先想清楚。
+- **回归验证**：cargo test `notes_round_trip_and_omit_when_empty` 覆盖四个不变量:非空写盘 / 空串不写盘 / 老文件缺字段 → "" / patch.notes 三态合并。
+
+### 3. [book-tracker] react-force-graph `nodeCanvasObject` 的 canvas 状态污染
+
+- **现象**：在 `nodeCanvasObject` 里画 tag chip 时,如果直接覆盖 `ctx.fillStyle` 给文字着色,下一轮画下一个节点时背景色仍是文字色,导致 chip 串色。
+- **根因**：Canvas 2D context 的 `fillStyle` / `strokeStyle` 是全局状态,d3-force tick 里 `nodeCanvasObject` 被频繁回调,改完不还原就一直影响后续。
+- **修复 / 规避**：`drawTagChips` 在循环里**画完文字后立即重置 fillStyle 到背景色**(`ctx.fillStyle = '#eaf1ec'`),且每轮 chip 独立 setStyle 不依赖外层残留。或更稳妥:函数开头显式 setStyle,函数体内只读不写全局。
+- **教训**:任何 react-force-graph 的 `nodeCanvasObject` 函数都要当作「无状态、可重入」对待 —— 不要假设 `fillStyle` / `font` / `lineWidth` 在入口是默认值。
+
+### 4. [book-tracker] 类型感知的表单字段标签
+
+- **现象**：同一份表单套 5 种作品类型(书 / 动画 / 电视剧 / 电影 / 其他),"作者"对书合适但对电影应是"导演";"年份"对书是"出版"对影视是"首播 / 上映"。
+- **根因**：早期 form 硬编码字段名,语义跟 type 脱节。
+- **修复**：纯函数 `authorLabelFor(kind)` / `translatorLabelFor(kind)` / `yearLabelFor(kind)` / `countryLabelFor(kind)` 集中维护 label 文案。`translatorLabelFor` 对 `kind === 'book'` 返字段名、其他返 `null` —— UI 用 `&&` 渲染,数据模型不变(非书类型的 `translator` 仍写空串)。
+- **教训**：type-aware UI 文案**不要**散在 inline `三元 / switch`,集中成纯函数后两处表单(BookForm 加作品 / BookDetail 编辑)共享 + 加新类型时只改一处。
+
+### 5. [book-tracker] PrereqEditor 「完成后将解锁」措辞误导
+
+- **现象**：原措辞"完成后将解锁 N 部"被误读成"本节点完成 → 下游立刻解锁",但本节点通常只是下游的多个前置之一。
+- **根因**：「将」字在中文里偏将来时,语义接近"必然"。
+- **修复**：改为「完成后推动解锁 N 部」—— 「推动」明确传递"这是必要条件之一,通常还要等其它前置也达成"的语义。
+- **教训**：解锁图相关 UI 文案要明确"本节点是多个前置条件之一"而非"本节点完成后必然解锁",避免用户对解锁图产生过度简化的心智模型。
+- **共享范围**：两 app 的 PrereqEditor（book + life）+ 对应 styles.css 注释同步更新。
+

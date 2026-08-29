@@ -146,17 +146,12 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
   "progress": { "current": 12, "total": 100 },
   "created": "2024-01-15T...",
   "updated": "2024-03-20T...",
-  "tags": []
+  "tags": ["小说", "拉美文学"],
+  "notes": "马尔克斯的魔幻现实主义开山之作..."
 }
 ---
 
 # 百年孤独
-
-## 笔记
-...（自由写）
-
-## 摘录
-...（自由写）
 ```
 
 **frontmatter 序列化约束**：
@@ -166,6 +161,8 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 - 字段缺损 / 类型错误时**容错为 `null`**，不抛错——否则会破坏旧书文件
 - 不要把 `progress: null` 写进 frontmatter（`write_book` 已经做了"有值才写"的判断）
 - `collapsed`（编辑模式侧栏收起）同上款「仅 `true` 时写盘、缺省 `false`」；**所有 status 都允许**，从 EditMode 侧栏的 status 分组移到侧栏底部『已收起』分组，纯展示层、不影响 status / 解锁 / CleanMode 任何行为
+- `notes`（用户笔记）同上款「空串不写盘」——避免污染 frontmatter;body 段不再保留 `## 笔记` 占位,旧 body 文本在首次编辑时丢失（v1 取舍,迁移逻辑后续可加）
+- `tags` 是数组,空数组 `[]` 总是写盘（保留语义 = "用户清空了所有 tag"）
 
 ### `relations.json`（前置关系图）
 
@@ -197,10 +194,16 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 | `want` | 想看 | — |
 | `shelved` | 搁置 | — |
 | `reading` | 在读（第 N 次） | **否** |
+| `watching` | 在看（第 N 次）| **否** |
 | `finished` | 已读 | **是** |
 | `abandoned` | 弃读 | 否 |
 
 只有 `finished` 才算"已掌握"，才会让前置它的书解锁。
+
+`reading` / `watching` 都属于「进行中」色族,语义一致 —— `watching` 仅在表单层对
+非电影类型暴露（解决"已看完后再追一遍时 `reading` 措辞尴尬"），Rust 端接受任意类型的
+`watching` 序列化（保留扩展空间）。解锁图仍只看 `finished`，两种「进行中」状态对
+`isDone` 谓词完全正交。
 
 ## 六、解锁规则（`computeUnlocked` / `compute_unlocked`）
 
@@ -288,15 +291,21 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 12. **首次 picker 后必须初始化 data_dir**：选完目录后**同步**调 `data_dir::init_with_picker` —— Rust 端该函数自动写应用层 config.json + 数据层 config.json + `books/` 目录，避免空壳目录
 13. **`ConfigPatch` 不允许改 data_dir**：data_dir 切换走专门的 `data_pick_dir` 命令，`config_set` 的 patch 字段只允许 `language` / `default_mode`
 14. **Tauri `crate-type = ["rlib"]`**：去掉 cdylib，避开 Windows GNU toolchain 的 export ordinal 限制；`cargo test` 时拉不到 webview2，`#[cfg(not(test))]` 隔离 `commands.rs` / `service/` / `tauri_app`
+15. **新增 BookStatus 时同步所有 STATUS_LABELS / STATUS_COLORS / STATUS_ORDER 字典**：`types.ts` 的 `BookStatus` 加 `watching` 后,renderer 各组件的 `Record<BookStatus, string>` 字典必须加对应 entry(否则 TS typecheck 报 `Property 'watching' is missing`);`useGroupedByStatus` / `CleanMode` 的 `Record<BookStatus, Book[]>` 同理 —— 加字段后全仓库 grep `BookStatus` / `Book['status']` 一次保险
+16. **空串字段的写盘策略**：可选字符串字段（如 `notes`）写盘前判断 `is_empty()` 不写 frontmatter,避免污染;`tags` 这种数组类型相反 —— 空数组 `[]` 写盘（保留"用户清空了所有 tag"的语义）。两种语义不能混;新加可选字段前先想清楚
+17. **Canvas 绘制状态污染**：react-force-graph 的 `nodeCanvasObject` 在 d3-force 模拟里频繁调用,所有 `ctx.fillStyle` / `strokeStyle` 改完必须还原（或在函数开头重置）,否则下一个节点用错颜色。`drawTagChips` 用 chip 间 fillStyle 重置 + 局部变量规避了这个问题
+18. **类型感知的字段标签**：同一份表单套 5 种作品类型时,作者 / 年份 / 国家的语义不同（书→出版年份,影视→首播/上映年份,书→原产国,影视→制片国家）。实现方式：纯函数 `authorLabelFor(kind)` / `yearLabelFor(kind)` / `countryLabelFor(kind)` 集中维护 label 文案 —— 比 inline 三元 / switch 散在各处好维护
 
 ## 十一、已实现功能清单
 
 - [x] 加作品：作品名 / 作品类型（书、动画、电视剧、电影、其他）/ 作者·主创 / 国家 / 年份 / 译者
+  - **类型感知字段标签**：按 `WorkKind` 自动切换"作者/原作/主创/导演"、"出版/开始/首播/上映年份"、"原产国/制片国家"、"译者"字段仅书显示
 - [x] 编辑作品（Modal 复用加作品表单）
 - [x] 删除作品（confirm 提示）
 - [x] 状态切换（5 种）+ 快速按钮（在详情页）
-- [x] 第 N 次看（`read_count`，仅 `reading` 时）
-- [x] **进度**（`progress: { current, total }`，仅 `reading` 时，详情页有 `-1 / +1 / +5 / 看完` 快速按钮）
+- [x] **「在看」状态（`watching`，仅非电影类型可选）** —— 与 `reading` 语义一致,色族同属「进行中」;解决"已看完后再追一遍时 `reading`(在读)措辞尴尬"的问题
+- [x] 第 N 次看（`read_count`，仅 `reading` / `watching` 时）
+- [x] **进度**（`progress: { current, total }`，仅 `reading` / `watching` 时，详情页有 `-1 / +1 / +5 / 看完` 快速按钮）
 - [x] 前置依赖编辑器（多对多）
 - [x] 解锁规则：`all` / `any_of` + threshold / **二选一组合 `groups`**（AND-of-ORs）
 - [x] 循环依赖检测
@@ -305,9 +314,11 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] 编辑模式：按状态分组的侧边栏
 - [x] **编辑模式：跨 status 的『已收起』分组（`Book.collapsed`，纯展示）**——所有 status 都允许，与 status / 解锁 / CleanMode 完全正交
 - [x] 设置面板：新建作品默认类型 + 展示筛选（全部/按类型，按钮式高亮）
-- [x] 全局搜索（作品名 / 作者 / ID 模糊匹配）
+- [x] 全局搜索（作品名 / 作者 / ID / tag 模糊匹配）
 - [x] 全局快捷键：`n` 加作品 / `g` 关系图 / `r` 排名 / `e`/`c` 切模式 / `Esc` 清搜索
-- [x] 关系图（react-force-graph-2d，500 节点流畅）
+- [x] **标签**（`Book.tags: string[]`，后端 + UI 全链路打通）：表单逗号分隔输入；GraphView 节点下方画 chip；空串不写盘
+- [x] **笔记**（`Book.notes: string`）—— `<textarea>` 直编辑,不渲染 Markdown(v1 取舍);空串不写盘
+- [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
 - [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
   - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标
   - 排名列表 tab：按 Elo 评分倒序，条形图可视化，标题 / 作者 / 对比次数 / 评分
@@ -323,14 +334,14 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 
 ## 十二、未实现 / 后续可加
 
-- [ ] `tags` 字段 UI（后端已支持，前端表单未暴露）
-- [ ] 笔记（Markdown）读写（占位字段已写 `## 笔记`，未实现编辑器）
 - [ ] 数据导入/导出（JSON / CSV）
 - [ ] 备份 / 还原
 - [ ] 多用户数据目录切换 UI（已支持切换，但需重启应用）
 - [ ] 国际化（目前硬编码中文）
 - [ ] GitHub Actions release workflow（构建 + 发 Release）
 - [ ] `docs/architecture.md`（README 里有占位，待补）
+- [ ] 笔记 Markdown 渲染（v1 用 textarea 直编辑;后续可加 renderer）
+- [ ] 标签自动联想 / 历史建议（目前是逗号分隔裸输入）
 
 ## 十三、测试规范
 
