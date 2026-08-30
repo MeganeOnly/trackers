@@ -29,6 +29,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   aria-checked={theme === id}
                   className={`theme-card${theme === id ? ' active' : ''}`}
                   onClick={() => void setTheme(id)}
+                  data-tip={meta.hint}
+                  aria-label={`${meta.label} — ${meta.hint}`}
                 >
                   <span className="theme-swatch" aria-hidden="true">
                     <span
@@ -42,7 +44,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   </span>
                   <span className="theme-card-meta">
                     <span className="theme-card-label">{meta.label}</span>
-                    <span className="theme-card-hint">{meta.hint}</span>
                   </span>
                 </button>
               )
@@ -63,13 +64,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   aria-checked={format === id}
                   className={`format-card${format === id ? ' active' : ''}`}
                   onClick={() => void setFormat(id)}
+                  data-tip={meta.hint}
+                  aria-label={`${meta.label} — ${meta.hint}`}
                 >
                   <pre className="format-card-wire" aria-hidden="true">
                     {meta.wireframe}
                   </pre>
                   <span className="format-card-meta">
                     <span className="format-card-label">{meta.label}</span>
-                    <span className="format-card-hint">{meta.hint}</span>
                   </span>
                 </button>
               )

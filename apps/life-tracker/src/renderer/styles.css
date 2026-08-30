@@ -1239,6 +1239,115 @@ button:focus-visible {
 .trash-item-info .meta { font-size: 12px; }
 .trash-item-actions { display: flex; gap: 6px; }
 
+/* ============ Settings panel：通用容器 + ? 说明图标 ============
+ * 这些样式 book-tracker 已有 (apps/book-tracker/src/renderer/styles.css § Settings panel)。
+ * life-tracker 之前没单独 modal —— 跟随 commit 引入 settings-modal 后,
+ * 同步补上 .settings-panel / .settings-row / .field-label / .field-info 几个类。 */
+
+/* settings modal —— 关闭 overflow-y: auto,让 .field-info::after 的 tooltip
+ * 能溢出到 modal 上方显示,避免被 modal-body 裁掉。
+ * (settings 内容短,不需要滚动) */
+.modal-card.settings-modal .modal-body { overflow: visible; }
+
+.settings-panel { display: flex; flex-direction: column; gap: 14px; }
+.settings-panel .field small { display: block; margin-top: 4px; }
+/* 第一行两列:新建默认类型 + 展示筛选 紧凑并排 */
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.settings-row .field { min-width: 0; }
+
+/* field-label:容纳 label 文本 + info 图标的 inline-flex 容器
+ * 优先级高于通用 .field > span(0,2,0 vs 0,1,1) */
+.settings-panel .field > .field-label,
+.settings-panel .field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 设置项的「?」说明图标 —— 鼠标悬置 / 键盘聚焦时显示 tooltip。
+ * 用 data-tip + ::after 实现纯 CSS 提示框;屏幕阅读器走 aria-label。 */
+.field-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--muted);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  transition: background 0.12s ease;
+}
+.field-info:hover,
+.field-info:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+.field-info:hover::after,
+.field-info:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f1f1f;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.field-info:hover::before,
+.field-info:focus-visible::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #1f1f1f;
+  z-index: 1001;
+  pointer-events: none;
+}
+
+/* segmented chips：展示筛选 */
+.seg-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.seg-chip {
+  padding: 5px 14px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.seg-chip:hover { border-color: var(--accent); color: var(--accent); }
+.seg-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
 /* ============ Settings panel：theme picker ============ */
 .theme-picker {
   display: grid;

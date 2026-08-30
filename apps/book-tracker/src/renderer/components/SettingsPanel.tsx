@@ -14,6 +14,23 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
   ...WORK_KIND_ORDER.map((k) => ({ value: k, label: WORK_KIND_LABELS[k] }))
 ]
 
+// 设置项的「?」说明图标 —— 鼠标悬置 / 键盘聚焦时显示 tooltip,
+// aria-label 同时为屏幕阅读器提供语义。
+// 不设 title 是为了避免原生 tooltip 与 CSS tooltip 同时弹出。
+function InfoTip({ tip }: { tip: string }): JSX.Element {
+  return (
+    <span
+      className="field-info"
+      tabIndex={0}
+      role="img"
+      aria-label={tip}
+      data-tip={tip}
+    >
+      ?
+    </span>
+  )
+}
+
 export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
   const defaultWorkKind = useSettingsStore((s) => s.defaultWorkKind)
   const setDefaultWorkKind = useSettingsStore((s) => s.setDefaultWorkKind)
@@ -25,43 +42,58 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
   const setFormat = useSettingsStore((s) => s.setFormat)
 
   return (
-    <Modal title="设置" onClose={onClose} width={560}>
+    <Modal
+      title="设置"
+      onClose={onClose}
+      width={560}
+      className="settings-modal"
+    >
       <div className="settings-panel">
-        <label className="field">
-          <span>新建作品默认类型</span>
-          <select
-            value={defaultWorkKind}
-            onChange={(e) => void setDefaultWorkKind(e.target.value as WorkKind)}
-          >
-            {WORK_KIND_ORDER.map((k) => (
-              <option key={k} value={k}>
-                {WORK_KIND_LABELS[k]}
-              </option>
-            ))}
-          </select>
-          <small className="muted">点「加作品」时自动带上该类型，每个作品仍可单独修改。</small>
-        </label>
+        {/* 第一行：两列紧凑布局 —— 新建默认类型 + 展示筛选 */}
+        <div className="settings-row">
+          <label className="field">
+            <span className="field-label">
+              新建作品默认类型
+              <InfoTip tip="点「加作品」时自动带上该类型，每个作品仍可单独修改。" />
+            </span>
+            <select
+              value={defaultWorkKind}
+              onChange={(e) => void setDefaultWorkKind(e.target.value as WorkKind)}
+            >
+              {WORK_KIND_ORDER.map((k) => (
+                <option key={k} value={k}>
+                  {WORK_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <div className="field">
-          <span>展示筛选</span>
-          <div className="seg-chips" role="group" aria-label="展示筛选">
-            {FILTER_OPTIONS.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                className={`seg-chip${worksFilter === o.value ? ' active' : ''}`}
-                onClick={() => void setWorksFilter(o.value)}
-                aria-pressed={worksFilter === o.value}
-              >
-                {o.label}
-              </button>
-            ))}
+          <div className="field">
+            <span className="field-label">
+              展示筛选
+              <InfoTip tip="日常模式与编辑模式列表按所选类型展示；关系图始终展示全部。" />
+            </span>
+            <div className="seg-chips" role="group" aria-label="展示筛选">
+              {FILTER_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  className={`seg-chip${worksFilter === o.value ? ' active' : ''}`}
+                  onClick={() => void setWorksFilter(o.value)}
+                  aria-pressed={worksFilter === o.value}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <small className="muted">日常模式与编辑模式列表按所选类型展示；关系图始终展示全部。</small>
         </div>
 
         <div className="field">
-          <span>外观 · 样式风格</span>
+          <span className="field-label">
+            外观 · 样式风格
+            <InfoTip tip="颜色 / 字体 / 圆角等视觉风格。与下方「格式风格」正交。" />
+          </span>
           <div className="theme-picker" role="radiogroup" aria-label="样式风格">
             {ALL_THEMES.map((id) => {
               const meta = THEME_META[id as ThemeName]
@@ -73,6 +105,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   aria-checked={theme === id}
                   className={`theme-card${theme === id ? ' active' : ''}`}
                   onClick={() => void setTheme(id)}
+                  data-tip={meta.hint}
+                  aria-label={`${meta.label} — ${meta.hint}`}
                 >
                   <span className="theme-swatch" aria-hidden="true">
                     <span
@@ -86,7 +120,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   </span>
                   <span className="theme-card-meta">
                     <span className="theme-card-label">{meta.label}</span>
-                    <span className="theme-card-hint">{meta.hint}</span>
                   </span>
                 </button>
               )
@@ -95,7 +128,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
         </div>
 
         <div className="field">
-          <span>外观 · 格式风格（与样式风格独立）</span>
+          <span className="field-label">
+            外观 · 格式风格
+            <InfoTip tip="信息呈现方式（列表 / 网格 / 聚焦栈）。与「样式风格」正交，可任意组合。" />
+          </span>
           <div className="format-picker" role="radiogroup" aria-label="格式风格">
             {ALL_FORMATS.map((id) => {
               const meta = FORMAT_META[id as FormatName]
@@ -107,19 +143,19 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                   aria-checked={format === id}
                   className={`format-card${format === id ? ' active' : ''}`}
                   onClick={() => void setFormat(id)}
+                  data-tip={meta.hint}
+                  aria-label={`${meta.label} — ${meta.hint}`}
                 >
                   <pre className="format-card-wire" aria-hidden="true">
                     {meta.wireframe}
                   </pre>
                   <span className="format-card-meta">
                     <span className="format-card-label">{meta.label}</span>
-                    <span className="format-card-hint">{meta.hint}</span>
                   </span>
                 </button>
               )
             })}
           </div>
-          <small className="muted">样式风格（颜色/字体/圆角）与格式风格（信息呈现方式）正交，可任意组合。</small>
         </div>
       </div>
     </Modal>
