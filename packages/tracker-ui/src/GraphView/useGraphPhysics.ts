@@ -60,6 +60,12 @@ import { computeNodeRenderRadius } from './nodeRadius'
  *    调密度:1.0=与绘制半径刚好贴、0.5=允许挤压一半、2.5=强制 2.5×
  *    间距。collide 与 hover 自适应正交 —— hover 让运动停下, collide
  *    在每帧仍按当前半径硬推,密集场景慢镜头反而便于命中。
+ *  - v7(2026-08):默认 centripetal 从 0.15 降到 0.08 —— 用户反馈
+ *    默认向心力偏强、节点被拉得太紧,orbit 主导观感被压住。降到 0.08
+ *    后径向漂移 ≈ 11 px/s(vs 原 21 px/s),轨道半径视觉上往外松一档,
+ *    centripetal 退居"轻微收紧"的角色;RANGES.centripetal max 保持 0.25
+ *    不变 —— 用户仍可在 panel 拖到原默认的 1.7×。hover 自适应值
+ *    (centripetalHover=0.004)不动 —— 冻结语义与默认大小正交。
  *
  *  hover 时 strength 降到 0.004: d=0.3 下 v_ss ≈ 0.004 * 2.33 ≈ 0.009/tick
  *  ≈ 0.55 px/s,基本静止,鼠标一上图就停稳,不影响点击命中。
@@ -69,7 +75,7 @@ import { computeNodeRenderRadius } from './nodeRadius'
 export const DEFAULT_MOTION = {
   orbit: 0.35,
   jitter: 0.25,
-  centripetal: 0.15,
+  centripetal: 0.08,
   /** pointerOver 时降到接近 0(force 函数内部 min(用户值, hover 默认值))
    *  d=0.3 下 v_ss ≈ 0.004 * 2.33 ≈ 0.009/tick ≈ 0.55 px/s,基本静止 */
   orbitHover: 0.004,
