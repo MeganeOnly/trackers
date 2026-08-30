@@ -28,7 +28,7 @@
 //   - 不穿透 ForceGraph2D 自己的 NodeObject<N> 包装（那是 react-force-graph 内部细节，
 //     包装后 n 仍然满足 BaseGraphNode 形态），用 `as unknown as` 规避泛型爆炸。
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import type { ReactNode } from 'react'
 import type { BaseGraphNode, BaseGraphLink } from './types'
@@ -44,6 +44,7 @@ import { drawTagChips } from './drawTagChips'
 import { ForceParamsPanel } from './ForceParamsPanel'
 import { SearchBox } from './SearchBox'
 import { FiltersPanel, type StatusOption } from './FiltersPanel'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import type { GraphFilters } from './useGraphFilters'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
@@ -109,6 +110,8 @@ export interface GraphViewProps<
   getNodeTagsForFilter?: (node: N) => string[]
   /** app 端从节点取 status 字符串（用于过滤匹配） */
   getNodeStatusForFilter?: (node: N) => string
+  /** 右键菜单项（commit 5）—— 不传则不响应右击 */
+  contextMenuItems?: (node: N) => ContextMenuItem[]
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -154,6 +157,7 @@ export function GraphView<
     onFiltersClose,
     getNodeTagsForFilter,
     getNodeStatusForFilter,
+    contextMenuItems,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -212,6 +216,14 @@ export function GraphView<
 
   const isFiltering = !!filters
   const noVisibleNodes = visibleNodes.length === 0
+
+  /* 右键菜单状态（commit 5）—— null = 不显示 */
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    items: ContextMenuItem[]
+    nodeId: string
+  } | null>(null)
 
   const wrapRef = useRef<HTMLDivElement>(null)
   // ref 类型用 react-force-graph 内部的 NodeObject / LinkObject 包装形态 —— 见 ForceGraph2D 的 ref 推断
@@ -394,6 +406,19 @@ export function GraphView<
           onNodeClick={(n) => {
             if (onSelect) onSelect(n.id)
           }}
+          onNodeRightClick={(n, event) => {
+            /* preventDefault 阻止浏览器原生 contextmenu */
+            event.preventDefault()
+            if (!contextMenuItems) return
+            const items = contextMenuItems(n as unknown as N)
+            if (items.length === 0) return
+            setContextMenu({
+              x: event.clientX,
+              y: event.clientY,
+              items,
+              nodeId: n.id
+            })
+          }}
           nodeCanvasObjectMode={() => 'after'}
           nodeCanvasObject={(n, ctx, scale) => {
             const node = n as unknown as N & BaseGraphNode
@@ -462,6 +487,14 @@ export function GraphView<
           onClose={onFiltersClose ?? ((): void => {})}
         />
       )}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   )
 }
@@ -483,6 +516,8 @@ export { SearchBox } from './SearchBox'
 export { FiltersPanel } from './FiltersPanel'
 export { ColorPicker } from './ColorPicker'
 export type { ColorPickerOption } from './ColorPicker'
+export { ContextMenu } from './ContextMenu'
+export type { ContextMenuItem } from './ContextMenu'
 export { tagColor, tagBgColor, hashHue } from './colors'
 export type { ColorBy } from './colors'
 export { useGraphFilters } from './useGraphFilters'

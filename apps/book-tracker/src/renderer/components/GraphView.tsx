@@ -19,7 +19,8 @@ import {
   useGraphFilters,
   tagColor,
   ColorPicker,
-  type ColorBy
+  type ColorBy,
+  type ContextMenuItem
 } from '@ui/GraphView'
 import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
@@ -75,6 +76,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const books = useBooksStore((s) => s.books)
   const edges = useRelationsStore((s) => s.edges)
   const select = useBooksStore((s) => s.select)
+  const removeBook = useBooksStore((s) => s.remove)
 
   /* 从 books 中提取 availableTags */
   const availableTags = useMemo(() => {
@@ -175,6 +177,25 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       getNodeLabel={(n) => `${n.title} (${STATUS_LABEL[n.status]})`}
       getNodeTags={(n) => n.tags}
       onSelect={(id) => select(id)}
+      contextMenuItems={(n): ContextMenuItem[] => [
+        {
+          id: 'open',
+          label: '打开',
+          onSelect: () => select(n.id)
+        },
+        {
+          id: 'delete',
+          label: '删除',
+          danger: true,
+          onSelect: () => {
+            const title = (n as unknown as { title: string }).title
+            if (window.confirm(`确定删除「${title}」？该操作会同时移除所有以它为前置的边。`)) {
+              void removeBook(n.id)
+              select(null)
+            }
+          }
+        }
+      ]}
       legend={
         <>
           {colorBy === 'tag' ? (

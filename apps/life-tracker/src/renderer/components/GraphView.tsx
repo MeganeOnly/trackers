@@ -21,7 +21,8 @@ import {
   useGraphFilters,
   tagColor,
   ColorPicker,
-  type ColorBy
+  type ColorBy,
+  type ContextMenuItem
 } from '@ui/GraphView'
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
@@ -164,6 +165,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const goals = useGoalsStore((s) => s.goals)
   const edges = useRelationsStore((s) => s.edges)
   const select = useGoalsStore((s) => s.select)
+  const removeGoal = useGoalsStore((s) => s.remove)
 
   /* life 没有 tag 字段，用 category 当 filter "tag" 维度 */
   const availableTags = useMemo(() => {
@@ -314,6 +316,25 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
           : undefined
       }
       onSelect={(id) => select(id)}
+      contextMenuItems={(n): ContextMenuItem[] => [
+        {
+          id: 'open',
+          label: '打开',
+          onSelect: () => select(n.id)
+        },
+        {
+          id: 'delete',
+          label: '删除',
+          danger: true,
+          onSelect: () => {
+            const title = (n as unknown as { title: string }).title
+            if (window.confirm(`确定删除「${title}」？该操作会同时移除所有以它为前置的边。`)) {
+              void removeGoal(n.id)
+              select(null)
+            }
+          }
+        }
+      ]}
       legend={
         <>
           {layoutMode !== 'analyze' && colorBy === 'category' ? (
