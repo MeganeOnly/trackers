@@ -45,6 +45,7 @@ import { ForceParamsPanel } from './ForceParamsPanel'
 import { SearchBox } from './SearchBox'
 import { FiltersPanel, type StatusOption } from './FiltersPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { NodeSidebar, type SidebarGroup } from './NodeSidebar'
 import type { GraphFilters } from './useGraphFilters'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
@@ -112,6 +113,10 @@ export interface GraphViewProps<
   getNodeStatusForFilter?: (node: N) => string
   /** 右键菜单项（commit 5）—— 不传则不响应右击 */
   contextMenuItems?: (node: N) => ContextMenuItem[]
+  /** 节点列表侧栏（commit 6）—— 不传则不渲染 */
+  sidebarOpen?: boolean
+  onSidebarToggle?: () => void
+  sidebarGroups?: SidebarGroup[]
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -158,6 +163,9 @@ export function GraphView<
     getNodeTagsForFilter,
     getNodeStatusForFilter,
     contextMenuItems,
+    sidebarOpen = false,
+    onSidebarToggle,
+    sidebarGroups,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -495,6 +503,15 @@ export function GraphView<
           onClose={() => setContextMenu(null)}
         />
       )}
+      {sidebarGroups && (
+        <NodeSidebar
+          open={sidebarOpen}
+          onToggle={onSidebarToggle ?? ((): void => {})}
+          groups={sidebarGroups}
+          selectedId={highlightId ?? null}
+          onSelect={(id) => onSelect?.(id)}
+        />
+      )}
     </div>
   )
 }
@@ -518,6 +535,8 @@ export { ColorPicker } from './ColorPicker'
 export type { ColorPickerOption } from './ColorPicker'
 export { ContextMenu } from './ContextMenu'
 export type { ContextMenuItem } from './ContextMenu'
+export { NodeSidebar } from './NodeSidebar'
+export type { SidebarGroup, SidebarGroupItem } from './NodeSidebar'
 export { tagColor, tagBgColor, hashHue } from './colors'
 export type { ColorBy } from './colors'
 export { useGraphFilters } from './useGraphFilters'

@@ -22,7 +22,8 @@ import {
   tagColor,
   ColorPicker,
   type ColorBy,
-  type ContextMenuItem
+  type ContextMenuItem,
+  type SidebarGroup
 } from '@ui/GraphView'
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
@@ -153,10 +154,13 @@ interface GraphViewProps {
   highlightId?: string | null
 }
 
+const STATUS_ORDER: GoalStatus[] = ['done', 'in_progress', 'not_started', 'shelved', 'abandoned']
+
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
   const [showForceParams, setShowForceParams] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [colorBy, setColorBy] = useState<ColorBy>('status')
   const { filters, setFilters, resetFilters } = useGraphFilters({
@@ -244,6 +248,28 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     return max
   }, [data.nodes])
 
+  /* 节点列表侧栏 —— 按 status 分组 + 标题字母序 */
+  const sidebarGroups = useMemo<SidebarGroup[]>(() => {
+    const buckets = new Map<GoalStatus, GoalNode[]>()
+    for (const n of data.nodes) {
+      const arr = buckets.get(n.status)
+      if (arr) arr.push(n)
+      else buckets.set(n.status, [n])
+    }
+    const groups: SidebarGroup[] = []
+    for (const status of STATUS_ORDER) {
+      const items = buckets.get(status)
+      if (!items || items.length === 0) continue
+      items.sort((a, b) => a.title.localeCompare(b.title))
+      groups.push({
+        id: status,
+        label: STATUS_LABEL[status],
+        items: items.map((n) => ({ id: n.id, title: n.title, color: STATUS_COLORS[n.status] }))
+      })
+    }
+    return groups
+  }, [data.nodes])
+
   return (
     <GraphCanvas<GoalNode, GraphLink>
       data={data}
@@ -253,6 +279,9 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       onForceParamsClose={() => setShowForceParams(false)}
       showFilters={showFilters}
       onFiltersClose={() => setShowFilters(false)}
+      sidebarOpen={sidebarOpen}
+      onSidebarToggle={() => setSidebarOpen((v) => !v)}
+      sidebarGroups={sidebarGroups}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       getNodeSearchText={(n) => `${n.id} ${n.title} ${n.category}`}
@@ -425,6 +454,22 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={'lg-toggle' + (sidebarOpen ? ' active' : '')}
+            onClick={() => setSidebarOpen((v) => !v)}
+            title="节点列表侧栏"
+            aria-label="节点列表"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
           </button>
           {layoutMode === 'analyze' && (

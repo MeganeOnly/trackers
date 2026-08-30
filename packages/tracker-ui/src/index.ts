@@ -33,7 +33,7 @@ export {
   applyInitialFormat
 } from './useTheme'
 export type { ThemeName, FormatName, ThemeMeta, FormatMeta } from './useTheme'
-export type { ColorPickerOption, ContextMenuItem } from './GraphView'
+export type { ColorPickerOption, ContextMenuItem, SidebarGroup, SidebarGroupItem } from './GraphView'
 
 export { GraphView } from './GraphView'
 export type {
@@ -55,6 +55,7 @@ export {
   FiltersPanel,
   ColorPicker,
   ContextMenu,
+  NodeSidebar,
   tagColor,
   tagBgColor,
   hashHue,
