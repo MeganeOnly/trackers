@@ -19,6 +19,7 @@
 // 状态归 app 端（GraphView 通过 showForceParams / onForceParamsClose 暴露）。
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ForceGraphMethods } from 'react-force-graph-2d'
 import { DEFAULT_MOTION, type MotionRef } from './useGraphPhysics'
 
@@ -139,7 +140,7 @@ export function ForceParamsPanel({
     handleChargeChange(DEFAULT_MOTION.charge)
   }
 
-  return (
+  return createPortal(
     <div className="force-params-panel" role="dialog" aria-label="力参数">
       <div className="force-params-header">
         <strong>力参数</strong>
@@ -186,6 +187,7 @@ export function ForceParamsPanel({
           重置默认
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
