@@ -1391,8 +1391,14 @@ ul.goal-grid {
 /* stamp 绝对定位到右上角,不挤占主行（保留主题自带的颜色 / 旋转 / 缩放 hover） */
 .goal-card-grid > .tracker-stamp {
   position: absolute;
-  top: 4px;
+  top: 5px;
   right: 6px;
+  /* base.css 的 stamp 是 12px + 2/8px padding,放在 36px 卡片里显大;
+   * 这里缩到 10px + 1/6px 跟紧凑卡片更协调。不动 base.css 避免影响
+   * CleanMode 焦点卡 / ranking 卡等大尺寸场景。 */
+  font-size: 10px;
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
 }
 :root[data-format="grid"][data-theme="library"] .goal-card-grid-title,
 :root[data-format="grid"][data-theme="codex"] .goal-card-grid-title {
