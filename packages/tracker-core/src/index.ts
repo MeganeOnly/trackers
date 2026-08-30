@@ -1,6 +1,8 @@
 export * from './types'
 export { computeUnlocked, detectCycles, collectExcludes, computeBlockingRelations } from './unlock'
 export type { BlockingRelation } from './unlock'
+export { analyzeGraph, distanceTo } from './analyze'
+export type { GraphAnalysis, NodeRole, Bottleneck, HealthBreakdown } from './analyze'
 export { validateEdges, formatIssues, CODE_DUPLICATE_TO, CODE_CYCLE } from './validate'
 export type { EdgeIssue, EdgeIssueCode } from './validate'
 export {
