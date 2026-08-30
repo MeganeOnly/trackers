@@ -48,7 +48,14 @@ export function ForceParamsPanel({
   motionRef,
   onClose
 }: ForceParamsPanelProps): JSX.Element {
-  /* fgRef 可能 mount 时还没 ready —— mount 后再读一次 charge 兜底 */
+  /* motion 三参用本地 useState 受控：避免 ref + React 受控 input 的同步陷阱
+   * （React 重渲染时若 ref 没同步到当前 value，input 会被"贴回"导致拖不动） */
+  const [motionVals, setMotionVals] = useState(() => ({
+    orbit: motionRef.current.orbit,
+    jitter: motionRef.current.jitter,
+    centripetal: motionRef.current.centripetal
+  }))
+  /* mount 时同步 fgRef → charge 实际值（fgRef 可能 mount 时还没 ready） */
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
@@ -72,11 +79,7 @@ export function ForceParamsPanel({
     }
     return DEFAULT_MOTION.charge
   })
-  // 强制 mount 时再同步一次 charge（fgRef.current 可能刚刚 ready）
-  const [_, force] = useState(0)
-  useEffect(() => {
-    force((x) => x + 1)
-  }, [])
+  // （之前的 force/_ 已删除 —— useState 受控后不需要强制 re-render）
 
   // Esc 关闭
   useEffect(() => {
@@ -91,9 +94,11 @@ export function ForceParamsPanel({
     key: 'orbit' | 'jitter' | 'centripetal',
     value: number
   ): void => {
+    /* 1) 写本地 state（让 input 真正受控） */
+    setMotionVals((prev) => ({ ...prev, [key]: value }))
+    /* 2) 写共享 ref（force 函数闭包读这个） */
     motionRef.current[key] = value
-    /* d3 simulation 已冷却时（alpha < min）force 函数不会被调用，
-     * 即使闭包读 motionRef 也无效 —— 必须 reheatSimulation 让 alpha 重启 */
+    /* 3) 重启 simulation（alpha 已冷却时 force 不被调用） */
     const fg = fgRef.current
     if (fg) {
       try {
@@ -123,12 +128,15 @@ export function ForceParamsPanel({
   }
 
   const handleReset = (): void => {
+    setMotionVals({
+      orbit: DEFAULT_MOTION.orbit,
+      jitter: DEFAULT_MOTION.jitter,
+      centripetal: DEFAULT_MOTION.centripetal
+    })
     motionRef.current.orbit = DEFAULT_MOTION.orbit
     motionRef.current.jitter = DEFAULT_MOTION.jitter
     motionRef.current.centripetal = DEFAULT_MOTION.centripetal
     handleChargeChange(DEFAULT_MOTION.charge)
-    // 滑杆受控：强制 re-render 让 UI 回到默认
-    force((x) => x + 1)
   }
 
   return (
@@ -142,7 +150,7 @@ export function ForceParamsPanel({
       <div className="force-params-body">
         {MOTION_KEYS.map((key) => {
           const range = RANGES[key]
-          const value = motionRef.current[key]
+          const value = motionVals[key]
           return (
             <label key={key} className="force-param-row">
               <span className="force-param-label" data-tip={range.hint}>
