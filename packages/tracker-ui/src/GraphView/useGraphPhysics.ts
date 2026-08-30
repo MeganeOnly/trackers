@@ -22,13 +22,18 @@ import type { ForceGraphMethods } from 'react-force-graph-2d'
 import type { BaseGraphNode, BaseGraphLink } from './types'
 
 /** 默认物理参数
- *  数值调大让"开图不动滑条"就能看到旋转/抖动/向心效果（之前的 0.05/0.04/0.02
- *  在 velocityDecay=0.4 下稳态速度太慢，肉眼几乎看不到运动）
+ *  数值选择权衡：要让"开图不动滑条"就能看到明显的旋转/抖动/向心效果（之前的
+ *  0.05/0.04/0.02 在 velocityDecay=0.4 下稳态速度太慢，肉眼几乎看不到运动，
+ *  用户反馈「滑条拖了图不动」；2026-08 调到 0.12/0.08/0.04 后用户仍反馈
+ *  「图不动」，理论推算 0.12 在 60fps 下切向速度约 4.8 像素/秒，0.2(max) 也
+ *  只到 8 像素/秒，肉眼容易当成「静止」）。本次再调到各 max 值的 75%——
+ *  orbit 0.15 / jitter 0.15 / centripetal 0.075，对应默认切向速度 9.6 像素/秒、
+ *  max 时 12.8 像素/秒，肉眼能清晰感知。
  *  用户拖到 0 时让节点静止；拖到 max 时明显快速旋转 */
 export const DEFAULT_MOTION = {
-  orbit: 0.12,
-  jitter: 0.08,
-  centripetal: 0.04,
+  orbit: 0.15,
+  jitter: 0.15,
+  centripetal: 0.075,
   /** pointerOver 时降到接近 0（force 函数内部 min(用户值, hover 默认值)） */
   orbitHover: 0.004,
   jitterHover: 0.004,

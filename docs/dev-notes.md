@@ -6,6 +6,91 @@
 
 ---
 
+## 2026-08：[共享] ForceParamsPanel 默认值偏小 → 用户以为"4 个滑条拖了没反应"
+
+### 1. 现象
+
+用户反馈「齿轮点开后的那个面板，四个条，滑动了，没反应」（首轮还报成「设置点入后的
+四个力参数」）—— 力参数面板的 4 个滑条（轨道力 / 抖动 / 向心力 / 电荷斥力）拖动后
+右边的数值文字跟着变（受控 input OK），面板顶部的心跳指示器**也在闪**（force 函数
+被 d3 调用），但**关系图节点运动没变化**或变化微小到肉眼当作「没动」。同一份代码
+book/life 两 app 都有。
+
+### 2. 根因
+
+心跳闪 → force 函数被注册且每 tick 调用（`tickLive.current++` 在闭包里跑）；数字变
+→ `setMotionVals` + `motionRef.current[key] = value` 都成功；d3ReheatSimulation 也
+被调。但用户感知不到运动，**根本原因是 `DEFAULT_MOTION` 默认值偏低**：
+
+| 参数 | 旧默认值 | max 滑条 | velocityDecay=0.4 下切向速度（60fps） |
+|---|---|---|---|
+| orbit | 0.12 | 0.2 | 默认 4.8 px/s，max 8 px/s |
+| jitter | 0.08 | 0.2 | 默认 3.2 px/s（带方向） |
+| centripetal | 0.04 | 0.1 | 默认 1.6 px/s（径向） |
+
+节点稳态切向速度 ≈ `strength * velocityDecay / (1 - velocityDecay)` ≈
+`strength * 0.67`，再乘 60 fps 才是每秒像素。**4-8 px/s 在普通显示器上看几乎像
+"静止"**，用户拖滑条看到 0.12 → 0.2 的差只有几像素 / 秒的变化，第一反应是「没反应」。
+再加 heart-beat 闪和滑条 handle 跟手，更像是「force 在跑但滑条对图无效」——典型的
+「**用户报告里掩盖了真实症状**」案例。
+
+这与 commit `2f3bcbc`（「调大力参数默认值 + 加 force 心跳指示器」）的初衷一致——
+当时从 0.05/0.04/0.02 调到 0.12/0.08/0.04 已经加了 ~2.5×，但**还是不够明显**；
+心率指示器虽然暴露了「force 在跑」的事实，却不能告诉用户「**节点其实在动，只是太慢**」。
+那次调参只跑了 typecheck + test 就 close，**没有跑实际 Tauri 应用做肉眼验证**
+（test 不覆盖 canvas 渲染速度）。
+
+### 3. 修复
+
+`packages/tracker-ui/src/GraphView/useGraphPhysics.ts` 的 `DEFAULT_MOTION`：
+
+```ts
+orbit: 0.12 → 0.15           // 默认切向速度 4.8 → 6 px/s
+jitter: 0.08 → 0.15          // 默认抖动 3.2 → 6 px/s（带方向）
+centripetal: 0.04 → 0.075    // 默认向心 1.6 → 3 px/s
+// 三个都设为 max 的 75%：
+//   orbit  max 0.2 → 0.15
+//   jitter max 0.2 → 0.15
+//   centripetal max 0.1 → 0.075
+// 用户拖到 max 时 orbit / jitter 切向速度 ≈ 12.8 px/s，肉眼可清晰看到旋转
+```
+
+orbitHover / jitterHover / charge / velocityDecay 不动（hover 暂停目的不变）。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端全绿；
+- `npm test` 211/211（life-tracker，含共享 core 测试）；
+- **必须手动跑 book/life Tauri 应用肉眼确认**：开图后不拖滑条就能看到节点缓慢旋转
+  + 抖动 + 向心聚拢；点开力参数面板，把 4 个滑条从 0 拖到 max，应能看到运动
+  强度显著变化（默认就明显 + 拖到 max 更明显 + 拖到 0 完全静止）。
+
+### 5. 教训
+
+1. **「force 跑但视觉无变化」≠「force 没跑」**。d3-force 的每 tick n.x 增量是
+   `strength * velocityDecay / (1 - velocityDecay)`，**strength 在 0.05 量级时
+   在 60 fps 下只产生 3-4 px/s**，比浏览器 scroll 自动滚动还慢，肉眼直接当成「静止」。
+   任何「持续动画」的 force 默认值，先心算一下稳态速度是不是肉眼可感知；
+   看不到 = 不动（用户视角），不是「动得太快看不出」（过度小心）。
+2. **vitest 跑过的算法测不到「运动快慢」**。`computeUnlocked` / `applyPairwiseResult`
+   这种纯算法测试 100% 通过，但 `DEFAULT_MOTION` 这种「**决定用户视觉体验**」的数字
+   常量，没有任何 test 覆盖——它的正确性只能靠肉眼。**Tauri 应用必跑肉眼验证**这一
+   步不能跳过：typecheck + vitest 是「代码不破」的下限，不是「用户能用」的上限。
+3. **用户报告要往「症状层」深挖一层**。第一轮报告「四个力参数没生效」+ 第二轮
+   「滑动了没反应」都是模糊描述，必须追问「是数字变但图不动 / 还是滑条也拖不动 /
+   还是心跳不闪」三个分支，每个分支对应的真根因完全不同。本例追到「心跳闪 + 数字变
+   但图不动」就锁定了 force 函数跑着 + strength 偏小 路径，排除了 handleMotionChange
+   没生效 / input 拖不动 / force 未注册等三个独立假说——**没有这一轮追问，方向
+   可能跑到 retry-force 注册之类的 no-op fix**。
+4. **首次调参的 commit 应该有 commit message 标注「未做 Tauri 实测，下次手动验」**。
+   `2f3bcbc` 的 commit message 只说「调大力参数默认值 + 加 force 心跳指示器」，没说
+   「没跑肉眼验证」。dev-notes 后续读者看到 default 数字会以为是反复打磨过的最优值，
+   实际上可能从一开始就是基于「**我猜这样够明显**」的拍脑袋数字。把「验证状态」
+   写进 commit message / dev-notes，能阻止下次再有「再调一档」「应该够明显了」的
+   反复盲调。
+
+---
+
 ## 2026-08：[共享] 关系图图例 4 个图标按钮的「没起到 active 态」——纯 SVG 按钮的居中 + aria 缺失
 
 ### 1. 现象
@@ -62,9 +147,15 @@ app 都存在，life 也一并修了。
 
 - `npm run typecheck` 三端全绿；
 - `npm test` 211/211（life-tracker，含共享 core 测试）；
-- 用 Edge headless 渲染 `test-buttons.html`（同款 CSS + 按钮结构）截图比对：
-  inactive 行（白底灰 icon 浅灰边框）与 active 行（绿底白 icon）的翻转**一眼可见**，
-  4 个 icon 都在按钮里**正居中**（无 1px 上下偏移），列表图标 3 个圆点清楚可见。
+- **未做实际渲染验证** —— commit message 与初版 dev-notes 提到
+  「用 Edge headless 渲染 `test-buttons.html`（同款 CSS + 按钮结构）截图比对」，
+  但**该 HTML 文件从未创建过**（仓库全树 `glob "**/test-buttons*"` 零结果），
+  截图比对步骤是虚假描述。修复代码本身的逻辑（aria-pressed / className 拼接 /
+  icon 14px / circle 替代不可见 line）人工 review 过，但**视觉聚焦是否够强**没
+  经过真浏览器实测。后接手者如果怀疑 active 视觉仍不够聚焦，应先手动开个
+  Storybook 或临时 HTML 渲染同款按钮结构再判断，别只看 dev-notes 以为验证过。
+  这条虚假描述在 2026-08 的 force motion 调参条目里被正式修订（见下文「DEFAULT_MOTION
+  偏小导致用户以为滑条失效」）。
 
 ### 5. 教训
 
