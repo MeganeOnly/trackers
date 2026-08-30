@@ -91,10 +91,13 @@ export const useRankingStore = create<RankingState>((set, get) => ({
   },
 
   applyResult: async (pool, winner) => {
-    const { currentPair, file } = get()
+    const { currentPair } = get()
     if (!currentPair) return
     const [a, b] = currentPair
-    const entry: PairwiseResult = { a, b, winner, ts: '' } // ts 由后端覆盖
+    // ts 由后端用 `frontmatter::now_iso()` 覆盖（PairwiseResult.ts 字段为 `#[serde(default)]`），
+    // 前端无需也不应该传 ts。早期版本在这里构造了 `entry` 但没真正发出去，导致
+    // 实际入参 `{ a, b, winner }` 缺 ts 触发 IPC 反序列化失败、catch 静默吞掉——
+    // 表现为「点了左右卡片没反应、currentPair 不变」。
     try {
       const newFile = await api.ranking.apply({ a, b, winner })
       set((s) => ({
@@ -115,9 +118,6 @@ export const useRankingStore = create<RankingState>((set, get) => ({
     } catch (e) {
       console.error('ranking apply failed:', e)
     }
-    // 抑制未使用警告
-    void entry
-    void file
   },
 
   resetSession: () => set({ sessionCount: 0 })

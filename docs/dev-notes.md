@@ -6,6 +6,68 @@
 
 ---
 
+## 2026-08：[book-tracker] 排名对比卡片「点了没反应」——IPC 字段缺省没 `serde(default)`
+
+### 1. 现象
+
+打开「作品排名」Modal → 切到「开始对比」tab 后，左侧 / 右侧两张候选卡片视觉正常（标题、
+评分、笔记都渲染对了），**点击任一张都没有任何反馈**：候选不切换、`本次已对比 +1` 不变、
+`rankings.json` 不增长。Console 里有一条 `ranking apply failed: ...` 报错，但用户感知不到。
+
+### 2. 根因
+
+`PairwiseResult.ts: String` 是 Rust 端的**必填字段**（`crates/tracker-core/src/types.rs:238`
+原本没有 `#[serde(default)]`），但前端 `store/ranking.ts::applyResult` 调
+`api.ranking.apply({ a, b, winner })` 时**故意不发 `ts`**——设计就是「前端 ts 留空、后端
+用 `frontmatter::now_iso()` 覆盖」（见 `service/ranking.rs:28-29` 的 `entry.ts = now_iso()`），
+注释也写明 `// ts 由后端覆盖`。Rust 端类型定义没跟上设计意图，IPC 反序列化在「缺 ts」时
+直接报错；catch 块只 `console.error`，不更新 store，currentPair 原地不动——用户看到的就是
+「点了没反应」。
+
+之所以这条 bug 一直没被 vitest 抓到：`packages/tracker-core/src/__tests__/ranking.test.ts`
+测的是 TS 端的 `applyPairwiseResult` / `recomputeRatings` 纯函数（与 IPC 无关）；
+`crates/tracker-core` 没有 IPC 反序列化测试；`apps/book-tracker/src-tauri/src/data/ranking.rs`
+的 `read_ranking` 测的是「`rankings.json` → `RankingFile`」的方向（TS 已经填好 ts 再
+写盘），不覆盖「JS 调 invoke 时入参缺 ts」这条路径。
+
+### 3. 修复
+
+- **Rust 端**（`crates/tracker-core/src/types.rs`）：`PairwiseResult.ts` 加
+  `#[serde(default)]`，缺省反序列化为空串——与「后端覆盖」语义对齐，前端无需发 ts。
+- **renderer 端**（`apps/book-tracker/src/renderer/store/ranking.ts`）：删掉死代码
+  `entry: PairwiseResult = { a, b, winner, ts: '' }`（构造完从未发出去、底下 `void entry`
+  单纯压 unused warning），以及同款死代码 `void file`；注释里把「ts 由后端覆盖」的来龙去
+  脉和这次踩坑的根因写清楚，避免下次又有人「好心」传 ts。
+- **回归测试**（`apps/book-tracker/src-tauri/src/data/ranking.rs::tests::pairwise_result_deserializes_without_ts`）：
+  直接模拟 IPC 入参 JSON `{"a":"1","b":"2","winner":"a"}`（无 ts），
+  `serde_json::from_str` 必须成功 + ts 兜底为 `""`。再补一个 `winner:"tie"` 的反序列化
+  案例，覆盖三个 winner 分支。这是**唯一**能抓此类 bug 的测试位置——纯算法测试和读写
+  往返测试都不够。
+
+### 4. 回归验证
+
+- `cargo test -p tracker-core` 95/95 全过（含既有 serde 命名兼容性测试）；
+- `cargo test -p book-tracker` 32/32 全过（含新增 `pairwise_result_deserializes_without_ts`）；
+- `npm run typecheck` 三 workspace 全绿；
+- Tauri 应用需要重新 build 才能生效——`crates/tracker-core` 改了 Rust 源码，IPC 反序列化
+  路径走的是新二进制；renderer 端 Vite HMR 自动接住。
+
+### 5. 教训（共享内核相关）
+
+1. **「后端覆盖」语义要在 Rust 端用 `#[serde(default)]` 显式声明**——不要假设前端会规规矩矩
+   不发那个字段。`ts` 这种「后端永远会改」的字段，反序列化时缺省为 `""`（或任何合理占位）
+   比「必填」更接近真实数据流；前端少传一个字段、少一处可能出错的边界。
+2. **IPC 反序列化路径必须有专门的回归测试**——纯算法测试、读写往返测试都覆盖不到
+   「JS 调用 invoke 时实际发什么 JSON」这条路径。新增任何 `#[tauri::command]` 处理的入参
+   类型，至少加一条「构造一段真实 JS 侧会发的 JSON + 反序列化必须成功」的断言；这样未来
+   一旦有人删 `#[serde(default)]` 或改字段命名，测试立刻响铃。
+3. **前端 store 里的 dead code（构造了但没发出去的对象 + `void x` 压 warning）是 bug 信号**——
+   这次 `entry` 变量就是证据：「`// ts 由后端覆盖`」的注释 + 一个永远不用的 `entry` =
+   「设计意图是后端覆盖、但代码没真发 ts」。看见这种 dead code + 注释的组合，**先想清楚
+   设计意图，再决定删 dead code 还是改实现**——别直接 `void entry` 就走。
+
+---
+
 ## 2026-08：[共享] 新增 Unlock 图健康度分析（analyzeGraph + distanceTo）
 
 ### 1. 决策与算法
