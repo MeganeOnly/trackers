@@ -28,7 +28,7 @@
 //   - 不穿透 ForceGraph2D 自己的 NodeObject<N> 包装（那是 react-force-graph 内部细节，
 //     包装后 n 仍然满足 BaseGraphNode 形态），用 `as unknown as` 规避泛型爆炸。
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import type { ReactNode } from 'react'
 import type { BaseGraphNode, BaseGraphLink } from './types'
@@ -42,6 +42,7 @@ import {
 import { useAutoCenter } from './useAutoCenter'
 import { drawTagChips } from './drawTagChips'
 import { ForceParamsPanel } from './ForceParamsPanel'
+import { SearchBox } from './SearchBox'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
 const NODE_SIZE_FN = (n: BaseGraphNode): number => 1 + Math.sqrt(n.refCount) * 2
@@ -82,6 +83,12 @@ export interface GraphViewProps<
   showForceParams?: boolean
   /** 关闭力参数浮窗的回调 */
   onForceParamsClose?: () => void
+  /** 搜索框 query（commit 2）—— app 端 useState 管理；空 = 不渲染搜索框 */
+  searchQuery?: string
+  /** 设置 searchQuery 的回调 */
+  setSearchQuery?: (q: string) => void
+  /** 把节点拼成可搜索字符串（app 端决定包含 id / title / tag 等） */
+  getNodeSearchText?: (node: N) => string
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -114,6 +121,9 @@ export function GraphView<
     showNodeTitle = true,
     showForceParams = false,
     onForceParamsClose,
+    searchQuery,
+    setSearchQuery,
+    getNodeSearchText,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -121,6 +131,23 @@ export function GraphView<
     backgroundColor = '#fafaf8',
     legend
   } = props
+
+  // 搜索匹配集合 —— commit 2：模糊匹配 id / title / tag
+  const searchMatches = useMemo<Set<string> | null>(() => {
+    if (!searchQuery || !getNodeSearchText) return null
+    const q = searchQuery.trim().toLowerCase()
+    if (q === '') return null
+    const set = new Set<string>()
+    for (const n of data.nodes) {
+      if (getNodeSearchText(n as unknown as N).toLowerCase().includes(q)) {
+        set.add(n.id)
+      }
+    }
+    return set.size > 0 ? set : null /* null = 无匹配（与"未激活"语义区分） */
+  }, [searchQuery, getNodeSearchText, data.nodes])
+
+  const isSearchActive = searchMatches !== null
+  const matchCount = searchMatches?.size ?? 0
 
   const wrapRef = useRef<HTMLDivElement>(null)
   // ref 类型用 react-force-graph 内部的 NodeObject / LinkObject 包装形态 —— 见 ForceGraph2D 的 ref 推断
@@ -237,9 +264,25 @@ export function GraphView<
           height={dims.h}
           backgroundColor={backgroundColor}
           nodeRelSize={4}
-          nodeVal={NODE_SIZE_FN}
+          nodeVal={(n) => {
+            const base = NODE_SIZE_FN(n)
+            /* 搜索命中放大 1.6× */
+            if (isSearchActive && searchMatches!.has(n.id)) {
+              return base * 1.6
+            }
+            return base
+          }}
           nodeLabel={(n) => getNodeLabel(n as unknown as N)}
-          nodeColor={(n) => getNodeColor(n as unknown as N)}
+          nodeColor={(n) => {
+            if (isSearchActive) {
+              /* 搜索激活：命中保留原色，未命中灰淡 */
+              if (searchMatches!.has(n.id)) {
+                return getNodeColor(n as unknown as N)
+              }
+              return 'rgba(200, 200, 200, 0.18)'
+            }
+            return getNodeColor(n as unknown as N)
+          }}
           linkColor={(l) => {
             const sourceId = typeof l.source === 'string' ? l.source : (l.source as BaseGraphNode).id
             const targetId = typeof l.target === 'string' ? l.target : (l.target as BaseGraphNode).id
@@ -286,6 +329,16 @@ export function GraphView<
               renderNodeDecoration({ node, ctx, scale, nodeSize })
             }
 
+            // 搜索命中：在节点外圈画蓝色描边
+            if (isSearchActive && searchMatches!.has(node.id)) {
+              const hitSize = 4 * Math.sqrt(node.refCount + 1) * 1.6 + 4
+              ctx.beginPath()
+              ctx.arc(node.x, node.y, hitSize + 3, 0, 2 * Math.PI)
+              ctx.strokeStyle = '#3b6cf2'
+              ctx.lineWidth = 2.5
+              ctx.stroke()
+            }
+
             if (scale < 1.2 || !showNodeTitle) return
             const titleText = node.title
             if (!titleText) return
@@ -312,6 +365,13 @@ export function GraphView<
           onClose={onForceParamsClose ?? ((): void => {})}
         />
       )}
+      {setSearchQuery && (
+        <SearchBox
+          query={searchQuery ?? ''}
+          setQuery={setSearchQuery}
+          matchCount={matchCount}
+        />
+      )}
     </div>
   )
 }
@@ -328,6 +388,7 @@ export type { TreeLayoutDims } from './useTreeLayout'
 export { useAutoCenter, SETTLE_DELAY_MS, IMMEDIATE_CENTER_MS, SETTLE_CENTER_MS } from './useAutoCenter'
 export { drawTagChips } from './drawTagChips'
 export { ForceParamsPanel } from './ForceParamsPanel'
+export { SearchBox } from './SearchBox'
 export { useResize } from './useResize'
 export type { Dims } from './useResize'
 export type { BaseGraphNode, BaseGraphLink } from './types'

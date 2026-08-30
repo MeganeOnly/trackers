@@ -50,6 +50,7 @@ export {
   useAutoCenter,
   drawTagChips,
   ForceParamsPanel,
+  SearchBox,
   useResize
 } from './GraphView'
 export type {

@@ -147,6 +147,7 @@ interface GraphViewProps {
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
   const [showForceParams, setShowForceParams] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const goals = useGoalsStore((s) => s.goals)
   const edges = useRelationsStore((s) => s.edges)
   const select = useGoalsStore((s) => s.select)
@@ -212,6 +213,9 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       highlightId={highlightId}
       showForceParams={showForceParams}
       onForceParamsClose={() => setShowForceParams(false)}
+      searchQuery={searchQuery}
+      setSearchQuery={setSearchQuery}
+      getNodeSearchText={(n) => `${n.id} ${n.title} ${n.category}`}
       emptyText="还没有目标。加几个试试。"
       getNodeColor={(n) => {
         // analyze mode：孤立灰、关键路径橙、其他维持 status 颜色；highlight 蓝色优先
