@@ -68,32 +68,47 @@ export function useGraphPhysics(
   })
   const pointerOverRef = useRef(false)
 
+  // 标记当前是否在 hover 状态 —— force 函数每 tick 读这个。
+  // 注意：force 函数内部读 pointerOverRef.current + motionRef.current，
+  // 用户在 panel 拖动时不会被任何代码"反向覆盖"。
+  // 这样 panel 滑条拖到的值会立即生效，不与 hover 状态冲突。
+
   const setPointerOver = (over: boolean): void => {
     pointerOverRef.current = over
-    /* tree / analyze 模式所有 motion 都为 0；force 模式才按悬停状态调 */
-    if (layoutModeRef.current === 'force') {
-      motionRef.current.orbit = over ? DEFAULT_MOTION.orbitHover : DEFAULT_MOTION.orbit
-      motionRef.current.jitter = over ? DEFAULT_MOTION.jitterHover : DEFAULT_MOTION.jitter
-    }
+    /* 不再自动覆盖 motionRef —— 让用户通过 panel 自由控制；
+     * hover 时降速靠 force 函数内部读 pointerOverRef 自动应用。 */
   }
 
   // 注册持续抖动 force：mount 后 fgRef 就绪时挂上。
   // d3Force('xxx') 在 d3 内模拟 tick 时被调用，每次给每个节点一个微小动量；
   // 不依赖 alphaTarget/alpha。
+  /* force 函数每 tick 读 motionRef.current.{orbit,jitter,centripetal} +
+   * pointerOverRef.current；hover 时 strength 自动降到 hover 值（不动 motionRef，
+   * 不破坏用户 panel 拖到的值） */
+  const motionLive = motionRef
+  const pointerOverLive = pointerOverRef
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
     try {
       const charge = fg.d3Force('charge')
       if (charge && typeof charge.strength === 'function') charge.strength(DEFAULT_MOTION.charge)
-      fg.d3Force('orbit', orbitForce(() => nodes, () => motionRef.current.orbit))
-      fg.d3Force('jitter', jitterForce(() => nodes, () => motionRef.current.jitter))
-      fg.d3Force('centripetal', centripetalForce(() => nodes, () => motionRef.current.centripetal))
+      fg.d3Force('orbit', orbitForce(() => nodes, () => {
+        const over = pointerOverLive.current
+        const base = motionLive.current.orbit
+        return over ? Math.min(base, DEFAULT_MOTION.orbitHover) : base
+      }))
+      fg.d3Force('jitter', jitterForce(() => nodes, () => {
+        const over = pointerOverLive.current
+        const base = motionLive.current.jitter
+        return over ? Math.min(base, DEFAULT_MOTION.jitterHover) : base
+      }))
+      fg.d3Force('centripetal', centripetalForce(() => nodes, () => motionLive.current.centripetal))
       fg.d3ReheatSimulation()
     } catch (e) {
       console.warn('jitter force registration failed:', e)
     }
-  }, [fgRef, nodes])
+  }, [fgRef, nodes, motionLive, pointerOverLive])
 
   return { motionRef, pointerOverRef, setPointerOver }
 }
