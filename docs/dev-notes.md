@@ -6,6 +6,356 @@
 
 ---
 
+## 2026-08：[共享] 关系图 hover 时节点被向心力拽到中心互相覆盖——centripetal 漏了 hover 自适应
+
+### 1. 现象
+
+用户报「关系图上鼠标悬停时，**节点之间距离很近的时候会全部聚集在一起**」。具体场景：
+
+- 关系图打开后节点正常旋转（orbit + jitter + centripetal 三力平衡）；
+- 鼠标移入画布，**节点明显塌缩到画布中心，互相重叠成一大坨**，点不到单个节点；
+- 鼠标移出后离心 + 切向的轨道力恢复，节点重新散开。
+
+复现规律：**节点距离越近塌缩越明显**（charge 是 1/r² 衰减，密了之后压不住 centripetal 的恒定向心）。
+
+### 2. 根因
+
+`useGraphPhysics.ts` 里三个自定义 d3-force 的 hover 自适应**只对 orbit / jitter 实现了**：
+
+```ts
+// orbit / jitter：hover 时 min(base, hover 值)
+fg.d3Force('orbit', orbitForce(() => nodes, () => {
+  const over = pointerOverLive.current
+  const base = motionLive.current.orbit
+  return over ? Math.min(base, DEFAULT_MOTION.orbitHover) : base   // ✓
+}))
+fg.d3Force('jitter', jitterForce(...))                              // ✓
+// centripetal：完全不读 pointerOverRef！
+fg.d3Force('centripetal', centripetalForce(() => nodes, () => {
+  return motionLive.current.centripetal    // ❌ hover 时仍以 0.15 全速向心
+}))
+```
+
+`DEFAULT_MOTION` 注释（v4 那行）原本写的是「hover 时 strength 降到 0.004」——**意图是三股力都降**，但代码只对 orbit/jitter 落地。`motionInit.ts` 的 init 路径也漏了 centripetal（测试当时还明文写「centripetal 不参与 hover 自适应」）。
+
+物理后果：
+- 鼠标进图 → orbit ≈ 0、jitter ≈ 0（切向 + 噪声消失）；
+- centripetal 仍以 `0.15 / tick` 恒定向心，d=0.3 下稳态速度约 21 px/s 向心；
+- charge (-120) 在节点相互远离时是主导、节点靠近时是 1/r²，密了以后根本压不住 0.15 的恒定向心；
+- 结果：所有节点被持续拽向 (0,0) 中心，互相覆盖。
+
+### 3. 修复
+
+让 centripetal 也走 hover 自适应，与 orbit/jitter 对齐。
+
+**1) `DEFAULT_MOTION` 新增 `centripetalHover: 0.004`**（与 orbitHover/jitterHover 同值，与 v4 注释意图对齐）：
+
+```ts
+export const DEFAULT_MOTION = {
+  orbit: 0.35,
+  jitter: 0.25,
+  centripetal: 0.15,
+  orbitHover: 0.004,
+  jitterHover: 0.004,
+  centripetalHover: 0.004,   // ← 新增；hover 时也降到 ~0，图完全冻结
+  charge: -120,
+  velocityDecay: 0.3
+} as const
+```
+
+**2) `useGraphPhysics.ts` 的 centripetal force 注册读 `pointerOverRef`**：
+
+```ts
+fg.d3Force('centripetal', centripetalForce(() => nodes, () => {
+  tickLive.current++
+  const over = pointerOverLive.current
+  const base = motionLive.current.centripetal
+  return over ? Math.min(base, DEFAULT_MOTION.centripetalHover) : base
+}))
+```
+
+`Math.min(用户值, hover 默认值)` 与 orbit/jitter 同模式 —— 用户在 panel 拖到 0 不会被 hover 反向"拉"到 0.004。
+
+**3) `motionInit.ts` 的 init 路径也带上 centripetalHover**：
+
+```ts
+return {
+  kind: 'init',
+  values: {
+    orbit:     hover ? DEFAULT_MOTION.orbitHover     : DEFAULT_MOTION.orbit,
+    jitter:    hover ? DEFAULT_MOTION.jitterHover    : DEFAULT_MOTION.jitter,
+    centripetal: hover ? DEFAULT_MOTION.centripetalHover : DEFAULT_MOTION.centripetal
+  }
+}
+```
+
+**4) 测试更新**（`motionInit.test.ts`）：把"centripetal 不变"的断言改成"三股力都用 hover 阈值"，硬编码值从 `0.15` 改为 `0.004`。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端 + core + ui 全绿；
+- `npm test`：
+  - tracker-ui **10/10**（含 2 个 hover 阈值断言更新）
+  - tracker-core 131/131
+  - book-tracker 131/131
+  - life-tracker 211/211
+- **必须 Tauri 实跑肉眼验**（vitest 测不到 d3-force tick 在 canvas 上的实际行为）：
+  1. 开图 → 节点稳定绕转 → 鼠标进图 → **节点立即冻结，原位置保持不变**（修复前会塌缩）
+  2. 鼠标进图停留 5-10 秒 → 节点仍冻结在原位置，没有逐渐向中心漂
+  3. 鼠标移出 → 节点恢复旋转
+  4. panel 把 centripetal 拖到 0 → 鼠标进图 → 仍冻结（`Math.min` 模式保护用户的 0）
+  5. panel 把 centripetal 拖到 0.25（max）→ 鼠标进图 → 也冻结（hover 阈值是 ceiling）
+
+### 5. 教训
+
+1. **「注释里的设计意图」必须和「代码里的实际行为」对齐，并写测试硬挂**。
+   `DEFAULT_MOTION` 注释里 "hover 时 strength 降到 0.004" 这句的语义是三股力都降，但代码只对两股力落地、测试还把"centripetal 不参与 hover 自适应"当成 feature 写死 —— 三处意见一致地把 bug 固化了。**规律**：注释 / 代码 / 测试三者只要有两处说法一致、第三处偏离就一定要警觉。
+
+2. **d3-force 自定义力的"hover 降速"必须三股力一起做**。orbit + centripetal 是一对力平衡（切向 vs 径向），单独降一边会让另一边变成"无对冲的主导力"。**规律**：自定义力组里只要有"切向 vs 径向"、"斥力 vs 向心"这种对子，hover 自适应必须整组同步，不能只降一边。
+
+3. **`Math.min(base, hover_value)` 是处理"用户自定义值 vs hover 默认值"冲突的安全模式**。直接 `hover ? hover_value : base` 会把用户在 panel 拖到 0 的值反向"拉"到 hover 阈值（违反用户意图）。`Math.min` 让 hover 值变成 ceiling —— 用户拖到 0 时彻底静止，拖到很大时仍尊重用户值。
+
+4. **测试断言不要写「故意漏掉某条」的描述**。原测试里 "centripetal 不变" 是把 bug 当 feature 写死 —— 后来这个描述需要改成 feature 反转（"三股力都用 hover 阈值"），相当于把"原本的修 bug 测试" 翻译一遍。**规律**：测试描述里出现「不参与 / 不变 / 不响应」这种否定断言时，要先怀疑是不是把 bug 固化下来了。
+
+---
+
+## 2026-08：[共享] 关系图力参数滑条"调了又被冲掉"——layoutMode effect 缺 noop 分支，数据变化静默覆盖用户值
+
+> ⚠️ **本条目修正前一条 `[共享] 关系图力参数调节实际失效的两类 bug` 的不完整结论。**
+> 那条记录的 Bug A（charge 被 effect 重置）和 Bug C（panel 滑杆脱节）确实修了；
+> 但 Bug B（"切回 force 硬编码 force 值"）的修复**只处理了"用户切到 tree/analyze 再切回"**
+> 这条路径（用 `savedMotionRef` 备份/恢复），**漏了"用户在 force 模式里调了值、
+> 然后 visibleData 变化触发 effect 重跑"这条更常见的路径**。结果用户报"滑条没生效"反复
+> 复现，commit `2f3bcbc` / `9c999f5` / `6482121` 三轮修复都没解决。
+
+### 1. 现象
+
+用户报「book 的关系图齿轮面板里的 orbit / jitter / centripetal 三个滑条**调了好像没生效**」。
+具体场景：
+
+- 打开力参数面板，把 orbit 拖到 0.20（默认值 0.15）；
+- **关掉面板，加一本书** → 节点运动强度悄悄回到 0.15；
+- 同理切 filter 也会触发；
+- 调 charge 滑条不受影响（那个 bug 之前单独修了）。
+
+但**只在可见数据变化时才丢**；纯面板拖动是 OK 的（force 函数闭包读 motionRef，
+面板写入 + reheat 即时生效）。
+
+### 2. 根因
+
+`packages/tracker-ui/src/GraphView/index.tsx` 的 layoutMode effect 依赖：
+```ts
+}, [layoutModeProp, visibleData.nodes, visibleData.links])
+```
+
+而 else 分支（force 模式）的逻辑：
+```ts
+} else {
+  const restore = savedMotionRef.current
+  if (restore) {
+    /* 恢复备份 */
+  } else {
+    /* ←—— 漏洞：用户没切走过布局、已初始化过、visibleData 又变了
+     *     还是会走到这条 else 的内层 else，把 motionRef 覆盖回 DEFAULT_MOTION */
+    const over = pointerOverRef.current
+    motionRef.current.orbit = over ? DEFAULT_MOTION.orbitHover : DEFAULT_MOTION.orbit
+    motionRef.current.jitter = over ? DEFAULT_MOTION.jitterHover : DEFAULT_MOTION.jitter
+    motionRef.current.centripetal = DEFAULT_MOTION.centripetal
+  }
+  for (const n of visibleData.nodes) { n.fx = undefined; n.fy = undefined }
+  fg.d3ReheatSimulation()
+}
+```
+
+漏了**第三种情况**：「`savedMotionRef === null` 但 motion 已经不是默认（用户调过）」
+—— 原版代码无法区分"首次进入"和"用户调过值但数据又变了"，一刀切都覆盖回默认。
+
+**前置 commit 留下的修复（`9c999f5`）** 加了 `savedMotionRef` 来处理
+「切到 tree/analyze 再切回」场景，但**没考虑到"用户一直在 force 模式里、只动了数据"**
+这条高频路径。effect 依赖里包含 `visibleData.nodes/links` 意味着**任何**数据变化
+（加书、删书、切 filter）都会让 effect 重跑，然后跑到 else 的"无备份就用默认"
+分支冲掉用户值。
+
+### 3. 修复
+
+加 `motionInitializedRef` 哨兵 + 把 force 分支的决策抽成纯函数：
+
+**1) `index.tsx` 加哨兵 ref**：
+```ts
+const motionInitializedRef = useRef(false)
+```
+
+**2) `motionInit.ts`（新文件）** 抽 decision 逻辑：
+```ts
+export type MotionDecision =
+  | { kind: 'noop' }
+  | { kind: 'restore'; values: MotionRef }
+  | { kind: 'init'; values: MotionRef }
+
+export function decideForceBranchMotion(
+  savedMotion: MotionRef | null,
+  isInitialized: boolean,
+  hover: boolean
+): MotionDecision {
+  if (savedMotion) return { kind: 'restore', values: savedMotion }
+  if (!isInitialized) {
+    return {
+      kind: 'init',
+      values: {
+        orbit: hover ? DEFAULT_MOTION.orbitHover : DEFAULT_MOTION.orbit,
+        jitter: hover ? DEFAULT_MOTION.jitterHover : DEFAULT_MOTION.jitter,
+        centripetal: DEFAULT_MOTION.centripetal
+      }
+    }
+  }
+  return { kind: 'noop' }   // ← 关键：已初始化过 + 无备份 → 不动 motionRef
+}
+```
+
+**3) `index.tsx` 的 effect 改成 dispatch decision**：
+```ts
+} else {
+  const decision = decideForceBranchMotion(
+    savedMotionRef.current,
+    motionInitializedRef.current,
+    pointerOverRef.current
+  )
+  if (decision.kind === 'restore') {
+    motionRef.current.orbit = decision.values.orbit
+    motionRef.current.jitter = decision.values.jitter
+    motionRef.current.centripetal = decision.values.centripetal
+    savedMotionRef.current = null
+    motionInitializedRef.current = true
+  } else if (decision.kind === 'init') {
+    motionRef.current.orbit = decision.values.orbit
+    motionRef.current.jitter = decision.values.jitter
+    motionRef.current.centripetal = decision.values.centripetal
+    motionInitializedRef.current = true
+  }
+  // noop：保持 motionRef 不动，绝不悄悄覆盖
+  for (const n of visibleData.nodes) { n.fx = undefined; n.fy = undefined }
+}
+```
+
+`restore` 分支也设 `motionInitializedRef = true`，确保从 tree 切回 force 后
+如果再数据变化也不会再被 init 路径冲掉。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端 + core + ui 全绿；
+- `npm test`：
+  - tracker-ui **10/10**（新增 `motionInit.test.ts`，覆盖三个决策分支 + 边界）
+  - tracker-core 131/131
+  - book-tracker 131/131
+  - life-tracker 211/211
+- **必须 Tauri 实跑肉眼验**（vitest 测不到 React effect 在浏览器里的实际行为）：
+  1. 开图 → 打开 panel → 拖 orbit 到 0.20 → 关掉 panel → 加一本书 →
+     再开 panel 滑杆应仍是 0.20，节点运动明显比默认快（修复前会回到 0.15）
+  2. 开图 → 拖 orbit 到 0.20 → 切到层级布局 → 切回力导向 → 滑杆恢复 0.20
+  3. 切 filter（按 tag 选一个）→ orbit 仍是 0.20
+  4. panel "重置默认" 按钮 → 滑杆回到 0.15 → 加书 → 仍是 0.15
+
+### 5. 教训
+
+1. **「一次性副作用」和「依赖性副作用」必须在 effect 体内显式区分**。
+   本例 effect 依赖里有 `visibleData.nodes/links`（数据依赖），
+   但里面想做的是「首次进入 force 时初始化 motion」（一次性）。两者耦合在同一 effect
+   体内就是「数据变 → effect 重跑 → 把用户值冲掉」。**修正套路**：哨兵 ref
+   (`xxxInitializedRef`) 把"一次性"和"依赖性"显式拆开。
+
+2. **「if restore else init」二分支决策漏了"用户已经改过"这条第三路径**。
+   `savedMotionRef === null` 不能唯一区分"首次进入"和"用户调过值"——
+   两个场景下 savedMotionRef 都是 null。原版用「无 savedMotion 就 init」的一刀切，
+   在数据高频变化的实际场景里直接表现为"调了又丢"。这种**布尔状态机缺分支**的 bug
+   在 React effect 里特别隐蔽：影响函数返回值是 ref，dev tools 看不到，UI 也不报错。
+
+3. **抽纯函数是降低这类 bug 修复成本的关键**。把 decision 抽到
+   `decideForceBranchMotion` 后能直接写 vitest 覆盖三个分支（10 个 test cases），
+   比挂 React Testing Library 测 effect 重跑便宜得多，且不用操心 StrictMode / 异步 /
+   重渲染时序。**规律**：业务 effect 里的条件决策优先抽成纯函数，留 effect 主体只做
+   「读 ref → 调决策函数 → 写 ref / 调 d3 API」。
+
+4. **之前 dev-notes 条目里写的"修复"其实是过度乐观**。本条目开头的修正声明就是
+   留给后续 agent 的反例：**"测试 + typecheck 通过" ≠ "bug 真修好了"**。
+   React effect 重跑场景下，typecheck 跟业务正确性几乎无关（types 都对），
+   unit test 也只能覆盖纯逻辑，**必须 Tauri 实跑肉眼验证**。之前几条 commit
+   没做这一步，"修好了"是被反复签字放行的，但实际上 force 函数读的还是 DEFAULT 值，
+   跟初始状态无差别 —— 用户根本区分不出来"我刚才调了值"和"我没调值"。
+
+5. **`savedMotionRef` 的设计假设需要重新审视**。它假设 savedMotionRef === null
+   = "当前没备份过"，但**没备份**这个状态本身是"用户没切走过布局"和"切回 force 已
+   恢复"的并集 —— 二者意图完全不同（前者保持用户值、后者是过渡态）。修法是用
+   `motionInitializedRef` 把"已初始化过"这个事实单独追踪，与 savedMotionRef 解耦。
+
+---
+
+## 2026-08：[共享] react-force-graph-2d 的 simulation.nodes 在 prop 变化后**不会更新** —— 库限制，目前无法在共享层修复
+
+### 1. 现象
+
+在排查 "orbit/jitter/centripetal 调了又被冲掉" 时，做了一个隔离测试（`scripts/test-rfg.mjs`，
+已删，思路保留）模拟 react-force-graph-2d 的核心流程，发现：
+
+- 初始 mount 时，canvas-force-graph 的 `update()` 会调
+  `simulation.nodes(state.graphData.nodes)`，把初始节点数组传给 simulation。
+- 之后用户**修改 visibleData**（加书 / 切 filter / 删书），`comp.graphData(newData)`
+  会把 `state.graphData` 改成 newData，但 **kapsule 不会触发 digest**（所有 props 的
+  `triggerUpdate` 都是 `false`），所以 `update()` 永远不再跑。
+- 结果：`state.graphData.nodes` 是最新的，但 `simulation.nodes` 永远是初始 mount
+  时的那一批。
+- 我们的自定义 force 用 `() => visibleData.nodes`（闭包），迭代新数组并修改
+  `n.vx / n.vy`，但 d3-force 的 `simulation.tick()` 在 integration 阶段
+  遍历的是**旧的 simulation.nodes**，新节点（不在旧数组里的）vx/vy 改了但
+  position 永远不更新 —— 表现为"新加的书不动 / 没有位置"。
+
+测试里加一个 D 节点后跑了 60 帧，D 的位置一直是 `(0, -50)`（d3 默认初始化值），
+A/B/C 仍在按 panel 值运动。
+
+### 2. 为什么这个之前没暴露
+
+- 之前用户大多是在**已有数据上**调 panel，D 是"第一次"加新节点的场景
+  才容易触发，所以一直归到"motion 值被冲"这一类，没深挖到库层面。
+- react-force-graph README 里的 [dynamic example](https://vasturiano.github.io/force-graph/example/dynamic/)
+  本质上也是这个限制 —— 看上去能加节点是因为节点**出现在画布上**（paintNodes
+  读 `state.graphData.nodes`），但新节点在 simulation 里没有位置/速度，
+  视觉上很容易被忽略。
+
+### 3. 尝试过的 workaround（均失败）
+
+`react-force-graph-2d` 通过 `useImperativeHandle` 暴露给父组件的方法只有
+`d3Force / d3ReheatSimulation / emitParticle / stopAnimation / pauseAnimation /
+resumeAnimation / centerAt / zoom / zoomToFit / getGraphBbox /
+screen2GraphCoords / graph2ScreenCoords`。canvas-force-graph 的 kapsule state
+（含 `forceLayout = simulation`）完全封装在闭包里，外部无法访问。
+
+试过但都没法直接写：
+- 替换 `fg.d3Force` 拦截返回值（d3-force-3d 的 `simulation.force(name, fn)` 是返回
+  simulation 的，但 canvas-force-graph 的 `d3Force` 把它丢了）。
+- 用自定义 force 的 `initialize(nodes, random, nDim)` 回调捕获 simulation 的
+  当前 nodes 数组（拿到的就是旧数组，问题没解决）。
+- 用 `state._rerender = digest` 手动触发 digest（state 不可访问）。
+
+### 4. 当前状态
+
+- **本条不修**。这是 react-force-graph-2d 库的限制，本仓的两 app 都共用它，
+  共享层要修就要 monkey-patch 库内部，性价比太低。
+- 文档化到这里，让后续 agent 不要再花时间在"用户报 panel 没生效"这条路上
+  反复怀疑是 motionInit / charge 重置 / pointerOver 等已修过的问题。
+- 如果未来一定要修，路线是 **fork react-force-graph-2d**（或换 d3-force-direct
+  自渲染），不要再绕这个 kapsule。
+
+### 5. 教训
+
+1. **库限制要在调研阶段就排查清楚**。本仓之前 commit 集中在 "panel 写值 → motionRef"
+   这条链上反复修，本质上是同一个 kapsule 内部 bug 的不同切面；如果一开始就把
+   `state.forceLayout` 在 prop 变化后是否同步这条单独验证一次，能更早定位到库本身。
+2. **验证数据变化后行为时必须"重新看一次 simulation 内部状态"**。
+   dev tool 看节点位置 ≠ simulation.nodes 长度 —— 节点能渲染（paintNodes
+   读 state.graphData）但 simulation.tick() 不整合（读 simulation.nodes），
+   两个数据源在 prop 变化后会分叉。
+
+---
+
 ## 2026-08：[共享] ForceParamsPanel 默认值偏小 → 用户以为"4 个滑条拖了没反应"
 
 ### 1. 现象
@@ -1517,4 +1867,126 @@ tooltip 的 `::after` / `::before`，**所有 InfoTip 改造用到的 `.settings
 
 - **教训**：Vite 5 的 `resolve.alias` 接受对象 `{ '@': ... }` 和数组 `[{ find: '@', replacement: ... }]` 两种形式。**对象形式偶发触发 `Cannot find package '@core'`**——Vite 把 `@core` 当 npm scope 名处理（npm 私有 scope 命名约定），绕过了 alias 解析。**数组形式绕开这个判定**，所有 find 都按字面量匹配 replacement。统一两 app 的 `vite.config.ts` + `vitest.config.ts` 都用数组形式，避免一处对象一处数组导致调试方向走偏。
 - **教训**：vitest 用 vite.config 的 alias，但**从 monorepo root 跑 vitest 找不到各 app 的 `vitest.config.ts`**——vitest 默认 cwd 是当前目录，不会自动找子目录的 config。正确做法：从各 app 目录 `cd apps/<name> && npx vitest run`，或者在根 `package.json` 的 scripts 里显式 `npm --workspace <name> run test`。本轮 4 个 shared 测试失败就是这个原因，alias 改数组形式之后从 app 目录跑全部通过。
+
+---
+
+## 2026-08：[共享] 关系图节点间互相覆盖 —— 缺 collision force + 树形层宽固定
+
+### 1. 现象
+
+用户报"book 关系图节点互相覆盖"：
+
+- **力导向模式**：节点之间距离近时（如前置链上层与下层直接相邻、同一前置有多个后置被引力聚拢），节点圆绘完在视觉上完全叠在一起，看不出谁是谁；点单个节点时 hit-area 也互相侵占。
+- **树形模式（"层级布局"）**：同一层两个节点 title 都长（中文 10+ 字符、英文 20+ 字符）时，两个 title 文本横向覆盖，节点圆挨着挤；拖窗口到很窄 viewport 时尤其明显。
+- **搜索命中后**：搜索放大的节点（视觉半径 ×1.6）与旁边的未放大节点之间也没有推开。
+
+### 2. 根因
+
+两个独立 bug，恰好都叫"重叠"：
+
+**A. 力导向模式缺 collision force**
+`useGraphPhysics.ts` 注册了 `orbit / jitter / centripetal / charge` 四个力，**没有 `collide` 力**。
+`d3-force-charge` 是 `1/r²` 衰减的斥力，**两个节点足够近时 charge 推力会塌缩到 ~0**；外加 `centripetal` 持续向心，节点没法靠电荷力"互相挤开"：
+
+```
+refCount=10 节点半径 ≈ 12.5px → 圆之间至少需要 25px 间距
+charge 公式: -120 * (1 - d/2/r)^2 ... d=15px 时推力 ≈ 5px/tick
+但 centripetal 单方面向心 21 px/tick (d=0.3 下稳态)
+```
+
+物理后果：节点被持续往中心拽 + 没足够斥力推开 → 中心一坨，**画出来肉眼可见互相覆盖**。
+d3-force-3d 的 `forceCollide` 是基于 quadtree 的固定半径"实体不可重叠"约束，**不依赖距离衰减**，半径=节点绘制半径时正好是"贴边但不重叠"。
+
+之前 commit `9c999f5` 等修过的是 `panel 调值被冲`、`hover 塌缩`、`charge 反复重置` —— 都集中在"运动 / 数值注入"，**没人动过"节点之间会重叠"这条单独的物理维度**。patch 列表也只关系到 motion / charge / pointerOver，没分析过"是否需要 collide"。
+
+**B. 树形模式 layerWidth 固定 170**
+`applyTreeLayout` 用 `DEFAULT_TREE_DIMS.layerWidth = 170` 等距铺同层节点。170 对短 title（< 8 字符）是宽松的，但：
+
+- title 长度 + 节点半径 < 实际"标题视觉半宽" —— 中文 20 字符的标题横向 ≈ 200px；
+- 同层两个长 title 节点相距 170px 时，**两边的 title 互相覆盖**；
+- `layerHeight = 130`，layer 间距正好贴近节点 title 文字底部，**跨层的 title 与下层节点圆也易撞**。
+
+**C. 反应半径没与绘制半径对齐**
+即便加了 collide force，**碰撞半径必须等于"画到 canvas 上的半径"**，否则"绘制时看上去挨着"的两个节点在碰撞 force 看时已经叠在一起。这要求两份公式保持一致：react-force-graph 的 `r = sqrt(val) * nodeRelSize`，val = `1 + sqrt(refCount) * 2`，nodeRelSize = 4。共享层把这部分公式抽到 `nodeRadius.ts`，新加 `computeNodeRenderRadius(n)`。
+
+### 3. 修复
+
+三块改动 + 一处连带：
+
+**1) `useGraphPhysics.ts` —— 注册 d3-force-3d 的 forceCollide（v6）**：
+
+- `import { forceCollide } from 'd3-force-3d'`；
+- `DEFAULT_MOTION.collideRadius = 1.0`（默认 1.0 = 与绘制半径完全一致）；
+- `DEFAULT_MOTION.collideIterations = 2`（d3 默认 1，密集场景 ×2 让 quadtree pass 收敛更稳）；
+- `.radius((n) => computeNodeRenderRadius(n) * collideRadius * (searchActive ? 1.6 : 1))` —— 与 nodeVal / nodeCanvasObject 的搜索放大同步；
+- 同 charge / collide 路径用哨兵 `collideInitializedRef`，只在 fgRef 首次就绪时注册一次；panel 调 collideRadius 走 `setCollideRadius(r)` setter，走 d3-force-3d 链式 `.radius(fn)` 改写内部 wrap 函数 + `d3ReheatSimulation()`，**不重注册整个 force**。
+
+`MotionRef` 类型加 `collideRadius: number` 字段，`decideForceBranchMotion` init / restore 都带 collideRadius —— restore 必须把"用户切到 tree/analyze 前调过的值"完整带回，与 orbit/jitter/centripetal 同款原则（详见同文件 § 5）。
+
+**2) `useTreeLayout.ts` —— 每层 layerWidth 自适应**：
+
+- `pickLayerWidth(layer, base)` 取 `max(base, longestTitleLen * 8 + maxRenderRadius * 2 + 24)`：
+  - `longestTitleLen * 8` = 11px 字号下文本横向像素估（中文 ≈ 11px × 0.7 修正 = 7-8px 估，混合英文按 6.5px 估偏保守）；
+  - `maxRenderRadius * 2 + 24` = 节点圆直径 + padding；
+- 短 title 仍用 baseLayerWidth（不会无谓加宽）；
+- DEFAULT_TREE_DIMS 也微调：`layerHeight 130 → 140`（跨层 title 与下方节点圆不打架）、`layerWidth 170 → 200`（基础宽度更宽松）；
+- 模块内导出 `pickLayerWidthForTest` 给 vitest 直接覆盖边界，避免"为测私有函数 export 整个 helper"的污染。
+
+**3) `nodeRadius.ts`（新增）—— 共享"绘制半径公式"**：
+
+```ts
+export const NODE_REL_SIZE = 4
+export function computeNodeRenderRadius(node: BaseGraphNode): number {
+  const val = 1 + Math.sqrt(node.refCount) * 2
+  return Math.sqrt(Math.max(0, val)) * NODE_REL_SIZE
+}
+```
+
+被 `useGraphPhysics`（collide radius 函数）和 `useTreeLayout`（pickLayerWidth 内 maxR 计算）共用，单测另开 `nodeRadius.test.ts` 直接覆盖。
+
+**4) `ForceParamsPanel.tsx` —— 加 collideRadius 滑条（1 个）**：
+
+- 范围 `[0.5, 2.5]`、步长 0.05，与 `DEFAULT_MOTION.collideRadius = 1.0` 协调；
+- 输入受控（useState 本地 + motionRef 同步），与既有 `handleMotionChange / handleChargeChange` 同模式；
+- 走 `setCollideRadius(r)` 路径而非直接 `fg.d3Force('collide')` —— 后者需要 panel 自己写 radius 闭包（要拿 searchActiveRef），把闭包放在 useGraphPhysics 内、setter 只传 number，保持 force 闭包逻辑集中在 hook；
+- "重置默认"按钮同步把 collideRadius 拨回 1.0。
+
+**5) `index.tsx` —— `searchActiveRef` 透传给 useGraphPhysics**：
+
+useState 在 React 渲染周期更新，d3-force 的 force 函数每 tick 在 d3 闭包读 —— 用 `useRef + useEffect 同步 isSearchActive → searchActiveRef.current`，force 函数闭包每 tick 自动看到最新值，无需重注册 force。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端 + core 全绿；
+- `npm run test:ui` **32/32**（`motionInit.test.ts` 12 个 + 新 `useTreeLayout.test.ts` 13 个 + 新 `nodeRadius.test.ts` 7 个）；
+- `npm run test` 全量（core + book + life）也都过；
+- **必须 Tauri 实跑肉眼验**：
+  1. 开图默认 force 模式 → 节点之前互相覆盖的两点现在保持清晰贴边但不重叠（贴边距离 ≈ 各自绘制半径之和）；
+  2. 拉近两节点（拖其中一个到另一个旁边）→ 松手后 ~200ms 内两节点被推开到贴边距离（collide 持续硬推，不像 charge 衰减）；
+  3. 搜索框输入 → 命中节点的圆放大 1.6× → 旁边的未放大节点不会被推开碰撞侵入（搜索命中半径 1.6× 同步放大，碰撞距离增加）；
+  4. 切到层级布局 → 同一层节点 title 都很长（中文 16+ 字符）时，节点横向间距明显变宽，title 不再互相覆盖；
+  5. 短 title 单点层 → 仍用 base layerWidth（默认 200），不无谓加宽；
+  6. 切回力导向 → 之前 panel 调到 1.6 的 collideRadius 恢复（与 orbit/jitter/centripetal 同款 restore 全量带回原则）；
+  7. 鼠标进图（图冻结） → 节点仍按当前 collideRadius 推开（collide 不参与 hover 自适应，纯物理约束），只是切向运动停下。
+
+### 5. 教训
+
+1. **「碰撞」是 d3-force 的独立维度，不能用 charge 替代**。`d3-force-manyBody` 是 `1/r²` 斥力，**近距时推力自然归零**；物理上对应"长程电场"而不是"刚体碰撞"。需要实体不重叠时必须装 `d3-force-collide`（半径 = 节点实际占位），charge 提供的是"避免远距离吸引一坨"的散开。混淆两者是经典错误。**判断口诀**："节点能不能画完后贴在一起不挤" → 必须有 collide；"节点能不能均匀散开" → 用 charge。
+
+2. **碰撞半径必须等于绘制半径**。两个公式各自独立 → 绘制半径 12 px、碰撞半径 8 px 时，画到画布上挨着的两节点 collision 看时已重叠 4px；反过来绘制 8 碰撞 12 时画完离很远看着空。本仓用 `nodeRadius.ts` 单点维护 `computeNodeRenderRadius`，forceCollide / treeLayout / nodeCanvasObject 三处共用同一份。**凡是新引入"碰撞 / 选中 area / hit detection"，先问"绘制半径从哪取"**。
+
+3. **「`DEFAULT_MOTION.charge` 修复三连击」是并发相关的"症状层"问题，不等于"force 设计完整"**。charge 反复重置、panel 调值被冲、hover 塌缩——三连击都集中在"数值怎么写到 simulation / 怎么保持"这条链上，没人触碰"还有哪个 force 维度没装"。**规律**：调试一类视觉 bug 时，**先列全 d3-force 标准力清单**（charge / collide / link / center / x / y / radial / manyBody），对照当前 graph 用了哪几个；漏装的不是"未被发现"，是"没列出来过"。
+
+4. **「tree 模式层宽固定」是和"重叠"完全不同的根因，恰好症状面像但修法独立**。本轮容易把两件事并为"重叠"一个大修，结果 force 模式修了 tree 没用、tree 修了 force 没用。区分口诀：
+   - "节点圆互相覆盖" → collide force 或树形间距；
+   - "标题文字横向撞车" → **只能 tree 模式 layerWidth 自适应**；collide 在 force 模式有效，tree 模式钉 fx/fy 完全不会动；
+   - "搜索命中后大圆盖小圆" → collide radius 的搜索放大系数没传或没与 nodeVal 同步。
+
+5. **「restore 必须保留新增字段」是 motionInit 的隐藏契约**。MotionRef 加 `collideRadius` 后，`decideForceBranchMotion` 的 `restore` 分支如果不带新字段，切到 tree 再切回 force 时 collideRadius 会被打回 DEFAULT。**规律**：给"被 useState 化的 ref" 加字段时，**重读**所有 restore / init 路径 + 对应单测，新增字段必须 pathwise 覆盖三个分支（restore / init / noop）+ path-aware 断言。
+
+6. **不在 panel 里写 force 闭包**。如果 panel 直接调 `fg.d3Force('collide', newForce)`，要在 panel 里重写一遍 "computeNodeRenderRadius(n) × collideRadius × (searchActive ? 1.6 : 1)" —— 这是把"force 半径语义"分散到 panel + physics 两处的反模式。**正确做法**：useGraphPhysics 暴露 `setCollideRadius(number)` setter，闭包集中；panel 只负责"数字"层（受控 input + setter），闭包逻辑留在 hook。
+
+7. **`d3-force-3d` 没官方 type declaration**（vasturiano 自维护），typecheck 报 `Could not find a declaration file for module 'd3-force-3d'`。本地解决方案：`packages/tracker-ui/src/GraphView/d3-force-3d.d.ts` 写一个最窄 ambient declaration（只暴露 `forceCollide<T>()` 的链式 API）。**不要**为了用 d3-force-3d 把 `@types/d3-force` 引进来 —— 那是 d3-force 的类型，而 v3 是另一个 fork（vasturiano 自维护），两个 API 不兼容。
+
+---
 

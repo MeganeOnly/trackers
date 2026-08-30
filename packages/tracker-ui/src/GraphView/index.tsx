@@ -33,7 +33,8 @@ import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import type { ReactNode } from 'react'
 import type { BaseGraphNode, BaseGraphLink } from './types'
 import { useResize } from './useResize'
-import { useGraphPhysics } from './useGraphPhysics'
+import { useGraphPhysics, DEFAULT_MOTION, type MotionRef } from './useGraphPhysics'
+import { decideForceBranchMotion } from './motionInit'
 import {
   applyTreeLayout,
   computeDepths,
@@ -258,11 +259,32 @@ export function GraphView<
   const fgRef = useRef<ForceGraphMethods<unknown, unknown> | undefined>(undefined)
   const dims = useResize(wrapRef)
   const layoutModeRef = useRef<LayoutMode>(layoutModeProp)
-  const { motionRef, pointerOverRef, setPointerOver, forceTickRef } = useGraphPhysics(
+  /* searchActive 每帧同步到 ref —— collide force 闭包每 tick 读这个,搜索命中
+   * 节点的碰撞半径放大 1.6×(与 nodeCanvasObject 画蓝圈的视觉放大系数一致)。
+   * 用 ref 而不是 state 传入 useGraphPhysics:effect 依赖里 motionRef.collideRadius
+   * 已经能从 ref 读到,searchActive 变化时不需要重跑整个 useEffect。 */
+  const searchActiveRef = useRef<boolean>(false)
+  useEffect(() => {
+    searchActiveRef.current = isSearchActive
+  }, [isSearchActive])
+  const { motionRef, pointerOverRef, setPointerOver, forceTickRef, setCollideRadius } = useGraphPhysics(
     fgRef,
     visibleData.nodes,
-    layoutModeRef
+    layoutModeRef,
+    searchActiveRef
   )
+  /* 切到 tree/analyze 前先备份用户在 panel 调过的 motionRef 值；切回 force 时
+   * 恢复 —— 防止用户在面板里精心调好的轨道/抖动/向心值被布局切换打回默认。
+   * null = 当前没有备份(首次进入或刚恢复到 force 模式)。 */
+  const savedMotionRef = useRef<MotionRef | null>(null)
+
+  /* motion 是否已经从 DEFAULT_MOTION 初始化过。layoutMode effect 依赖里包含
+   * visibleData —— 加一本书 / 切 filter 都会让 effect 重跑。如果没有这个哨兵，
+   * else 分支的"首次进入用 DEFAULT_MOTION"会在**每次数据变化时**都把用户调好的
+   * 滑条值静默冲回默认（典型场景：用户打开 panel 调到 0.2 → 关掉 panel → 加
+   * 一本书 → motionRef 被打回 0.15，"我刚才调的值丢了"）。只允许初始化一次，
+   * 之后完全交给 panel / savedMotionRef 路径。 */
+  const motionInitializedRef = useRef(false)
 
   // 高亮 + 自动居中
   useAutoCenter(fgRef, visibleData.nodes, dims, highlightId)
@@ -273,31 +295,52 @@ export function GraphView<
   }, [layoutModeProp])
 
   /**
-   * 响应 layoutMode 切换：
-   *   - 切到 tree：关掉所有动效（orbit/jitter/centripetal 全 0），按 depth 分层钉位；
-   *     再 reheat 一次让 d3 把新 fx/fy 写进渲染。
-   *   - 切到 analyze：关掉动效但不重排（保留 force 当前位置）。
-   *   - 切回 force：清掉所有 fx/fy，恢复默认动效强度（按当前 pointerOver 状态）。
+   * 响应 layoutMode / 数据变化：
+   *   - 切到 tree/analyze：先备份 motionRef 当前值（用户在面板调过的），再把
+   *     orbit/jitter/centripetal 设 0。tree 还会按 depth 分层钉位。
+   *   - 切回 force：恢复备份值到 motionRef（保留用户在面板调过的值），并清掉
+   *     fx/fy；首次进入 force（motionInitializedRef=false）才用 DEFAULT_MOTION
+   *     （带 hover 自适应）。
+   *   - 数据变化（visibleData 引用变）但 layoutMode 仍是 force：只重 apply tree
+   *     layout / 清 fx/fy，**绝不**碰 motionRef（防止冲掉用户值）。
    */
   useEffect(() => {
     const fg = fgRef.current
     if (!fg || visibleData.nodes.length === 0) return
     try {
-      if (layoutModeProp === 'tree') {
+      if (layoutModeProp === 'tree' || layoutModeProp === 'analyze') {
+        // 备份当前用户值（仅首次切走时备份，避免连续切两个非 force 模式互相覆盖）
+        if (savedMotionRef.current === null) {
+          savedMotionRef.current = { ...motionRef.current }
+        }
         motionRef.current.orbit = 0
         motionRef.current.jitter = 0
         motionRef.current.centripetal = 0
-        const depths = computeDepths(visibleData.nodes, visibleData.links)
-        applyTreeLayout(visibleData.nodes, depths, DEFAULT_TREE_DIMS)
-      } else if (layoutModeProp === 'analyze') {
-        motionRef.current.orbit = 0
-        motionRef.current.jitter = 0
-        motionRef.current.centripetal = 0
+        if (layoutModeProp === 'tree') {
+          const depths = computeDepths(visibleData.nodes, visibleData.links)
+          applyTreeLayout(visibleData.nodes, depths, DEFAULT_TREE_DIMS)
+        }
       } else {
-        const over = pointerOverRef.current
-        motionRef.current.orbit = over ? 0.004 : 0.05
-        motionRef.current.jitter = over ? 0.004 : 0.04
-        motionRef.current.centripetal = 0.02
+        // force 模式下的 motionRef 写入决策（restore / init / noop）抽到 motionInit.ts
+        // 便于单测覆盖;原版 if/else 链漏了 noop 分支 → 数据变化时静默冲掉用户值
+        const decision = decideForceBranchMotion(
+          savedMotionRef.current,
+          motionInitializedRef.current,
+          pointerOverRef.current
+        )
+        if (decision.kind === 'restore') {
+          motionRef.current.orbit = decision.values.orbit
+          motionRef.current.jitter = decision.values.jitter
+          motionRef.current.centripetal = decision.values.centripetal
+          savedMotionRef.current = null
+          motionInitializedRef.current = true
+        } else if (decision.kind === 'init') {
+          motionRef.current.orbit = decision.values.orbit
+          motionRef.current.jitter = decision.values.jitter
+          motionRef.current.centripetal = decision.values.centripetal
+          motionInitializedRef.current = true
+        }
+        // noop：已初始化过 + 没备份 → 数据变化触发的重跑，**绝不**碰 motionRef
         for (const n of visibleData.nodes) {
           n.fx = undefined
           n.fy = undefined
@@ -435,7 +478,7 @@ export function GraphView<
           linkDirectionalArrowRelPos={0.95}
           cooldownTicks={Infinity}
           cooldownTime={Infinity}
-          d3VelocityDecay={0.4}
+          d3VelocityDecay={0.3}
           onNodeDragEnd={(n) => {
             // force 模式下高亮节点拖完回到中心；其它节点保持自由（d3 已在 drag end 清掉 fx/fy）
             if (layoutModeProp === 'force' && highlightId && n.id === highlightId) {
@@ -512,6 +555,8 @@ export function GraphView<
           fgRef={fgRef as unknown as React.RefObject<ForceGraphMethods<unknown, unknown>>}
           motionRef={motionRef}
           forceTickRef={forceTickRef}
+          layoutMode={layoutModeProp}
+          setCollideRadius={setCollideRadius}
           onClose={onForceParamsClose ?? ((): void => {})}
         />
       )}
@@ -560,6 +605,8 @@ export function GraphView<
 /** 暴露内部 hooks 供 app 复用 —— commit 1+ 会用到 */
 export { useGraphPhysics, DEFAULT_MOTION } from './useGraphPhysics'
 export type { MotionRef, PhysicsController } from './useGraphPhysics'
+export { decideForceBranchMotion } from './motionInit'
+export type { MotionDecision } from './motionInit'
 export type { GraphFilters } from './useGraphFilters'
 export {
   applyTreeLayout,
