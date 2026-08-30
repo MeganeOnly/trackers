@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./base.css": "./src/base.css",
+    "./GraphView.css": "./src/GraphView.css",
     "./themes/classic.css": "./src/themes/classic.css",
     "./themes/library.css": "./src/themes/library.css",
     "./themes/codex.css": "./src/themes/codex.css"

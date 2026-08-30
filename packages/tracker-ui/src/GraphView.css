@@ -1,0 +1,67 @@
+/* packages/tracker-ui/src/GraphView.css
+ *
+ * 共享 GraphView 样式 —— 从两 app 的 styles.css 抽出。
+ * 两份原样式字节级一致（.graph-view / .graph-legend / .lg-*），
+ * 合并到共享 CSS，由 main.tsx 显式 import '@ui/GraphView.css'。
+ *
+ * 不进 base.css —— GraphView 是可选组件样式，
+ * 保持 base.css 最小（只放 token + reset + 通用排版）。
+ */
+
+.graph-view {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.graph-view canvas {
+  display: block;
+}
+.graph-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.graph-legend .lg-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 2px;
+}
+.graph-legend .lg-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+/* 关系图左下角布局模式切换按钮（力导向 / 层级 / 分析） */
+.graph-legend .lg-toggle {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  line-height: 1.4;
+}
+.graph-legend .lg-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.graph-legend .lg-toggle.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  font-weight: 500;
+}

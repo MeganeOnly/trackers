@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 // 共享 token + reset + 全局排版(由 packages/tracker-ui 提供)
 import '@ui/base.css'
+// 共享 GraphView 样式(.graph-view / .graph-legend / .lg-*)—— commit 0 重构下沉
+import '@ui/GraphView.css'
 // 三个 theme preset 全部静态 import —— 运行时由 :root[data-theme] 选 active 哪套,
 // 多加载的几个 CSS 体积很小(每个 ~30 行),换来切换零延迟
 import '@ui/themes/classic.css'
