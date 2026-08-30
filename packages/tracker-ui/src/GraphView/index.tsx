@@ -41,6 +41,7 @@ import {
 } from './useTreeLayout'
 import { useAutoCenter } from './useAutoCenter'
 import { drawTagChips } from './drawTagChips'
+import { ForceParamsPanel } from './ForceParamsPanel'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
 const NODE_SIZE_FN = (n: BaseGraphNode): number => 1 + Math.sqrt(n.refCount) * 2
@@ -77,6 +78,10 @@ export interface GraphViewProps<
   getLinkWidth?: (link: L) => number
   /** 是否绘制节点标题 —— 默认 true */
   showNodeTitle?: boolean
+  /** 是否显示力参数浮窗（commit 1）—— 默认 false */
+  showForceParams?: boolean
+  /** 关闭力参数浮窗的回调 */
+  onForceParamsClose?: () => void
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -107,6 +112,8 @@ export function GraphView<
     getLinkColor,
     getLinkWidth,
     showNodeTitle = true,
+    showForceParams = false,
+    onForceParamsClose,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -298,6 +305,13 @@ export function GraphView<
         />
       )}
       {legend && <div className="graph-legend">{legend}</div>}
+      {showForceParams && (
+        <ForceParamsPanel
+          fgRef={fgRef as unknown as React.RefObject<ForceGraphMethods<unknown, unknown>>}
+          motionRef={motionRef}
+          onClose={onForceParamsClose ?? ((): void => {})}
+        />
+      )}
     </div>
   )
 }
@@ -313,6 +327,7 @@ export {
 export type { TreeLayoutDims } from './useTreeLayout'
 export { useAutoCenter, SETTLE_DELAY_MS, IMMEDIATE_CENTER_MS, SETTLE_CENTER_MS } from './useAutoCenter'
 export { drawTagChips } from './drawTagChips'
+export { ForceParamsPanel } from './ForceParamsPanel'
 export { useResize } from './useResize'
 export type { Dims } from './useResize'
 export type { BaseGraphNode, BaseGraphLink } from './types'

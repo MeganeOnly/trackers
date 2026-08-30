@@ -57,6 +57,7 @@ interface GraphViewProps {
 
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
+  const [showForceParams, setShowForceParams] = useState(false)
   const books = useBooksStore((s) => s.books)
   const edges = useRelationsStore((s) => s.edges)
   const select = useBooksStore((s) => s.select)
@@ -103,6 +104,8 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       data={data}
       layoutMode={layoutMode}
       highlightId={highlightId}
+      showForceParams={showForceParams}
+      onForceParamsClose={() => setShowForceParams(false)}
       emptyText="还没有作品。加几部试试。"
       getNodeColor={(n) => {
         if (highlightId && n.id === highlightId) return '#3b6cf2'
@@ -138,6 +141,19 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
             title="层级布局：底部叶子 → 顶部总目标，位置固定"
           >
             层级
+          </button>
+          <span className="lg-sep" />
+          <button
+            type="button"
+            className={'lg-toggle' + (showForceParams ? ' active' : '')}
+            onClick={() => setShowForceParams((v) => !v)}
+            title="力参数：实时调节轨道力 / 抖动 / 向心 / 电荷斥力"
+            aria-label="力参数"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
         </>
       }

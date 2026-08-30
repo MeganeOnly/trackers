@@ -49,6 +49,7 @@ export {
   DEFAULT_TREE_DIMS,
   useAutoCenter,
   drawTagChips,
+  ForceParamsPanel,
   useResize
 } from './GraphView'
 export type {
