@@ -4,6 +4,214 @@
 > 约定：每次整改 / 增添功能后，如有值得留档的经验、注意点、踩坑，**追加**到本文件
 > （新条目放在对应主题节的开头或按日期倒序排列）。
 
+---
+
+## 2026-08：[共享/领域] 影视主创字段加新成员（`screenwriter`）的对称实现模式
+
+- **现象**：用户提出"电影信息里要有编剧"——已有的影视专用字段只有 `starring`（主演），
+  没有"编剧 / 制片人 / 剪辑"等同类主创信息。
+- **决策**：完全复用 `starring` 的实现范式（仅 movie/tv 暴露 + 空串不写盘 + 老文件缺字段
+  → ""），而不是新建一套"通用 crew 字段"。理由：`starring` 已经定下"影视专用空字符串字段"
+  的事实标准（类型层 `#[serde(default)]` + 写盘层 `if !empty`），同款规则扩字段成本最低、
+  心智一致。
+- **改动触点**（按 monorepo 根 AGENTS.md §七 "加新功能的标准流程" 走）：
+
+  1. **类型契约**：`src/shared/types.ts` 的 `Book` 接口加 `screenwriter: string`（**领域类型**，
+     留 app 不进 core——core 不感知"电影 / 编剧"领域语义）。
+  2. **API 层**：`src/shared/api.ts` 的 `BookAPI.update` patch 类型加 `screenwriter?: string`；
+     同步 `src/renderer/store/books.ts` 的 zustand `update` 签名。
+  3. **UI 表单**：每个组件一份 `screenwriterLabelFor(kind)` helper（BookForm / BookDetail /
+     RankingCompare），与 `starringLabelFor` 同款对称结构——"独立 input 行，不与 starring 复用"
+     的取舍是为了避免"主演 / 编剧"在同一个 input 出现标签二义。
+  4. **Rust serde 镜像**：`src-tauri/src/types.rs` 三处同步——`Book` 加
+     `#[serde(default)] pub screenwriter: String`、`BookInput` 加 `#[serde(default)]`、
+     `BookPatch` 加 `Option<String>`（None=不改 / Some("")=清空 / Some(s)=设值）。
+  5. **数据层**：`src-tauri/src/data/books.rs` 四处插桩——`normalize_book` 加
+     `data.get("screenwriter")...unwrap_or("")`；`write_book` 透传 `input.screenwriter.clone()`；
+     `update_book` 加 `if let Some(v) = &patch.screenwriter { merged.screenwriter = v.clone(); }`；
+     `persist` 加 `if !book.screenwriter.is_empty() { fm.insert("screenwriter", ...) }`。
+  6. **测试**：复用 `starring_round_trip_and_omit_when_empty` 的 4 步断言——
+     写盘 + 读回 / 空串不写盘 / 老文件缺字段 → "" / patch 合并（None 不改 / Some("") 清空 / Some(s) 设值）。
+     `sample_input()` helper 必须同步加 `screenwriter: String::new()`，否则 compile error。
+  7. **文档**：`README.md` 的功能清单 + AGENTS.md 的"已实现功能"+ frontmatter 约束段，
+     与 `starring` 完全对称。
+
+- **回归验证**：`npm run typecheck`（双段 node + web） + `cargo test -p book-tracker` 31 个
+  测试全过，含新增 `screenwriter_round_trip_and_omit_when_empty`。
+- **教训（共享内核相关）**：
+  1. **领域字符串字段的对称扩展成本接近 0**：本例只动了 8 个文件，全部走"对称模式"，
+     没有改动任何共享内核（`tracker-core` 不感知）——印证 `docs/shared-boundary.md`
+     "两 app 都需要且语义一致才进 core" 的判定规则，`screenwriter` 是 book-tracker 专属
+     影视主创字段，不污染 core。
+  2. **`sample_input()` helper 是单测编纂点**：Rust 端所有 `BookInput` 相关测试都过它
+     初始化；加 `BookInput` 字段后若忘了同步 helper，会触发"测试编译失败 + 现有用例全部红"
+     的级联效应。这是反向保险丝：宁可让它响铃也别让它默吞。
+  3. **`Record<EnumType, T>` 字典要加字段同步 grep**（参考 AGENTS.md §十踩坑 #15）：
+     本例 `screenwriter` 没有踩这个坑是因为没新增 `BookStatus`；但下次给 `WorkKind` 加
+     enum 值时，所有 `Record<WorkKind, string>` 的字典（`WORK_KIND_LABELS` +
+     `authorLabelFor` + `yearLabelFor` + `countryLabelFor` + `translatorLabelFor` +
+     `starringLabelFor` + `screenwriterLabelFor`）都得补全。grep `WorkKind` 一遍保险。
+
+---
+
+## 2026-08：排名 Modal 一打开就白屏（IPC 字段命名不一致）
+
+### 1. [共享] 现象：点「排名」按钮（或按 `r`）整个窗口纯白，什么都不显示
+
+- **现象**：book-tracker 打开「作品排名」Modal 后整个应用变成空白页——不是 Modal
+  内容为空，而是 React 根节点被卸载（无 ErrorBoundary 时未捕获异常的标准表现）。
+  仅在**当前类型已有「已读」作品**时复现；池为空时走空状态分支，反而看不出问题。
+- **根因**：`RankingFile` 的 IPC JSON 字段命名两端不一致。
+  Rust 侧 `crates/tracker-core/src/types.rs::RankingFile` 没有 `#[serde(rename_all)]`，
+  序列化出 `initial_rating` / `k_factor`；TS 侧 `packages/tracker-core/src/ranking.ts`
+  声明的是 `initialRating` / `kFactor`。于是 `file.initialRating === undefined` →
+  `recomputeRatings` 把池内每个 id 初始化成 `undefined` → `RankingList` 里
+  `const score = ratings[id] ?? file.initialRating` 仍是 `undefined` →
+  `score.toFixed(0)` 抛 `TypeError` → 整棵树卸载 → 白屏。
+  **类型系统抓不到**：类型只描述编译期契约，跨进程 JSON 的实际键名由 serde 属性决定，
+  `tsc` 与 `cargo build` 都认为自己是对的。
+- **修复**：
+  - Rust `RankingFile` 加 `#[serde(rename_all = "camelCase")]`，两个算法参数字段各加
+    `alias = "initial_rating"` / `alias = "k_factor"`，兼容旧版本已写盘的 `rankings.json`；
+  - 前端加两层兜底：store `load()` / `applyResult()` 统一过 `sanitizeFile()`
+    （`Number.isFinite` 校验 + 默认值回填、`history` 非数组归一为 `[]`）；
+    `RankingList` 用 `scoreOf(id)` 取代裸 `??`，保证渲染路径永远拿到有限数值。
+- **回归验证**：`cargo test -p book-tracker` 新增两条断言——序列化产物含
+  `"initialRating"` / `"kFactor"` 且不含 snake_case 键；旧 snake_case 文件仍能解析出
+  1200 / 24。三端 typecheck + `npm run test`（core/book/life 全量）全绿。
+- **教训（通用）**：
+  1. **凡是跨 IPC 的 Rust struct，字段名只要不是单个单词，就必须显式写
+     `#[serde(rename_all = "camelCase")]`**，并在新增该类型时补一条"序列化键名"单测；
+     只测 round-trip（Rust 写 → Rust 读）永远发现不了这类 bug。
+  2. 前端消费后端返回的数值字段，**不要只用 `??` 兜 `null` / `undefined`**——
+     `??` 对"key 存在但值是 undefined"的链式传播无能为力，数值路径应统一 `Number.isFinite` 校验。
+  3. 应用层没有 ErrorBoundary 时，任何渲染期异常都表现为"纯白窗口"；
+     排查此类现象的第一步是开 devtools 看 console，而不是怀疑 CSS。
+
+### 2. [book-tracker] 对比卡片改为正方形 + 信息密度提升
+
+- **需求**：原对比视图两张候选卡片只有「标题 / 作者·年份·国家 / tags」三行，且底部有一条
+  「选 ← / 选 →」提示；卡片高度靠 `min-height: 280px` 撑，视觉上空且信息不足。
+- **改动**（`RankingCompare.tsx` + `styles.css`）：
+  - **删掉 `ranking-compare-card-pick`**：整张卡片本身就是 `<button>`，底部提示纯冗余；
+  - **卡片正方形**：`aspect-ratio: 1 / 1` + `width: 100%` + `max-height: 100%`，高度由 grid
+    轨道宽度推出；`.ranking-compare-stage` 改 `align-items / justify-items: center`
+    （原 `stretch` 会与 `aspect-ratio` 打架，让高度重新由行高决定、宽高比失效），
+    stage 自身 `flex: 1; min-height: 0` 吃满 `.ranking-body` 剩余高度；
+  - **信息扩展**：类型徽标 + 池内排名（`当前第 N / M`）、标题、字段表（主创 / 年份 / 地区 /
+    译者 / 主演 / 看过次数，label 走 `authorLabelFor` 等类型感知函数）、笔记 3 行 clamp
+    （`-webkit-line-clamp`）、tags、底部评分脚注（评分 + 已对比次数，`margin-top: auto` 钉底）；
+    卡片 `overflow-y: auto`，内容多时内部滚动而不撑破比例。
+- **注意点**：`aspect-ratio` 与 flex/grid 的 `align-items: stretch` 互斥——被拉伸项的高度由
+  容器决定，宽高比会被忽略。要保正方形，父容器必须让它 `center`（或显式不 stretch）。
+- **回归验证**：`npm.cmd run typecheck` 全绿；`npm.cmd run test:book` 89/89 通过
+  （exit 1 来自 vite configLoader 警告，§3 已记，非致命）。
+
+### 3. [book-tracker] 对比卡片二次加密：字号上调 + 派生信息补位
+
+- **现象**：卡片改正方形后，原有字段（标题 18px / 字段表 12px）在大方块里显得空。
+- **改动**：
+  - **字号整体上调**：标题 18 → 24px、字段表 12 → 15px（label 13px）、笔记 12 → 14px、
+    tag 11 → 12px、评分由脚注小字改成 26px 主数字；Modal 宽度 780 → 920，
+    卡片随 grid 轨道变宽、正方形边长同步变大；
+  - **补"本来就有但没展示"的字段**：看过次数（恒显示，1 次也写）、最近更新、收录日期、编号；
+  - **补派生信息**（无需改数据模型即可提升信息量的最划算来源）：
+    - **Elo 预期胜率**（`expectedScore(scoreA, scoreB)`）——把分差翻译成"这一方赢的概率"；
+    - **两者历史交手战绩**（`headToHead()` 扫 history，注意 `a`/`b` 位置可能互换，
+      正反两向都要匹配再折算胜负），顶部 meta 与卡片脚注各展示一份；
+  - 笔记摘要行数 3 → 4，并加左侧竖线区分引文。
+- **经验**：卡片"显得空"优先从**已有数据的派生量**补（排名、胜率、交手战绩、时间戳），
+  而不是急着加数据模型字段——零迁移成本、零写盘风险。
+
+
+---
+
+## 2026-08：EditMode 侧栏 status 分组可折叠同步到 book-tracker
+
+### 1. [共享] 现象：life-tracker 已有 status 分组可折叠，book-tracker 没做
+
+- **现象**：life-tracker 编辑模式侧栏（`GoalList`）早就有 `useCollapsibleSections` hook +
+  status 分组 header 用 `<button>` 渲染（带 `▸/▾` caret + localStorage 持久化），用户可以
+  点「已达成」/「进行中」等分组收起整片列表。但 book-tracker 的 `BookList` 还是普通 `<h3>`
+  header，不可折叠——用户希望「想看」/「已读」等分组也能点 header 收起展开。
+- **修复**（`apps/book-tracker/src/renderer/components/BookList.tsx` + `styles.css`）：
+  - **hook 直接镜像 life**：复制 `useCollapsibleSections` 实现（localStorage key
+    `'book-tracker:sidebar:collapsed-sections'` —— 注意**两个 app 各自的 key 不能混**，
+    否则一边的折叠状态会污染另一边）+ `isCollapsed(key)` / `toggle(key)` 接口；
+  - **header 由 `<h3>` 改成 `<button>`**：6 个 status 分组 + 底部「已收起」分组共 7 个 header
+    全部改成 `<button className="group-header">`，点击触发 `toggle('status:<x>' 或
+    'collapsed:bucket')`；折叠态加 `▸`、展开态加 `▾`；
+  - **section 容器加 `is-collapsed` class**：折叠时 `<ul>` 整段不渲染（连同 `empty-hint`），
+    跟 life 同款。匹配逻辑（`filtered(items)`）里已经有 `!b.collapsed` 过滤，不需要额外改；
+  - **CSS 块从 `.book-list-group h3` 重写成 `.book-list-group .group-header`**：原 `<h3>`
+    样式全部迁移到 `<button>`（color/uppercase/letter-spacing/flex/cursor）；新增 hover 背景
+    （`rgba(0,0,0,0.03)`，与 life 同款）、`caret` 自动 `margin-left: auto` 推到右侧、
+    `:focus-visible` 走全局 `var(--accent)` outline。
+  - **「已收起」分组外层样式**：保留 `--collapsed-bucket` 修饰（dashed border-top + padding-top
+    与 life 桶状一致），bucket 自身可折叠；bucket 内部按 status 拆 6 个**独立可折叠**子分组，
+    与 life 5 status 同款结构（见 §1.5 子条目）。
+- **回归验证**：
+  - `npm.cmd run typecheck` 三端（node + web × book + life + core）全绿；
+  - `npm.cmd run test:book` 89/89 vitest 全过（含 `ranking.test.ts` 等共享测试）；
+  - `npm.cmd run test:life` 169/169 vitest 全过；exit 1 来自 vite configLoader 警告（dev-notes
+    §3 已记，非致命）。
+- **手动验证**：点「想看」header → 整片「想看」分组收起（header 变 `▸`、count 不变、列表消失）；
+  刷新页面后状态保留；新开 tab 调 localStorage `book-tracker:sidebar:collapsed-sections`
+  改值，原 tab 即时同步（storage 事件）。
+
+### 1.5 [共享] 「已收起」bucket 内按 status 拆可折叠子分组（补 book-tracker）
+
+- **现象**：上一轮把 `CollapsedSection` 平铺成扁平 `<ul>` 后，「已收起」内混杂全部 status 的
+  作品（`reading/watching/want/finished/shelved/abandoned`），数量一多就难定位具体某本属于哪个
+  status。life-tracker 的 `CollapsedBucket` 是按 status 拆 5 个**独立可折叠**子分组（每子分组
+  自己有 caret 跟 sectionKey），book 这边结构不完整。
+- **修复**（`apps/book-tracker/src/renderer/components/BookList.tsx` `CollapsedSection → CollapsedBucket`）：
+  - **新组件 `CollapsedBucket`**：把扁平 list 拆成「外层 bucket」+「按 status 子分组」两层结构；
+    外层 bucket 沿用 `book-list-group--collapsed-bucket` + `group-header--bucket`，子分组走
+    `book-list-group--sub` + `group-header--sub`（缩进更深、字号 11px、取消 uppercase，与 life
+    的 `--sub` 修饰同款）；
+  - **三个独立折叠维度**：
+    - bucket 自身（`sectionKey = 'collapsed:bucket'`）—— 收起 bucket 则整片 + 子分组一起隐藏；
+    - 每个 status 子分组（`sectionKey = 'collapsed:<status>'`）—— 6 个独立 sectionKey；
+    - 三层之间互不干扰：bucket 收起但内部子分组各 sectionKey 状态保留；bucket 展开后子分组
+      仍按各自 sectionKey 折叠；
+  - **空子分组不渲染**：用 `if (totalForStatus === 0) return null` 早退，避免无意义的 `<section>`
+    跟空 `<ul>`；
+  - **跨 status 聚合 memo**：`collapsedByStatus` 走 `useMemo` 一次性把 `collapsedItems` 按 status
+    分桶；`filteredByStatus` 再在它基础上跑 `matchBook + worksFilter`，依赖数组里全列清避免
+    stale closure（`collapsedByStatus` 是 memo 出来的稳定引用，依赖它就够了）；
+  - **count 文案**：bucket header 显示 `(matchedCount/totalCount)`（搜索状态），子分组 header
+    显示 `(items.length/totalForStatus)`，与 life 同款。
+- **CSS 增量**（`apps/book-tracker/src/renderer/styles.css`）：
+  - `.group-header--sub` 加入 `.group-header` / `--bucket` 的合并选择器（hover / caret / count
+    / focus-visible 同款）；
+  - 新增 `.book-list-group--collapsed-bucket { display: flex; flex-direction: column; gap: 10px; }`
+    让 bucket 内子分组之间有 10px 间隔；
+  - 新增 `.bucket-subs { ... padding-left: 8px; }` 让子分组视觉缩进；
+  - 新增 `.book-list-group--sub .group-header--sub` 子样式（11px / 不 uppercase / weight 500）。
+- **回归验证**：typecheck 三端全绿；`npm.cmd run test:book` 89/89 全过；手测 bucket / 子分组 / 三
+  层折叠状态独立保留。
+
+### 2. [共享] 教训：同源侧栏逻辑跨 app 镜像，localStorage key 必须独立
+
+- **教训**：life 与 book 的 `useCollapsibleSections` 是字面意义上的同源代码——可以镜像、可以
+  后续抽到 `packages/tracker-ui`，但**现在抽过早**：`BookList` / `GoalList` 本身还都是
+  app 专属组件（详见 `docs/shared-boundary.md` C 类「领域专属」），hook 跟着 list 一起走
+  等 list 一起共享，是最省心的迁移路径——不要为了"少 100 行重复代码"现在就抽到 `@ui/hooks`，
+  导致 `BookList` 仍依赖 `@ui/hooks` 而 `GoalList` 不依赖的非对称依赖图。
+- **教训**：localStorage key **必须带 app 前缀**（`book-tracker:sidebar:...` vs
+  `life-tracker:sidebar:...`）——同机跑两个 app、共享同一个 origin（本地 `tauri://localhost`
+  + 浏览器）的场景下，不带前缀会让一边的折叠状态污染另一边（收起「已达成」时把另一 app 的
+  「已读」也一起收起）。
+- **教训**：折叠态不写到 `<Book>` / `<Goal>` 上、只放 localStorage 的原因——同本书从「在读」
+  收起、再切到「已读」时不应该自动展开（用户收起的是「在读 / 已读 视图下的位置」而非
+  「这本书的状态」）；持久化在 localStorage 才能让用户关闭再打开 app 后保持折叠视图。
+- **教训**：bucket 拆子分组时用 **三层独立 sectionKey**（bucket / 子分组 / status 分组）——
+  局部折叠 UX 比"全部一起折叠"细腻得多。同 sectionKey 内只用一个 `collapsed` boolean 即可
+  （book 只有一层扁平 list 时就是 boolean），多层折叠才升级到字符串集合 + key 前缀命名空间
+  （`status:x` / `collapsed:bucket` / `collapsed:x`），前缀命名空间化是 localStorage 序列化
+  与跨 tab 同步的唯一可靠做法。
+
 ## 记录规范
 
 - 只写**中性、可提交**的技术经验；不写本机路径、私人陈述、内部对话原话（与 AGENTS.md 同标准）

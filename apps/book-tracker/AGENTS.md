@@ -163,6 +163,7 @@ shared/types.ts  ←  renderer/*  (通过 lib/api.ts invoke)
 - `collapsed`（编辑模式侧栏收起）同上款「仅 `true` 时写盘、缺省 `false`」；**所有 status 都允许**，从 EditMode 侧栏的 status 分组移到侧栏底部『已收起』分组，纯展示层、不影响 status / 解锁 / CleanMode 任何行为
 - `notes`（用户笔记）同上款「空串不写盘」——避免污染 frontmatter;body 段不再保留 `## 笔记` 占位,旧 body 文本在首次编辑时丢失（v1 取舍,迁移逻辑后续可加）
 - `starring`（主演,仅 movie/tv 字段）同上款「空串不写盘」——避免污染 frontmatter;老文件缺字段 → ""（向后兼容）
+- `screenwriter`（编剧,仅 movie/tv 字段）同上款「空串不写盘」——与 starring 共享同一策略;老文件缺字段 → ""（向后兼容）
 - `tags` 是数组,空数组 `[]` 总是写盘（保留语义 = "用户清空了所有 tag"）
 
 ### `relations.json`（前置关系图）
@@ -320,6 +321,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] **标签**（`Book.tags: string[]`，后端 + UI 全链路打通）：表单逗号分隔输入；GraphView 节点下方画 chip；空串不写盘
 - [x] **笔记**（`Book.notes: string`）—— `<textarea>` 直编辑,不渲染 Markdown(v1 取舍);空串不写盘
 - [x] **主演**（`Book.starring: string`,仅 movie/tv 暴露）—— 与"译者"位置对称;空串不写盘
+- [x] **编剧**（`Book.screenwriter: string`,仅 movie/tv 暴露）—— 与"主演"同属影视主创字段,但各自独立 input 行(避免"主演/编剧"标签二义);空串不写盘,与 starring 共享同一策略
 - [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
 - [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
   - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标

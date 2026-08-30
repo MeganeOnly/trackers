@@ -83,6 +83,7 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .unwrap_or_default(),
         notes: data.get("notes").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         starring: data.get("starring").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        screenwriter: data.get("screenwriter").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
 }
 
@@ -151,6 +152,7 @@ pub fn write_book(
         tags: input.tags.clone().unwrap_or_default(),
         notes: input.notes.clone(),
         starring: input.starring.clone(),
+        screenwriter: input.screenwriter.clone(),
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -180,6 +182,8 @@ pub fn update_book(
     if let Some(v) = &patch.notes { merged.notes = v.clone(); }
     // starring 同 notes
     if let Some(v) = &patch.starring { merged.starring = v.clone(); }
+    // screenwriter 同 starring
+    if let Some(v) = &patch.screenwriter { merged.screenwriter = v.clone(); }
     // progress 三态:
     // - patch.progress = None → 不改
     // - patch.progress = Some(None) → 清空
@@ -261,6 +265,10 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
     if !book.starring.is_empty() {
         fm.insert("starring".into(), serde_json::Value::String(book.starring.clone()));
     }
+    // screenwriter 同 starring
+    if !book.screenwriter.is_empty() {
+        fm.insert("screenwriter".into(), serde_json::Value::String(book.screenwriter.clone()));
+    }
     // collapsed 仅在 true 时写盘（与 progress / deadline 同款，避免污染 frontmatter）
     if book.collapsed {
         fm.insert("collapsed".into(), serde_json::Value::Bool(true));
@@ -324,6 +332,7 @@ mod tests {
             collapsed: false,
             notes: String::new(),
             starring: String::new(),
+            screenwriter: String::new(),
         }
     }
 
@@ -603,6 +612,55 @@ mod tests {
         let patch_set = BookPatch { starring: Some("新主演".to_string()), ..Default::default() };
         let set = update_book(&books_dir, &book3.id, &patch_set).unwrap();
         assert_eq!(set.starring, "新主演");
+    }
+
+    /// screenwriter(编剧)字段写盘 / 读回 / patch 合并 / 空串不写盘 的回归测试。
+    /// 与 starring 共享同一策略 —— 验证影视类型(movie/tv)的"编剧"字段不污染 frontmatter。
+    #[test]
+    fn screenwriter_round_trip_and_omit_when_empty() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 非空 screenwriter 写盘 + 读回
+        let mut input = sample_input();
+        input.kind = WorkKind::Movie;
+        input.screenwriter = "诺兰, 乔纳森·诺兰".to_string();
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"screenwriter\""), "screenwriter 应写盘");
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        assert_eq!(read_back.screenwriter, "诺兰, 乔纳森·诺兰");
+
+        // 2) 空 screenwriter 不写盘
+        let mut input2 = sample_input();
+        input2.kind = WorkKind::Movie;
+        input2.screenwriter = String::new();
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw2.contains("screenwriter"), "空 screenwriter 不应写盘");
+        assert_eq!(read_book(&books_dir, &book2.id).unwrap().unwrap().screenwriter, "");
+
+        // 3) 老文件缺 screenwriter 字段 → 读回为 ""
+        let legacy = books_dir.join("89.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"89\",\"title\":\"老影视\",\"status\":\"finished\",\"kind\":\"movie\"}\n---\n# 老影视\n",
+        )
+        .unwrap();
+        assert_eq!(read_book(&books_dir, "89").unwrap().unwrap().screenwriter, "");
+
+        // 4) patch 合并:None 不改,Some("") 清空,Some(s) 写为 s
+        let book3 = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        assert_eq!(book3.screenwriter, "诺兰, 乔纳森·诺兰");
+        let patch_none = BookPatch { ..Default::default() };
+        let updated = update_book(&books_dir, &book3.id, &patch_none).unwrap();
+        assert_eq!(updated.screenwriter, "诺兰, 乔纳森·诺兰");
+        let patch_clear = BookPatch { screenwriter: Some(String::new()), ..Default::default() };
+        let cleared = update_book(&books_dir, &book3.id, &patch_clear).unwrap();
+        assert_eq!(cleared.screenwriter, "");
+        let patch_set = BookPatch { screenwriter: Some("新编剧".to_string()), ..Default::default() };
+        let set = update_book(&books_dir, &book3.id, &patch_set).unwrap();
+        assert_eq!(set.screenwriter, "新编剧");
     }
 
     #[test]

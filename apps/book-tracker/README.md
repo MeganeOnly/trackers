@@ -21,6 +21,7 @@
 - **标签**：`tags: string[]` —— 表单逗号分隔输入；GraphView 节点下方画 chip；空数组写盘保留"清空"语义
 - **笔记**：`notes: string` —— 表单 textarea 直编辑(v1 不渲染 Markdown),空串不写盘;body 段不再保留 `## 笔记` 占位
 - **主演**:`starring: string`(仅 movie/tv) —— 与"译者"位置对称,UI 不会同时出现;空串不写盘
+- **编剧**:`screenwriter: string`(仅 movie/tv) —— 与"主演"同属影视主创字段,但各自独立 input 行(避免"主演/编剧"标签二义);空串不写盘
 - 关系图：力导向图，500 节点流畅；节点下方画 tag chip
 - **作品排名**（两两对比 Elo）：给"已读"作品做全序排名，TopBar「排」按钮或快捷键 `r`
   - kind 切换（书 / 动画 / 剧集 / 电影 / 其他）+ 各 kind 已读数量徽标
@@ -124,7 +125,7 @@ git push origin book-tracker-v0.1.0
 
 `kind`（作品类型）缺省按 `book` 处理（旧文件无损）；取值为 `book / anime / tv / movie / other`。
 
-`tags` 是字符串数组,空数组 `[]` 也写盘（保留"清空"语义）;`notes` / `starring` 空串**不写盘**
+`tags` 是字符串数组,空数组 `[]` 也写盘（保留"清空"语义）;`notes` / `starring` / `screenwriter` 空串**不写盘**
 （避免污染 frontmatter）。
 
 ### 进度（`progress`）

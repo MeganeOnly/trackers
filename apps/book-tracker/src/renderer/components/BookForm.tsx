@@ -59,6 +59,14 @@ function starringLabelFor(kind: WorkKind): string | null {
   return kind === 'movie' || kind === 'tv' ? '主演' : null
 }
 
+/**
+ * 编剧字段只对 movie / tv 显示 —— 与"主演"同属影视主创字段,但各自独立 input
+ * (避免"主演 / 编剧"混在同一行的二义)。anime 不放 —— 编剧 vs 原作/漫画作者 不一致。
+ */
+function screenwriterLabelFor(kind: WorkKind): string | null {
+  return kind === 'movie' || kind === 'tv' ? '编剧' : null
+}
+
 /** 年份字段按类型给出更具体的标签 */
 function yearLabelFor(kind: WorkKind): string {
   switch (kind) {
@@ -103,6 +111,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
   const [starring, setStarring] = useState<string>(book?.starring ?? '')
+  const [screenwriter, setScreenwriter] = useState<string>(book?.screenwriter ?? '')
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -131,7 +140,8 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           .filter((s) => s.length > 0),
         collapsed,
         notes: notes,
-        starring: starring
+        starring: starring,
+        screenwriter: screenwriter
       }
       // 仅当 status 是「进行中」(reading/watching) 且填了 current 时才把 progress 写进 input
       if (status === 'reading' || status === 'watching') {
@@ -247,6 +257,16 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
               value={starring}
               onChange={(e) => setStarring(e.target.value)}
               placeholder="如：基努·里维斯, 劳伦斯·菲什伯恩"
+            />
+          </label>
+        )}
+        {screenwriterLabelFor(kind) && (
+          <label className="field">
+            <span>{screenwriterLabelFor(kind)}</span>
+            <input
+              value={screenwriter}
+              onChange={(e) => setScreenwriter(e.target.value)}
+              placeholder="如：诺兰, 乔纳森·诺兰"
             />
           </label>
         )}

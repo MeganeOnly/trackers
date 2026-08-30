@@ -9,7 +9,7 @@ export interface BookAPI {
   list(): Promise<{ books: Book[]; broken: BrokenEntry[] }>
   get(id: string): Promise<Book | null>
   create(input: BookInput): Promise<Book>
-  update(id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string; starring?: string }): Promise<Book>
+  update(id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string; starring?: string; screenwriter?: string }): Promise<Book>
   /**
    * 快速调整进度：`delta` 为 +1/+5 时递增 current；为 -1/-5 时递减（不低于 0）；
    * 当前没有 progress 时初始化为 { current: max(delta,1), total: null }。

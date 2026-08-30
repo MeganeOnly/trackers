@@ -93,6 +93,12 @@ export interface Book {
    * 存储策略同 `notes` / `translator`:空串不写盘,老文件缺字段 → 空串(向后兼容)。
    */
   starring: string
+  /**
+   * 编剧(影视专用)。仅 `kind === 'movie' | 'tv'` 时在 UI 表单暴露 —— 与"主演"同属影视主创字段,
+   * 但放在 form 上独立的 input 行(避免标签二义:"主演"指的是演员,"编剧"指的是剧本作者)。
+   * 存储策略同 `starring` / `notes`:空串不写盘,老文件缺字段 → 空串(向后兼容)。
+   */
+  screenwriter: string
 }
 
 /** 配置文件（数据目录自带） */

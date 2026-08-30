@@ -52,6 +52,9 @@ function translatorLabelFor(kind: WorkKind): string | null {
 function starringLabelFor(kind: WorkKind): string | null {
   return kind === 'movie' || kind === 'tv' ? '主演' : null
 }
+function screenwriterLabelFor(kind: WorkKind): string | null {
+  return kind === 'movie' || kind === 'tv' ? '编剧' : null
+}
 function yearLabelFor(kind: WorkKind): string {
   switch (kind) {
     case 'book': return '出版年份'
@@ -99,6 +102,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
   const [starring, setStarring] = useState<string>(book?.starring ?? '')
+  const [screenwriter, setScreenwriter] = useState<string>(book?.screenwriter ?? '')
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,6 +125,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setCollapsed(book?.collapsed ?? false)
     setNotes(book?.notes ?? '')
     setStarring(book?.starring ?? '')
+    setScreenwriter(book?.screenwriter ?? '')
     setTagsText((book?.tags ?? []).join(', '))
     setError(null)
     setSaved(false)
@@ -183,6 +188,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         collapsed?: boolean
         notes?: string
         starring?: string
+        screenwriter?: string
       } = {
         title: title.trim(),
         kind,
@@ -199,7 +205,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           .filter((s) => s.length > 0),
         collapsed,
         notes,
-        starring
+        starring,
+        screenwriter
       }
       await update(cur.id, patch)
       setSaved(true)
@@ -313,6 +320,12 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             <label className="field">
               <span>{starringLabelFor(kind)}</span>
               <input value={starring} onChange={(e) => setStarring(e.target.value)} placeholder="如：基努·里维斯, 劳伦斯·菲什伯恩" />
+            </label>
+          )}
+          {screenwriterLabelFor(kind) && (
+            <label className="field">
+              <span>{screenwriterLabelFor(kind)}</span>
+              <input value={screenwriter} onChange={(e) => setScreenwriter(e.target.value)} placeholder="如：诺兰, 乔纳森·诺兰" />
             </label>
           )}
         </div>
