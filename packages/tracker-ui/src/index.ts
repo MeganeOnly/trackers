@@ -33,7 +33,14 @@ export {
   applyInitialFormat
 } from './useTheme'
 export type { ThemeName, FormatName, ThemeMeta, FormatMeta } from './useTheme'
-export type { ColorPickerOption, ContextMenuItem, SidebarGroup, SidebarGroupItem } from './GraphView'
+export type {
+  ColorPickerOption,
+  ContextMenuItem,
+  SidebarGroup,
+  SidebarGroupItem,
+  PathEndpoints,
+  GraphPathResult
+} from './GraphView'
 
 export { GraphView } from './GraphView'
 export type {
@@ -60,6 +67,7 @@ export {
   tagBgColor,
   hashHue,
   useGraphFilters,
+  useGraphPath,
   useResize
 } from './GraphView'
 export type {

@@ -19,11 +19,13 @@ import {
   type BaseGraphNode,
   type BaseGraphLink,
   useGraphFilters,
+  useGraphPath,
   tagColor,
   ColorPicker,
   type ColorBy,
   type ContextMenuItem,
-  type SidebarGroup
+  type SidebarGroup,
+  type PathEndpoints
 } from '@ui/GraphView'
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
@@ -163,6 +165,8 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [colorBy, setColorBy] = useState<ColorBy>('status')
+  const [pathMode, setPathMode] = useState(false)
+  const [pathEndpoints, setPathEndpoints] = useState<PathEndpoints>({ a: null, b: null })
   const { filters, setFilters, resetFilters } = useGraphFilters({
     storageKey: 'life-tracker-graph-filters'
   })
@@ -247,6 +251,23 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     for (const n of data.nodes) if (n.refCount > max) max = n.refCount
     return max
   }, [data.nodes])
+
+  /* 下游映射 —— 给路径 BFS 用 */
+  const forwardMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const l of data.links) {
+      const sid = typeof l.source === 'string' ? l.source : (l.source as GoalNode).id
+      const tid = typeof l.target === 'string' ? l.target : (l.target as GoalNode).id
+      const arr = map.get(sid) ?? []
+      arr.push(tid)
+      map.set(sid, arr)
+    }
+    return map
+  }, [data.links])
+  const getNodeForward = useMemo(
+    () => (id: string): string[] => forwardMap.get(id) ?? [],
+    [forwardMap]
+  )
 
   /* 节点列表侧栏 —— 按 status 分组 + 标题字母序 */
   const sidebarGroups = useMemo<SidebarGroup[]>(() => {
@@ -344,7 +365,23 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
             }
           : undefined
       }
-      onSelect={(id) => select(id)}
+      onSelect={(id) => {
+        if (pathMode) {
+          if (!pathEndpoints.a) {
+            setPathEndpoints({ a: id, b: null })
+          } else if (!pathEndpoints.b) {
+            setPathEndpoints({ ...pathEndpoints, b: id })
+            setPathMode(false)
+          } else {
+            setPathEndpoints({ a: id, b: null })
+          }
+        } else {
+          select(id)
+        }
+      }}
+      pathEndpoints={pathEndpoints}
+      setPathEndpoints={setPathEndpoints}
+      getNodeForward={getNodeForward}
       contextMenuItems={(n): ContextMenuItem[] => [
         {
           id: 'open',
@@ -470,6 +507,32 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
               <line x1="3" y1="6" x2="3.01" y2="6" />
               <line x1="3" y1="12" x2="3.01" y2="12" />
               <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={'lg-toggle' + (pathMode ? ' active' : '') + (pathEndpoints.a ? ' active' : '')}
+            onClick={() => {
+              if (pathEndpoints.a || pathEndpoints.b) {
+                setPathEndpoints({ a: null, b: null })
+                setPathMode(false)
+              } else {
+                setPathMode((v) => !v)
+              }
+            }}
+            title={
+              pathEndpoints.a
+                ? `已选起点 ${pathEndpoints.a}，点节点设终点`
+                : pathMode
+                  ? '点节点设为路径起点'
+                  : '路径跟踪：依次选起点和终点，BFS 最短路径高亮'
+            }
+            aria-label="路径"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="6" cy="6" r="2.5" />
+              <circle cx="18" cy="18" r="2.5" />
+              <path d="M8 7l8 8" />
             </svg>
           </button>
           {layoutMode === 'analyze' && (

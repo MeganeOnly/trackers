@@ -17,11 +17,13 @@ import {
   type BaseGraphNode,
   type BaseGraphLink,
   useGraphFilters,
+  useGraphPath,
   tagColor,
   ColorPicker,
   type ColorBy,
   type ContextMenuItem,
-  type SidebarGroup
+  type SidebarGroup,
+  type PathEndpoints
 } from '@ui/GraphView'
 import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
@@ -61,6 +63,23 @@ interface GraphLink extends BaseGraphLink {
   threshold?: number
 }
 
+/**
+ * 计算每个节点的"下游"（我作为前置指向的节点）：
+ *   - 收集所有 link 的 (source, target) 对
+ *   - book 路径没有 specs / groups（只有 `prerequisites`），所以简单 forEach 即可
+ *
+ * 用于路径跟踪（A→B 沿 unlock 方向）。
+ */
+function buildForwardMap(links: { source: string; target: string }[]): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  for (const l of links) {
+    const arr = map.get(l.source) ?? []
+    arr.push(l.target)
+    map.set(l.source, arr)
+  }
+  return map
+}
+
 interface GraphViewProps {
   highlightId?: string | null
 }
@@ -81,6 +100,8 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [colorBy, setColorBy] = useState<ColorBy>('status')
+  const [pathMode, setPathMode] = useState(false)
+  const [pathEndpoints, setPathEndpoints] = useState<PathEndpoints>({ a: null, b: null })
   const { filters, setFilters, resetFilters } = useGraphFilters({
     storageKey: 'book-tracker-graph-filters'
   })
@@ -144,7 +165,20 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     return { nodes, links }
   }, [books, edges])
 
-  /* 入度阈值上限 = 节点中 refCount 最大值 */
+  /* 下游映射 —— 给路径 BFS 用 */
+  const forwardMap = useMemo(() => {
+    return buildForwardMap(
+      data.links.map((l) => ({
+        source: typeof l.source === 'string' ? l.source : l.source.id,
+        target: typeof l.target === 'string' ? l.target : l.target.id
+      }))
+    )
+  }, [data.links])
+  const getNodeForward = useMemo(
+    () => (id: string): string[] => forwardMap.get(id) ?? [],
+    [forwardMap]
+  )
+
   const maxRefCount = useMemo(() => {
     let max = 0
     for (const n of data.nodes) if (n.refCount > max) max = n.refCount
@@ -212,7 +246,23 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       }}
       getNodeLabel={(n) => `${n.title} (${STATUS_LABEL[n.status]})`}
       getNodeTags={(n) => n.tags}
-      onSelect={(id) => select(id)}
+      onSelect={(id) => {
+        if (pathMode) {
+          if (!pathEndpoints.a) {
+            setPathEndpoints({ a: id, b: null })
+          } else if (!pathEndpoints.b) {
+            setPathEndpoints({ ...pathEndpoints, b: id })
+            setPathMode(false)
+          } else {
+            setPathEndpoints({ a: id, b: null })
+          }
+        } else {
+          select(id)
+        }
+      }}
+      pathEndpoints={pathEndpoints}
+      setPathEndpoints={setPathEndpoints}
+      getNodeForward={getNodeForward}
       contextMenuItems={(n): ContextMenuItem[] => [
         {
           id: 'open',
@@ -327,6 +377,33 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
               <line x1="3" y1="6" x2="3.01" y2="6" />
               <line x1="3" y1="12" x2="3.01" y2="12" />
               <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={'lg-toggle' + (pathMode ? ' active' : '') + (pathEndpoints.a ? ' active' : '')}
+            onClick={() => {
+              if (pathEndpoints.a || pathEndpoints.b) {
+                /* 已设了 A/B → 清掉 */
+                setPathEndpoints({ a: null, b: null })
+                setPathMode(false)
+              } else {
+                setPathMode((v) => !v)
+              }
+            }}
+            title={
+              pathEndpoints.a
+                ? `已选起点 ${pathEndpoints.a}，点节点设终点`
+                : pathMode
+                  ? '点节点设为路径起点'
+                  : '路径跟踪：依次选起点和终点，BFS 最短路径高亮'
+            }
+            aria-label="路径"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="6" cy="6" r="2.5" />
+              <circle cx="18" cy="18" r="2.5" />
+              <path d="M8 7l8 8" />
             </svg>
           </button>
         </>

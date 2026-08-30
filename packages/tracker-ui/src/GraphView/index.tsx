@@ -46,6 +46,7 @@ import { SearchBox } from './SearchBox'
 import { FiltersPanel, type StatusOption } from './FiltersPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { NodeSidebar, type SidebarGroup } from './NodeSidebar'
+import { useGraphPath, type PathEndpoints } from './useGraphPath'
 import type { GraphFilters } from './useGraphFilters'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
@@ -117,6 +118,11 @@ export interface GraphViewProps<
   sidebarOpen?: boolean
   onSidebarToggle?: () => void
   sidebarGroups?: SidebarGroup[]
+  /** 路径跟踪（commit 7） */
+  pathEndpoints?: PathEndpoints
+  setPathEndpoints?: React.Dispatch<React.SetStateAction<PathEndpoints>>
+  /** id 的直接下游（解锁方向：前置 → 后置） */
+  getNodeForward?: (id: string) => string[]
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -166,6 +172,9 @@ export function GraphView<
     sidebarOpen = false,
     onSidebarToggle,
     sidebarGroups,
+    pathEndpoints,
+    setPathEndpoints,
+    getNodeForward,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -224,6 +233,17 @@ export function GraphView<
 
   const isFiltering = !!filters
   const noVisibleNodes = visibleNodes.length === 0
+
+  /* 路径跟踪（commit 7） */
+  const pathResult = useGraphPath(
+    pathEndpoints ?? { a: null, b: null },
+    getNodeForward ?? ((): string[] => [])
+  )
+  const isPathActive = pathResult.pathNodes !== null
+  const pathNodeSet = useMemo(
+    () => (pathResult.pathNodes ? new Set(pathResult.pathNodes) : new Set<string>()),
+    [pathResult.pathNodes]
+  )
 
   /* 右键菜单状态（commit 5）—— null = 不显示 */
   const [contextMenu, setContextMenu] = useState<{
@@ -370,6 +390,13 @@ export function GraphView<
           }}
           nodeLabel={(n) => getNodeLabel(n as unknown as N)}
           nodeColor={(n) => {
+            if (isPathActive) {
+              /* 路径激活：路径上节点保留原色，其它灰淡 */
+              if (pathNodeSet.has(n.id)) {
+                return getNodeColor(n as unknown as N)
+              }
+              return 'rgba(200, 200, 200, 0.18)'
+            }
             if (isSearchActive) {
               /* 搜索激活：命中保留原色，未命中灰淡 */
               if (searchMatches!.has(n.id)) {
@@ -382,6 +409,9 @@ export function GraphView<
           linkColor={(l) => {
             const sourceId = typeof l.source === 'string' ? l.source : (l.source as BaseGraphNode).id
             const targetId = typeof l.target === 'string' ? l.target : (l.target as BaseGraphNode).id
+            if (isPathActive && pathResult.pathEdges.has(`${sourceId}->->${targetId}`)) {
+              return '#3b6cf2' /* 路径边蓝色 */
+            }
             const sourceUnlocked = visibleData.nodes.find((n) => n.id === sourceId)?.unlocked
             const targetUnlocked = visibleData.nodes.find((n) => n.id === targetId)?.unlocked
             if (getLinkColor) {
@@ -390,7 +420,17 @@ export function GraphView<
             if (sourceUnlocked && targetUnlocked) return '#cccccc'
             return '#e8c0c0'
           }}
-          linkWidth={getLinkWidth ? ((l) => getLinkWidth(l as unknown as L)) : 1}
+          linkWidth={(l) => {
+            if (isPathActive) {
+              const sid = typeof l.source === 'string' ? l.source : (l.source as BaseGraphNode).id
+              const tid = typeof l.target === 'string' ? l.target : (l.target as BaseGraphNode).id
+              if (pathResult.pathEdges.has(`${sid}->->${tid}`)) return 3 /* 路径边加粗 */
+              if (getLinkWidth) return getLinkWidth(l as unknown as L)
+              return 0.5 /* 其它边变细，让路径更突出 */
+            }
+            if (getLinkWidth) return getLinkWidth(l as unknown as L)
+            return 1
+          }}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={0.95}
           cooldownTicks={Infinity}
@@ -537,6 +577,8 @@ export { ContextMenu } from './ContextMenu'
 export type { ContextMenuItem } from './ContextMenu'
 export { NodeSidebar } from './NodeSidebar'
 export type { SidebarGroup, SidebarGroupItem } from './NodeSidebar'
+export { useGraphPath } from './useGraphPath'
+export type { PathEndpoints, GraphPathResult } from './useGraphPath'
 export { tagColor, tagBgColor, hashHue } from './colors'
 export type { ColorBy } from './colors'
 export { useGraphFilters } from './useGraphFilters'
