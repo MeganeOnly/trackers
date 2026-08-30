@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
-import { useUnlocked } from '../store/selectors'
+import { useGraphAnalysis, useUnlocked } from '../store/selectors'
 import { useSearchStore, matchGoal } from '../store/search'
 import { useSettingsStore } from '../store/settings'
 import { isGoalDone } from '@shared/types'
@@ -43,11 +43,12 @@ function urgencyClass(u: DeadlineUrgency): string | undefined {
   return undefined
 }
 
-export function CleanMode(): JSX.Element {
+export function CleanMode({ onOpenAnalyze }: { onOpenAnalyze?: () => void } = {}): JSX.Element {
   const goals = useGoalsStore((s) => s.goals)
   const update = useGoalsStore((s) => s.update)
   const edges = useRelationsStore((s) => s.edges)
   const { unlocked } = useUnlocked()
+  const analysis = useGraphAnalysis()
   const query = useSearchStore((s) => s.query)
   const format = useSettingsStore((s) => s.format)
 
@@ -142,6 +143,28 @@ export function CleanMode(): JSX.Element {
           现在能推进的目标 ({doableList.length}
           {query && doableList.length !== goals.length ? ` / ${goals.length}` : ''})
         </h2>
+        {onOpenAnalyze && goals.length > 0 && (
+          <button className="analyze-summary" onClick={onOpenAnalyze} title="打开图分析">
+            <span
+              className="analyze-summary-score"
+              style={{
+                color:
+                  analysis.healthScore >= 80
+                    ? '#2d5a3a'
+                    : analysis.healthScore >= 60
+                      ? '#c89456'
+                      : '#c0573d'
+              }}
+            >
+              {analysis.healthScore}
+            </span>
+            <span className="muted">/100</span>
+            <span className="analyze-summary-sep">·</span>
+            <span className="analyze-summary-item">{analysis.orphans.length} 孤立</span>
+            <span className="analyze-summary-sep">·</span>
+            <span className="analyze-summary-item">{analysis.bottlenecks.length} 瓶颈</span>
+          </button>
+        )}
         {nowInProgress.length > 0 && (
           <p className="currently-reading">
             <span>进行中: </span>

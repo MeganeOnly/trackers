@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
-import { computeUnlocked, groupMemberId } from '@core'
+import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
 import type { Edge, GoalStatus, PrereqSpec } from '@shared/types'
 
@@ -191,7 +191,17 @@ interface GraphViewProps {
   onSelect?: (id: string) => void
 }
 
-type LayoutMode = 'force' | 'tree'
+type LayoutMode = 'force' | 'tree' | 'analyze'
+
+/** analyze mode 下的标记色 */
+const ANALYZE_COLORS = {
+  /** 关键路径节点 */
+  critical: '#ff8800',
+  /** 瓶颈节点描边 */
+  bottleneck: '#d63031',
+  /** 孤立节点 */
+  orphan: '#999999'
+} as const
 
 const STATUS_COLORS: Record<GoalStatus, string> = {
   not_started: '#999999',
@@ -216,6 +226,12 @@ interface GraphNode {
   status: GoalStatus
   refCount: number
   unlocked: boolean
+  /** analyze mode 标记：是否在 critical path 上 */
+  isInCriticalPath?: boolean
+  /** analyze mode 标记：是否瓶颈（未完成 + 出度高） */
+  isBottleneck?: boolean
+  /** analyze mode 标记：是否孤立节点 */
+  isOrphan?: boolean
   x?: number
   y?: number
   /** d3-force 在 tick 时会写入的字段，自定义 orbit/jitter force 也读这两个 */
@@ -231,6 +247,8 @@ interface GraphLink {
   target: string | GraphNode
   rule: 'all' | 'any_of'
   threshold?: number
+  /** analyze mode 标记：是否 critical path 上的边 */
+  isInCriticalPath?: boolean
 }
 
 /**
@@ -390,15 +408,39 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
       edges,
       isDone
     )
+
+    // analyze mode 标记：跑一遍 analyzeGraph，提取 criticalPath / bottlenecks / orphans
+    // 走同一份 buildDonePredicate 谓词，与 unlock 对齐（含 exclude 改写 + countable 处理）。
+    const analysis = analyzeGraph(goals.map((b) => b.id), edges, isDone)
+    const criticalPathSet = new Set(analysis.criticalPath)
+    const bottleneckSet = new Set(analysis.bottlenecks.map((b) => b.id))
+    const orphanSet = new Set(analysis.orphans)
+    // critical path 上相邻节点对 → 标记对应边
+    const pathEdgeSet = new Set<string>()
+    for (let i = 0; i < analysis.criticalPath.length - 1; i++) {
+      pathEdgeSet.add(`${analysis.criticalPath[i]}->${analysis.criticalPath[i + 1]}`)
+    }
+
     const nodes: GraphNode[] = goals.map((b) => ({
       id: b.id,
       title: b.title,
       category: b.category,
       status: b.status,
       refCount: refCount.get(b.id) ?? 0,
-      unlocked: unlocked.get(b.id) ?? true
+      unlocked: unlocked.get(b.id) ?? true,
+      isInCriticalPath: criticalPathSet.has(b.id),
+      isBottleneck: bottleneckSet.has(b.id),
+      isOrphan: orphanSet.has(b.id)
     }))
-    return { nodes, links }
+
+    // 把 isInCriticalPath 标注到 link 上（来源 / 目标都要物化成 id 才能查 set）
+    const annotatedLinks: GraphLink[] = links.map((l) => {
+      const sid = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id
+      const tid = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id
+      return { ...l, isInCriticalPath: pathEdgeSet.has(`${sid}->${tid}`) }
+    })
+
+    return { nodes, links: annotatedLinks }
   }, [goals, edges])
 
   useLayoutEffect(() => {
@@ -447,6 +489,8 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
    * 响应 layoutMode 切换：
    *   - 切到 tree：关掉所有动效（orbit/jitter/centripetal 全 0），按 depth 分层钉位；
    *     再 reheat 一次让 d3 把新 fx/fy 写进渲染（实际 reheat 后节点会被 d3 拖去 fx/fy）。
+   *   - 切到 analyze：关掉动效但不重排（保留 force 当前位置，便于看清 critical path / 瓶颈 / 孤立标记）；
+   *     force 模式可能存在的 highlight 钉位（fx/fy）也保留。
    *   - 切回 force：清掉所有 fx/fy，恢复默认动效强度（按当前 pointerOver 状态）。
    *
    * 不在 mode 切换 effect 里 re-render ForceGraph2D（key 变化那种）：
@@ -464,6 +508,12 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
         motionRef.current.centripetal = 0
         const depths = computeDepths(data.nodes, data.links)
         applyTreeLayout(data.nodes, depths, { layerHeight: 130, layerWidth: 170 })
+      } else if (layoutMode === 'analyze') {
+        // 静止（看清 critical path / 瓶颈 / 孤立），但保留 force 当前位置不重排
+        motionRef.current.orbit = 0
+        motionRef.current.jitter = 0
+        motionRef.current.centripetal = 0
+        // 不清 fx/fy（保留 force 模式可能的高亮钉位 + 当前位置）
       } else {
         const over = pointerOverRef.current
         motionRef.current.orbit = over ? 0.004 : 0.05
@@ -565,11 +615,20 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
           nodeVal={(n) => 1 + Math.sqrt(n.refCount) * 2}
           nodeLabel={(n) => `${n.title} (${STATUS_LABEL[n.status]})`}
           nodeColor={(n) => {
+            // analyze mode：孤立灰、关键路径橙、其他维持 status 颜色；highlight 蓝色优先
+            if (layoutMode === 'analyze') {
+              if (highlightId && n.id === highlightId) return '#3b6cf2'
+              if (n.isOrphan) return ANALYZE_COLORS.orphan
+              if (n.isInCriticalPath) return ANALYZE_COLORS.critical
+              return STATUS_COLORS[n.status]
+            }
             if (highlightId && n.id === highlightId) return '#3b6cf2'
             if (!n.unlocked) return '#c8c8c8'
             return STATUS_COLORS[n.status]
           }}
           linkColor={(l) => {
+            // analyze mode：critical path 上的边用橙色 + 加粗
+            if (layoutMode === 'analyze' && l.isInCriticalPath) return ANALYZE_COLORS.critical
             const sourceId = typeof l.source === 'string' ? l.source : l.source.id
             const targetId = typeof l.target === 'string' ? l.target : l.target.id
             const sourceUnlocked = data.nodes.find((n) => n.id === sourceId)?.unlocked
@@ -577,7 +636,10 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
             if (sourceUnlocked && targetUnlocked) return '#cccccc'
             return '#e8c0c0'
           }}
-          linkWidth={1}
+          linkWidth={(l) => {
+            if (layoutMode === 'analyze' && l.isInCriticalPath) return 3
+            return 1
+          }}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={0.95}
           cooldownTicks={Infinity}
@@ -604,6 +666,25 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
           nodeCanvasObjectMode={() => 'after'}
           nodeCanvasObject={(n, ctx, scale) => {
             if (typeof n.x !== 'number' || typeof n.y !== 'number') return
+
+            // analyze mode：瓶颈红色描边 + 关键路径橙色描边（缩放过小时不画避免重叠）
+            if (layoutMode === 'analyze' && scale > 0.6) {
+              const nodeSize = 4 * Math.sqrt(n.refCount + 1) + 4
+              if (n.isBottleneck) {
+                ctx.beginPath()
+                ctx.arc(n.x, n.y, nodeSize + 4, 0, 2 * Math.PI)
+                ctx.strokeStyle = ANALYZE_COLORS.bottleneck
+                ctx.lineWidth = 3
+                ctx.stroke()
+              } else if (n.isInCriticalPath) {
+                ctx.beginPath()
+                ctx.arc(n.x, n.y, nodeSize + 3, 0, 2 * Math.PI)
+                ctx.strokeStyle = ANALYZE_COLORS.critical
+                ctx.lineWidth = 2
+                ctx.stroke()
+              }
+            }
+
             if (scale < 1.2) return
             const fontSize = 11 / scale
             ctx.font = `${fontSize}px -apple-system, sans-serif`
@@ -639,6 +720,31 @@ export function GraphView({ highlightId, onSelect }: GraphViewProps): JSX.Elemen
         >
           层级
         </button>
+        <button
+          type="button"
+          className={'lg-toggle' + (layoutMode === 'analyze' ? ' active' : '')}
+          onClick={() => setLayoutMode('analyze')}
+          title="分析模式：橙色=关键路径，红色描边=瓶颈，灰色=孤立"
+        >
+          分析
+        </button>
+        {layoutMode === 'analyze' && (
+          <>
+            <span className="lg-sep" />
+            <span
+              className="lg-dot"
+              style={{ background: ANALYZE_COLORS.critical, border: '1px solid #cc6600' }}
+            />
+            关键路径
+            <span
+              className="lg-dot"
+              style={{ border: `2px solid ${ANALYZE_COLORS.bottleneck}`, background: 'transparent' }}
+            />
+            瓶颈
+            <span className="lg-dot" style={{ background: ANALYZE_COLORS.orphan }} />
+            孤立
+          </>
+        )}
       </div>
     </div>
   )

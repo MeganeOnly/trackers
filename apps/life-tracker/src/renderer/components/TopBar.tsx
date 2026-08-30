@@ -8,9 +8,10 @@ interface TopBarProps {
   onGraph?: () => void
   onTrash?: () => void
   onSettings?: () => void
+  onAnalyze?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onTrash, onSettings }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onTrash, onSettings, onAnalyze }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -80,6 +81,11 @@ export function TopBar({ onAdd, onGraph, onTrash, onSettings }: TopBarProps): JS
         {onGraph && (
           <button className="topbar-icon-btn" onClick={onGraph} title="关系图 (g)">
             图
+          </button>
+        )}
+        {onAnalyze && (
+          <button className="topbar-icon-btn" onClick={onAnalyze} title="图分析 (a)">
+            分析
           </button>
         )}
         <div className="mode-toggle" role="tablist" aria-label="模式">

@@ -6,6 +6,7 @@ import { GoalForm } from './components/GoalForm'
 import { GraphModal } from './components/GraphModal'
 import { TrashModal } from './components/TrashModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { AnalyzeModal } from './components/AnalyzeModal'
 import { useModeStore } from './store/mode'
 import { useGoalsStore } from './store/goals'
 import { useRelationsStore } from './store/relations'
@@ -24,6 +25,7 @@ export default function App(): JSX.Element {
   const [graphOpen, setGraphOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [analyzeOpen, setAnalyzeOpen] = useState(false)
 
   useEffect(() => {
     // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
@@ -72,6 +74,9 @@ export default function App(): JSX.Element {
       } else if (key === 'g') {
         e.preventDefault()
         setGraphOpen((v) => !v)
+      } else if (key === 'a') {
+        e.preventDefault()
+        setAnalyzeOpen((v) => !v)
       } else if (key === 'e') {
         e.preventDefault()
         useModeStore.getState().setMode('edit')
@@ -94,19 +99,21 @@ export default function App(): JSX.Element {
         onGraph={() => setGraphOpen(true)}
         onTrash={() => setTrashOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onAnalyze={() => setAnalyzeOpen(true)}
       />
       <div className="app-body">
-        <EditModeWrapper />
+        <EditModeWrapper onOpenAnalyze={() => setAnalyzeOpen(true)} />
       </div>
       {formOpen && <GoalForm goal={null} onClose={() => setFormOpen(false)} />}
       {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
       {trashOpen && <TrashModal onClose={() => setTrashOpen(false)} />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {analyzeOpen && <AnalyzeModal onClose={() => setAnalyzeOpen(false)} />}
     </div>
   )
 }
 
-function EditModeWrapper(): JSX.Element {
+function EditModeWrapper({ onOpenAnalyze }: { onOpenAnalyze: () => void }): JSX.Element {
   const mode = useModeStore((s) => s.mode)
-  return mode === 'edit' ? <EditMode /> : <CleanMode />
+  return mode === 'edit' ? <EditMode /> : <CleanMode onOpenAnalyze={onOpenAnalyze} />
 }

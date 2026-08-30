@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { useGoalsStore } from './goals'
 import { useRelationsStore } from './relations'
-import { computeBlockingRelations, computeUnlocked } from '@core'
-import type { BlockingRelation } from '@core'
+import { analyzeGraph, computeBlockingRelations, computeUnlocked } from '@core'
+import type { BlockingRelation, GraphAnalysis } from '@core'
 import { buildDonePredicate } from '@shared/done'
 import type { Goal } from '@shared/types'
 
@@ -22,6 +22,24 @@ export function useUnlocked(): {
   )
   const relations = useMemo(() => computeBlockingRelations(edges), [edges])
   return { ...unlocked, relations }
+}
+
+/**
+ * Unlock 图健康度分析 —— useUnlocked 的兄弟 hook。
+ * 走同款 buildDonePredicate（含 ExcludeSpec 改写 + countable 处理），
+ * 不重复实现谓词改写逻辑。
+ *
+ * 返回的 GraphAnalysis 是纯计算视图，不写盘、不修改 store；
+ * UI 可以直接拿来渲染（孤立节点列表 / 瓶颈 top 10 / 健康度评分等）。
+ */
+export function useGraphAnalysis(): GraphAnalysis {
+  const goals = useGoalsStore((s) => s.goals)
+  const edges = useRelationsStore((s) => s.edges)
+  const { isDone } = buildDonePredicate(goals, edges)
+  return useMemo(
+    () => analyzeGraph(goals.map((g) => g.id), edges, isDone),
+    [goals, edges, isDone]
+  )
 }
 
 export function useGroupedByStatus(): Record<Goal['status'], Goal[]> {
