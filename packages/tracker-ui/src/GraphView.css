@@ -146,6 +146,40 @@
   color: white;
 }
 
+/* ============ Force 心跳指示器（commit 1 调试辅助）============ */
+.force-heartbeat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  margin-bottom: 4px;
+}
+.force-heartbeat-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c8c8c8;
+  transition: background 0.15s;
+}
+.force-heartbeat[data-active="yes"] .force-heartbeat-dot {
+  background: #4a7c59;
+  /* 周期性闪烁：每 tick 亮一下 */
+  animation: force-pulse 0.4s ease-out infinite;
+}
+.force-heartbeat[data-active="no"] .force-heartbeat-dot {
+  background: #c0573d;
+}
+@keyframes force-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 /* ============ 节点搜索框（commit 2）============ */
 .graph-search-box {
   position: absolute;

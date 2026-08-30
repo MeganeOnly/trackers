@@ -26,6 +26,8 @@ import { DEFAULT_MOTION, type MotionRef } from './useGraphPhysics'
 interface ForceParamsPanelProps {
   fgRef: React.RefObject<ForceGraphMethods<unknown, unknown> | undefined>
   motionRef: React.MutableRefObject<MotionRef>
+  /** force 函数被调累计次数 —— 心跳指示器 */
+  forceTickRef?: React.MutableRefObject<number>
   onClose: () => void
 }
 
@@ -47,6 +49,7 @@ const MOTION_KEYS: readonly ('orbit' | 'jitter' | 'centripetal')[] = [
 export function ForceParamsPanel({
   fgRef,
   motionRef,
+  forceTickRef,
   onClose
 }: ForceParamsPanelProps): JSX.Element {
   /* motion 三参用本地 useState 受控：避免 ref + React 受控 input 的同步陷阱
@@ -56,6 +59,16 @@ export function ForceParamsPanel({
     jitter: motionRef.current.jitter,
     centripetal: motionRef.current.centripetal
   }))
+
+  /* force 心跳 —— force 函数每 tick 会自增 forceTickRef，
+   * panel 用 setInterval 周期性读这个值显示给用户：
+   * 绿色 dot 闪烁 = force 在跑；静止 = simulation 已冷却（无 effect） */
+  const [heartbeat, setHeartbeat] = useState(0)
+  useEffect(() => {
+    if (!forceTickRef) return
+    const id = setInterval(() => setHeartbeat(forceTickRef.current), 200)
+    return () => clearInterval(id)
+  }, [forceTickRef])
   /* mount 时同步 fgRef → charge 实际值（fgRef 可能 mount 时还没 ready） */
   useEffect(() => {
     const fg = fgRef.current
@@ -149,6 +162,18 @@ export function ForceParamsPanel({
         </button>
       </div>
       <div className="force-params-body">
+        {forceTickRef && (
+          <div
+            className="force-heartbeat"
+            title="绿色闪烁 = force 函数正在被 d3 调用；静止 = simulation 已冷却"
+            data-active={heartbeat > 0 ? 'yes' : 'no'}
+          >
+            <span className="force-heartbeat-dot" />
+            <span className="force-heartbeat-text">
+              force tick #{heartbeat}
+            </span>
+          </div>
+        )}
         {MOTION_KEYS.map((key) => {
           const range = RANGES[key]
           const value = motionVals[key]

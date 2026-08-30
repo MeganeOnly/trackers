@@ -21,16 +21,19 @@ import { useEffect, useRef } from 'react'
 import type { ForceGraphMethods } from 'react-force-graph-2d'
 import type { BaseGraphNode, BaseGraphLink } from './types'
 
-/** 默认物理参数 —— 与原 GraphView 保持一致 */
+/** 默认物理参数
+ *  数值调大让"开图不动滑条"就能看到旋转/抖动/向心效果（之前的 0.05/0.04/0.02
+ *  在 velocityDecay=0.4 下稳态速度太慢，肉眼几乎看不到运动）
+ *  用户拖到 0 时让节点静止；拖到 max 时明显快速旋转 */
 export const DEFAULT_MOTION = {
-  orbit: 0.05,
-  jitter: 0.04,
-  centripetal: 0.02,
-  /** pointerOver 时降到接近 0 */
+  orbit: 0.12,
+  jitter: 0.08,
+  centripetal: 0.04,
+  /** pointerOver 时降到接近 0（force 函数内部 min(用户值, hover 默认值)） */
   orbitHover: 0.004,
   jitterHover: 0.004,
-  /** d3-force charge 强度 —— 默认 -30 对小图太弱，节点会挤成一团；-80 散开可读 */
-  charge: -80,
+  /** d3-force charge 强度 —— -100 比 -80 更明显散开 */
+  charge: -100,
   /** d3-force velocityDecay —— 平衡"运动"与"稳定命中" */
   velocityDecay: 0.4
 } as const
@@ -46,6 +49,8 @@ export interface PhysicsController {
   motionRef: React.MutableRefObject<MotionRef>
   pointerOverRef: React.MutableRefObject<boolean>
   setPointerOver: (over: boolean) => void
+  /** force 函数被调用的累计次数 —— panel 用这个做"force 在跑"心跳指示 */
+  forceTickRef: React.MutableRefObject<number>
 }
 
 /**
@@ -67,6 +72,10 @@ export function useGraphPhysics(
     centripetal: DEFAULT_MOTION.centripetal
   })
   const pointerOverRef = useRef(false)
+  /* force 函数被调用累计次数 —— panel 用这个做"force 在跑"心跳指示。
+   * 注意这个 ref 的写操作在 d3-force 闭包里跑（不在 React 渲染周期），
+   * 仅作为只读计数器用。 */
+  const forceTickRef = useRef(0)
 
   // 标记当前是否在 hover 状态 —— force 函数每 tick 读这个。
   // 注意：force 函数内部读 pointerOverRef.current + motionRef.current，
@@ -87,6 +96,7 @@ export function useGraphPhysics(
    * 不破坏用户 panel 拖到的值） */
   const motionLive = motionRef
   const pointerOverLive = pointerOverRef
+  const tickLive = forceTickRef
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
@@ -94,23 +104,28 @@ export function useGraphPhysics(
       const charge = fg.d3Force('charge')
       if (charge && typeof charge.strength === 'function') charge.strength(DEFAULT_MOTION.charge)
       fg.d3Force('orbit', orbitForce(() => nodes, () => {
+        tickLive.current++
         const over = pointerOverLive.current
         const base = motionLive.current.orbit
         return over ? Math.min(base, DEFAULT_MOTION.orbitHover) : base
       }))
       fg.d3Force('jitter', jitterForce(() => nodes, () => {
+        tickLive.current++
         const over = pointerOverLive.current
         const base = motionLive.current.jitter
         return over ? Math.min(base, DEFAULT_MOTION.jitterHover) : base
       }))
-      fg.d3Force('centripetal', centripetalForce(() => nodes, () => motionLive.current.centripetal))
+      fg.d3Force('centripetal', centripetalForce(() => nodes, () => {
+        tickLive.current++
+        return motionLive.current.centripetal
+      }))
       fg.d3ReheatSimulation()
     } catch (e) {
       console.warn('jitter force registration failed:', e)
     }
-  }, [fgRef, nodes, motionLive, pointerOverLive])
+  }, [fgRef, nodes, motionLive, pointerOverLive, tickLive])
 
-  return { motionRef, pointerOverRef, setPointerOver }
+  return { motionRef, pointerOverRef, setPointerOver, forceTickRef }
 }
 
 /* =====================================================================

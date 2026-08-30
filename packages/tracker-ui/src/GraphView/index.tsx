@@ -258,7 +258,7 @@ export function GraphView<
   const fgRef = useRef<ForceGraphMethods<unknown, unknown> | undefined>(undefined)
   const dims = useResize(wrapRef)
   const layoutModeRef = useRef<LayoutMode>(layoutModeProp)
-  const { motionRef, pointerOverRef, setPointerOver } = useGraphPhysics(
+  const { motionRef, pointerOverRef, setPointerOver, forceTickRef } = useGraphPhysics(
     fgRef,
     visibleData.nodes,
     layoutModeRef
@@ -511,6 +511,7 @@ export function GraphView<
         <ForceParamsPanel
           fgRef={fgRef as unknown as React.RefObject<ForceGraphMethods<unknown, unknown>>}
           motionRef={motionRef}
+          forceTickRef={forceTickRef}
           onClose={onForceParamsClose ?? ((): void => {})}
         />
       )}
