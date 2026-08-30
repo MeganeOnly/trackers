@@ -50,11 +50,16 @@ export function ForceParamsPanel({
 }: ForceParamsPanelProps): JSX.Element {
   // charge 从 fgRef 读初始值（不能直接用 DEFAULT_MOTION.charge，
   // 因为用户可能调过；其它 motion 字段从 motionRef 读）
+  // 注意 d3-force 的 charge 默认 strength 是函数（(d) => -d*d），
+  // c.strength() 无参返回的可能是函数而不是数字 —— 用 Number() 兜底
   const [chargeVal, setChargeVal] = useState<number>(() => {
     const fg = fgRef.current
     if (!fg) return DEFAULT_MOTION.charge
     const c = fg.d3Force('charge')
-    if (c && typeof c.strength === 'function') return c.strength()
+    if (c && typeof c.strength === 'function') {
+      const s = c.strength()
+      return typeof s === 'function' ? DEFAULT_MOTION.charge : Number(s)
+    }
     return DEFAULT_MOTION.charge
   })
   // 强制 mount 时再同步一次 charge（fgRef.current 可能刚刚 ready）
@@ -85,7 +90,11 @@ export function ForceParamsPanel({
     if (!fg) return
     try {
       const c = fg.d3Force('charge')
-      if (c && typeof c.strength === 'function') c.strength(value)
+      if (c && typeof c.strength === 'function') {
+        /* d3-force strength setter 接受数字或函数；数字直接赋值，
+         * 但 d3 内部可能会包成 () => value —— setChargeVal 也用 Number */
+        c.strength(value)
+      }
       fg.d3ReheatSimulation()
     } catch (e) {
       console.warn('charge strength update failed:', e)
