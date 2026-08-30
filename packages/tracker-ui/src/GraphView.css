@@ -65,6 +65,23 @@
   border-color: var(--accent);
   font-weight: 500;
 }
+/* 图标按钮（力参数 / 过滤 / 节点列表 / 路径）——
+   共享 .lg-toggle 的配色 / 圆角 / 边框,只调整 padding + 用 flex 居中图标。
+   之前 padding 2px 8px 对纯 SVG 不对称,SVG 没文字基线,容易上下偏。
+   改成 inline-flex 后图标正居中,active 态视觉更聚焦。
+   vertical-align: middle 修复 SVG 基线导致图标偏下 1px 的小毛病。 */
+.graph-legend .lg-toggle--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px;
+  min-width: 24px;
+  min-height: 24px;
+}
+.graph-legend .lg-toggle--icon svg {
+  display: block;
+  vertical-align: middle;
+}
 
 /* ============ 力参数浮窗（commit 1）============ */
 .force-params-panel {

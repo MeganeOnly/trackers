@@ -342,46 +342,49 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
           <span className="lg-sep" />
           <button
             type="button"
-            className={'lg-toggle' + (showForceParams ? ' active' : '')}
+            className={'lg-toggle lg-toggle--icon' + (showForceParams ? ' active' : '')}
             onClick={() => setShowForceParams((v) => !v)}
             title="力参数：实时调节轨道力 / 抖动 / 向心 / 电荷斥力"
             aria-label="力参数"
+            aria-pressed={showForceParams}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
           </button>
           <button
             type="button"
-            className={'lg-toggle' + (showFilters ? ' active' : '')}
+            className={'lg-toggle lg-toggle--icon' + (showFilters ? ' active' : '')}
             onClick={() => setShowFilters((v) => !v)}
             title="过滤：按标签 / 状态 / 入度阈值 / 孤立节点筛选"
             aria-label="过滤"
+            aria-pressed={showFilters}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
           </button>
           <button
             type="button"
-            className={'lg-toggle' + (sidebarOpen ? ' active' : '')}
+            className={'lg-toggle lg-toggle--icon' + (sidebarOpen ? ' active' : '')}
             onClick={() => setSidebarOpen((v) => !v)}
             title="节点列表侧栏"
             aria-label="节点列表"
+            aria-pressed={sidebarOpen}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="8" y1="6" x2="21" y2="6" />
               <line x1="8" y1="12" x2="21" y2="12" />
               <line x1="8" y1="18" x2="21" y2="18" />
-              <line x1="3" y1="6" x2="3.01" y2="6" />
-              <line x1="3" y1="12" x2="3.01" y2="12" />
-              <line x1="3" y1="18" x2="3.01" y2="18" />
+              <circle cx="3.5" cy="6" r="0.6" />
+              <circle cx="3.5" cy="12" r="0.6" />
+              <circle cx="3.5" cy="18" r="0.6" />
             </svg>
           </button>
           <button
             type="button"
-            className={'lg-toggle' + (pathMode ? ' active' : '') + (pathEndpoints.a ? ' active' : '')}
+            className={'lg-toggle lg-toggle--icon' + (pathMode ? ' active' : '') + (pathEndpoints.a ? ' active' : '')}
             onClick={() => {
               if (pathEndpoints.a || pathEndpoints.b) {
                 /* 已设了 A/B → 清掉 */
@@ -399,8 +402,9 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
                   : '路径跟踪：依次选起点和终点，BFS 最短路径高亮'
             }
             aria-label="路径"
+            aria-pressed={pathMode || !!pathEndpoints.a}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="6" cy="6" r="2.5" />
               <circle cx="18" cy="18" r="2.5" />
               <path d="M8 7l8 8" />
