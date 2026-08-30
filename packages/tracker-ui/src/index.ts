@@ -51,11 +51,14 @@ export {
   drawTagChips,
   ForceParamsPanel,
   SearchBox,
+  FiltersPanel,
+  useGraphFilters,
   useResize
 } from './GraphView'
 export type {
   MotionRef,
   PhysicsController,
   TreeLayoutDims,
-  Dims
+  Dims,
+  GraphFilters
 } from './GraphView'

@@ -183,3 +183,150 @@
   border-radius: 3px;
   font-family: var(--font-mono);
 }
+
+/* ============ 过滤面板（commit 3）============ */
+.filters-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 260px;
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--fg);
+  z-index: 5;
+}
+.filters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.filters-header strong { font-size: 12px; }
+.filters-close {
+  padding: 0;
+  width: 22px; height: 22px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+}
+.filters-close:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.filters-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filters-section h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.filters-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  line-height: 1.4;
+}
+.filters-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.filters-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.filters-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.filters-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg);
+}
+.filters-status-row input { cursor: pointer; }
+.filters-status-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.filters-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg);
+}
+.filters-slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.filters-reset {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+}
+.filters-reset:hover {
+  background: var(--accent);
+  color: white;
+}
+
+/* ============ 过滤后空状态（commit 3）============ */
+.empty-filtered {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+}
+.empty-filtered p { font-size: 13px; }
+.empty-filtered-reset {
+  pointer-events: auto;
+  padding: 6px 14px;
+  font-size: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+.empty-filtered-reset:hover {
+  background: var(--accent);
+  color: white;
+}

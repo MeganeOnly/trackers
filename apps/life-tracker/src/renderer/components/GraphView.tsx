@@ -14,7 +14,12 @@
 //   - renderNodeDecoration：analyze 模式下画瓶颈/关键路径描边
 
 import { useMemo, useState } from 'react'
-import { GraphView as GraphCanvas, type BaseGraphNode, type BaseGraphLink } from '@ui/GraphView'
+import {
+  GraphView as GraphCanvas,
+  type BaseGraphNode,
+  type BaseGraphLink,
+  useGraphFilters
+} from '@ui/GraphView'
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
 import type { Edge, GoalStatus, PrereqSpec } from '@shared/types'
@@ -147,10 +152,31 @@ interface GraphViewProps {
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
   const [showForceParams, setShowForceParams] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const { filters, setFilters, resetFilters } = useGraphFilters({
+    storageKey: 'life-tracker-graph-filters'
+  })
   const goals = useGoalsStore((s) => s.goals)
   const edges = useRelationsStore((s) => s.edges)
   const select = useGoalsStore((s) => s.select)
+
+  /* life 没有 tag 字段，用 category 当 filter "tag" 维度 */
+  const availableTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of goals) {
+      if (g.category) set.add(g.category)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [goals])
+
+  const availableStatuses = [
+    { value: 'not_started', label: '未开始', color: STATUS_COLORS.not_started },
+    { value: 'in_progress', label: '进行中', color: STATUS_COLORS.in_progress },
+    { value: 'done', label: '已达成', color: STATUS_COLORS.done },
+    { value: 'shelved', label: '搁置', color: STATUS_COLORS.shelved },
+    { value: 'abandoned', label: '放弃', color: STATUS_COLORS.abandoned }
+  ]
 
   const data = useMemo(() => {
     const goalIds = new Set(goals.map((g) => g.id))
@@ -206,6 +232,12 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     return { nodes, links: annotatedLinks }
   }, [goals, edges])
 
+  const maxRefCount = useMemo(() => {
+    let max = 0
+    for (const n of data.nodes) if (n.refCount > max) max = n.refCount
+    return max
+  }, [data.nodes])
+
   return (
     <GraphCanvas<GoalNode, GraphLink>
       data={data}
@@ -213,9 +245,19 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       highlightId={highlightId}
       showForceParams={showForceParams}
       onForceParamsClose={() => setShowForceParams(false)}
+      showFilters={showFilters}
+      onFiltersClose={() => setShowFilters(false)}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       getNodeSearchText={(n) => `${n.id} ${n.title} ${n.category}`}
+      filters={filters}
+      setFilters={setFilters}
+      resetFilters={resetFilters}
+      availableTags={availableTags}
+      availableStatuses={availableStatuses}
+      maxRefCount={maxRefCount}
+      getNodeTagsForFilter={(n) => [n.category]}
+      getNodeStatusForFilter={(n) => n.status}
       emptyText="还没有目标。加几个试试。"
       getNodeColor={(n) => {
         // analyze mode：孤立灰、关键路径橙、其他维持 status 颜色；highlight 蓝色优先
@@ -306,6 +348,17 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={'lg-toggle' + (showFilters ? ' active' : '')}
+            onClick={() => setShowFilters((v) => !v)}
+            title="过滤：按类别 / 状态 / 入度阈值 / 孤立节点筛选"
+            aria-label="过滤"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
           </button>
           {layoutMode === 'analyze' && (

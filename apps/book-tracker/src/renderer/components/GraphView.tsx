@@ -12,7 +12,12 @@
 //   - useMemo 拆 specs / 算 unlock / 算 refCount
 
 import { useMemo, useState } from 'react'
-import { GraphView as GraphCanvas, type BaseGraphNode, type BaseGraphLink } from '@ui/GraphView'
+import {
+  GraphView as GraphCanvas,
+  type BaseGraphNode,
+  type BaseGraphLink,
+  useGraphFilters
+} from '@ui/GraphView'
 import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
 import { useBooksStore } from '../store/books'
@@ -58,10 +63,32 @@ interface GraphViewProps {
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
   const [showForceParams, setShowForceParams] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const { filters, setFilters, resetFilters } = useGraphFilters({
+    storageKey: 'book-tracker-graph-filters'
+  })
   const books = useBooksStore((s) => s.books)
   const edges = useRelationsStore((s) => s.edges)
   const select = useBooksStore((s) => s.select)
+
+  /* 从 books 中提取 availableTags */
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    for (const b of books) {
+      for (const t of b.tags ?? []) tagSet.add(t)
+    }
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
+  }, [books])
+
+  const availableStatuses = [
+    { value: 'want', label: '想看', color: STATUS_COLORS.want },
+    { value: 'reading', label: '在读', color: STATUS_COLORS.reading },
+    { value: 'watching', label: '在看', color: STATUS_COLORS.watching },
+    { value: 'finished', label: '已读', color: STATUS_COLORS.finished },
+    { value: 'shelved', label: '搁置', color: STATUS_COLORS.shelved },
+    { value: 'abandoned', label: '弃读', color: STATUS_COLORS.abandoned }
+  ]
 
   const data = useMemo(() => {
     const bookIds = new Set(books.map((b) => b.id))
@@ -100,6 +127,13 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     return { nodes, links }
   }, [books, edges])
 
+  /* 入度阈值上限 = 节点中 refCount 最大值 */
+  const maxRefCount = useMemo(() => {
+    let max = 0
+    for (const n of data.nodes) if (n.refCount > max) max = n.refCount
+    return max
+  }, [data.nodes])
+
   return (
     <GraphCanvas<BookNode>
       data={data}
@@ -107,9 +141,19 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       highlightId={highlightId}
       showForceParams={showForceParams}
       onForceParamsClose={() => setShowForceParams(false)}
+      showFilters={showFilters}
+      onFiltersClose={() => setShowFilters(false)}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       getNodeSearchText={(n) => `${n.id} ${n.title} ${(n.tags ?? []).join(' ')}`}
+      filters={filters}
+      setFilters={setFilters}
+      resetFilters={resetFilters}
+      availableTags={availableTags}
+      availableStatuses={availableStatuses}
+      maxRefCount={maxRefCount}
+      getNodeTagsForFilter={(n) => n.tags}
+      getNodeStatusForFilter={(n) => n.status}
       emptyText="还没有作品。加几部试试。"
       getNodeColor={(n) => {
         if (highlightId && n.id === highlightId) return '#3b6cf2'
@@ -157,6 +201,17 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={'lg-toggle' + (showFilters ? ' active' : '')}
+            onClick={() => setShowFilters((v) => !v)}
+            title="过滤：按标签 / 状态 / 入度阈值 / 孤立节点筛选"
+            aria-label="过滤"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
           </button>
         </>

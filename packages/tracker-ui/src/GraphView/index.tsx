@@ -43,6 +43,8 @@ import { useAutoCenter } from './useAutoCenter'
 import { drawTagChips } from './drawTagChips'
 import { ForceParamsPanel } from './ForceParamsPanel'
 import { SearchBox } from './SearchBox'
+import { FiltersPanel, type StatusOption } from './FiltersPanel'
+import type { GraphFilters } from './useGraphFilters'
 
 /** 节点尺寸公式（force-graph nodeVal） —— 与原 GraphView 一致 */
 const NODE_SIZE_FN = (n: BaseGraphNode): number => 1 + Math.sqrt(n.refCount) * 2
@@ -89,6 +91,24 @@ export interface GraphViewProps<
   setSearchQuery?: (q: string) => void
   /** 把节点拼成可搜索字符串（app 端决定包含 id / title / tag 等） */
   getNodeSearchText?: (node: N) => string
+  /** 过滤面板（commit 3）—— 不传则不渲染面板；传了则按 filters 过滤节点 */
+  filters?: GraphFilters
+  setFilters?: (next: GraphFilters) => void
+  resetFilters?: () => void
+  /** app 端从数据提取的 tag 列表（用于面板 checkbox） */
+  availableTags?: string[]
+  /** app 端定义的 status 选项（value + label + color） */
+  availableStatuses?: StatusOption[]
+  /** 入度阈值上限（= max(refCount)） */
+  maxRefCount?: number
+  /** 是否显示过滤面板 */
+  showFilters?: boolean
+  /** 关闭过滤面板的回调 */
+  onFiltersClose?: () => void
+  /** app 端从节点取 tag 列表（用于面板可见性 + 过滤匹配） */
+  getNodeTagsForFilter?: (node: N) => string[]
+  /** app 端从节点取 status 字符串（用于过滤匹配） */
+  getNodeStatusForFilter?: (node: N) => string
   /** 高亮节点（force 模式钉中心 / tree 模式不动层级位置） */
   highlightId?: string | null
   /** 点击节点 */
@@ -124,6 +144,16 @@ export function GraphView<
     searchQuery,
     setSearchQuery,
     getNodeSearchText,
+    filters,
+    setFilters,
+    resetFilters,
+    availableTags = [],
+    availableStatuses = [],
+    maxRefCount = 0,
+    showFilters = false,
+    onFiltersClose,
+    getNodeTagsForFilter,
+    getNodeStatusForFilter,
     highlightId,
     onSelect,
     onNodeDragEnd,
@@ -149,6 +179,40 @@ export function GraphView<
   const isSearchActive = searchMatches !== null
   const matchCount = searchMatches?.size ?? 0
 
+  // 应用过滤面板（commit 3）：多维过滤后剩 visibleNodes
+  const visibleNodes = useMemo(() => {
+    if (!filters) return data.nodes
+    return data.nodes.filter((n) => {
+      const node = n as unknown as N
+      if (!filters.showOrphans && n.refCount === 0) return false
+      if (filters.minRefCount > 0 && n.refCount < filters.minRefCount) return false
+      if (filters.tags.length > 0) {
+        const nodeTags = getNodeTagsForFilter?.(node) ?? []
+        if (!filters.tags.some((t) => nodeTags.includes(t))) return false
+      }
+      if (filters.statuses.length > 0) {
+        const s = getNodeStatusForFilter?.(node) ?? ''
+        if (!filters.statuses.includes(s)) return false
+      }
+      return true
+    })
+  }, [data.nodes, filters, getNodeTagsForFilter, getNodeStatusForFilter])
+
+  /* 用过滤后的 visibleNodes 重组 links（剔除指向/来自隐藏节点的 link） */
+  const visibleData = useMemo(() => {
+    if (visibleNodes === data.nodes) return data
+    const visibleIds = new Set(visibleNodes.map((n) => n.id))
+    const links = data.links.filter((l) => {
+      const sid = typeof l.source === 'string' ? l.source : l.source.id
+      const tid = typeof l.target === 'string' ? l.target : l.target.id
+      return visibleIds.has(sid) && visibleIds.has(tid)
+    })
+    return { nodes: visibleNodes, links }
+  }, [visibleNodes, data])
+
+  const isFiltering = !!filters
+  const noVisibleNodes = visibleNodes.length === 0
+
   const wrapRef = useRef<HTMLDivElement>(null)
   // ref 类型用 react-force-graph 内部的 NodeObject / LinkObject 包装形态 —— 见 ForceGraph2D 的 ref 推断
   const fgRef = useRef<ForceGraphMethods<unknown, unknown> | undefined>(undefined)
@@ -156,12 +220,12 @@ export function GraphView<
   const layoutModeRef = useRef<LayoutMode>(layoutModeProp)
   const { motionRef, pointerOverRef, setPointerOver } = useGraphPhysics(
     fgRef,
-    data.nodes,
+    visibleData.nodes,
     layoutModeRef
   )
 
   // 高亮 + 自动居中
-  useAutoCenter(fgRef, data.nodes, dims, highlightId)
+  useAutoCenter(fgRef, visibleData.nodes, dims, highlightId)
 
   // layoutMode 同步到 ref（pointerOver effect 会读它）
   useEffect(() => {
@@ -177,14 +241,14 @@ export function GraphView<
    */
   useEffect(() => {
     const fg = fgRef.current
-    if (!fg || data.nodes.length === 0) return
+    if (!fg || visibleData.nodes.length === 0) return
     try {
       if (layoutModeProp === 'tree') {
         motionRef.current.orbit = 0
         motionRef.current.jitter = 0
         motionRef.current.centripetal = 0
-        const depths = computeDepths(data.nodes, data.links)
-        applyTreeLayout(data.nodes, depths, DEFAULT_TREE_DIMS)
+        const depths = computeDepths(visibleData.nodes, visibleData.links)
+        applyTreeLayout(visibleData.nodes, depths, DEFAULT_TREE_DIMS)
       } else if (layoutModeProp === 'analyze') {
         motionRef.current.orbit = 0
         motionRef.current.jitter = 0
@@ -194,7 +258,7 @@ export function GraphView<
         motionRef.current.orbit = over ? 0.004 : 0.05
         motionRef.current.jitter = over ? 0.004 : 0.04
         motionRef.current.centripetal = 0.02
-        for (const n of data.nodes) {
+        for (const n of visibleData.nodes) {
           n.fx = undefined
           n.fy = undefined
         }
@@ -203,7 +267,7 @@ export function GraphView<
     } catch (e) {
       console.warn('layout mode switch failed:', e)
     }
-  }, [layoutModeProp, data.nodes, data.links])
+  }, [layoutModeProp, visibleData.nodes, visibleData.links])
 
   /**
    * 数据变更（增删节点 / 改边）→ 重算层级位置。
@@ -212,25 +276,25 @@ export function GraphView<
   useEffect(() => {
     if (layoutModeProp !== 'tree') return
     const fg = fgRef.current
-    if (!fg || data.nodes.length === 0) return
+    if (!fg || visibleData.nodes.length === 0) return
     try {
-      const depths = computeDepths(data.nodes, data.links)
-      applyTreeLayout(data.nodes, depths, DEFAULT_TREE_DIMS)
+      const depths = computeDepths(visibleData.nodes, visibleData.links)
+      applyTreeLayout(visibleData.nodes, depths, DEFAULT_TREE_DIMS)
       fg.d3ReheatSimulation()
     } catch (e) {
       console.warn('tree layout reapply failed:', e)
     }
-  }, [layoutModeProp, data.nodes, data.links])
+  }, [layoutModeProp, visibleData.nodes, visibleData.links])
 
   /**
    * 高亮节点钉在图中心（force 模式专属）：它作为中心，其它节点继续绕它运动。
    * tree 模式下 applyTreeLayout 已经给每个节点钉了层级位置，这里不能再覆盖。
    */
   useEffect(() => {
-    if (!fgRef.current || data.nodes.length === 0) return
+    if (!fgRef.current || visibleData.nodes.length === 0) return
     if (layoutModeProp === 'tree') return
-    const target = highlightId ? data.nodes.find((n) => n.id === highlightId) : null
-    for (const n of data.nodes) {
+    const target = highlightId ? visibleData.nodes.find((n) => n.id === highlightId) : null
+    for (const n of visibleData.nodes) {
       if (target && n.id === target.id) {
         n.fx = 0
         n.fy = 0
@@ -244,7 +308,7 @@ export function GraphView<
     } catch (e) {
       console.warn('pin/reheat failed:', e)
     }
-  }, [highlightId, data.nodes, layoutModeProp])
+  }, [highlightId, visibleData.nodes, layoutModeProp])
 
   return (
     <div
@@ -253,13 +317,25 @@ export function GraphView<
       onMouseEnter={() => setPointerOver(true)}
       onMouseLeave={() => setPointerOver(false)}
     >
-      {data.nodes.length === 0 ? (
-        <p className="muted empty-hint">{emptyText}</p>
+      {noVisibleNodes ? (
+        /* commit 3：有数据但过滤掉了全部 → 提示 + 清空过滤 */
+        isFiltering && data.nodes.length > 0 ? (
+          <div className="empty-filtered">
+            <p className="muted">无匹配节点（{data.nodes.length} 个节点被过滤）</p>
+            {resetFilters && (
+              <button type="button" className="empty-filtered-reset" onClick={resetFilters}>
+                清空过滤
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="muted empty-hint">{emptyText}</p>
+        )
       ) : (
         <ForceGraph2D<BaseGraphNode, BaseGraphLink>
           // ref 类型与 react-force-graph 内部 NodeObject / LinkObject 包装形态冲突 —— 用 any 规避
           ref={fgRef as unknown as React.RefObject<any>}
-          graphData={data as unknown as { nodes: BaseGraphNode[]; links: BaseGraphLink[] }}
+          graphData={visibleData as unknown as { nodes: BaseGraphNode[]; links: BaseGraphLink[] }}
           width={dims.w}
           height={dims.h}
           backgroundColor={backgroundColor}
@@ -286,8 +362,8 @@ export function GraphView<
           linkColor={(l) => {
             const sourceId = typeof l.source === 'string' ? l.source : (l.source as BaseGraphNode).id
             const targetId = typeof l.target === 'string' ? l.target : (l.target as BaseGraphNode).id
-            const sourceUnlocked = data.nodes.find((n) => n.id === sourceId)?.unlocked
-            const targetUnlocked = data.nodes.find((n) => n.id === targetId)?.unlocked
+            const sourceUnlocked = visibleData.nodes.find((n) => n.id === sourceId)?.unlocked
+            const targetUnlocked = visibleData.nodes.find((n) => n.id === targetId)?.unlocked
             if (getLinkColor) {
               return getLinkColor(l as unknown as L, { sourceUnlocked, targetUnlocked })
             }
@@ -308,8 +384,8 @@ export function GraphView<
             }
             // tree 模式拖完回原层级位置
             if (layoutModeProp === 'tree') {
-              const depths = computeDepths(data.nodes, data.links)
-              applyTreeLayout(data.nodes, depths, DEFAULT_TREE_DIMS)
+              const depths = computeDepths(visibleData.nodes, visibleData.links)
+              applyTreeLayout(visibleData.nodes, depths, DEFAULT_TREE_DIMS)
             }
             if (onNodeDragEnd) {
               onNodeDragEnd(n as unknown as N)
@@ -372,6 +448,20 @@ export function GraphView<
           matchCount={matchCount}
         />
       )}
+      {showFilters && filters && setFilters && resetFilters && (
+        <FiltersPanel
+          filters={filters}
+          setTags={(tags) => setFilters({ ...filters, tags })}
+          setStatuses={(statuses) => setFilters({ ...filters, statuses })}
+          setShowOrphans={(v) => setFilters({ ...filters, showOrphans: v })}
+          setMinRefCount={(v) => setFilters({ ...filters, minRefCount: v })}
+          resetFilters={resetFilters}
+          availableTags={availableTags}
+          availableStatuses={availableStatuses}
+          maxRefCount={maxRefCount}
+          onClose={onFiltersClose ?? ((): void => {})}
+        />
+      )}
     </div>
   )
 }
@@ -379,6 +469,7 @@ export function GraphView<
 /** 暴露内部 hooks 供 app 复用 —— commit 1+ 会用到 */
 export { useGraphPhysics, DEFAULT_MOTION } from './useGraphPhysics'
 export type { MotionRef, PhysicsController } from './useGraphPhysics'
+export type { GraphFilters } from './useGraphFilters'
 export {
   applyTreeLayout,
   computeDepths,
@@ -389,6 +480,8 @@ export { useAutoCenter, SETTLE_DELAY_MS, IMMEDIATE_CENTER_MS, SETTLE_CENTER_MS }
 export { drawTagChips } from './drawTagChips'
 export { ForceParamsPanel } from './ForceParamsPanel'
 export { SearchBox } from './SearchBox'
+export { FiltersPanel } from './FiltersPanel'
+export { useGraphFilters } from './useGraphFilters'
 export { useResize } from './useResize'
 export type { Dims } from './useResize'
 export type { BaseGraphNode, BaseGraphLink } from './types'
