@@ -48,6 +48,16 @@ export function ForceParamsPanel({
   motionRef,
   onClose
 }: ForceParamsPanelProps): JSX.Element {
+  /* fgRef 可能 mount 时还没 ready —— mount 后再读一次 charge 兜底 */
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg) return
+    const c = fg.d3Force('charge')
+    if (c && typeof c.strength === 'function') {
+      const s = c.strength()
+      if (typeof s !== 'function') setChargeVal(Number(s))
+    }
+  }, [fgRef])
   // charge 从 fgRef 读初始值（不能直接用 DEFAULT_MOTION.charge，
   // 因为用户可能调过；其它 motion 字段从 motionRef 读）
   // 注意 d3-force 的 charge 默认 strength 是函数（(d) => -d*d），
@@ -82,6 +92,17 @@ export function ForceParamsPanel({
     value: number
   ): void => {
     motionRef.current[key] = value
+    /* d3 simulation 已冷却时（alpha < min）force 函数不会被调用，
+     * 即使闭包读 motionRef 也无效 —— 必须 reheatSimulation 让 alpha 重启 */
+    const fg = fgRef.current
+    if (fg) {
+      try {
+        fg.d3ReheatSimulation()
+      } catch (e) {
+        /* 早期 mount / fgRef.current 还未完全 ready 时 reheat 偶尔抛错 */
+        console.warn('reheat on motion change failed:', e)
+      }
+    }
   }
 
   const handleChargeChange = (value: number): void => {
