@@ -18,9 +18,10 @@
     "typecheck:book": "npm --workspace book-tracker run typecheck",
     "typecheck:life": "npm --workspace life-tracker run typecheck",
     "typecheck:core": "npm --workspace tracker-core run typecheck",
-    "test": "npm --workspace tracker-core test && npm --workspace book-tracker test && npm --workspace life-tracker test",
+    "test": "npm --workspace @tracker/ui test && npm --workspace tracker-core test && npm --workspace book-tracker test && npm --workspace life-tracker test",
     "test:book": "npm --workspace book-tracker test",
     "test:life": "npm --workspace life-tracker test",
+    "test:ui": "npm --workspace @tracker/ui test",
     "test:core": "npm --workspace tracker-core test",
     "test:rust": "cargo test"
   },
