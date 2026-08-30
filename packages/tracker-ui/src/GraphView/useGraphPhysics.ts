@@ -125,10 +125,29 @@ export function useGraphPhysics(
         return motionLive.current.centripetal
       }))
       fg.d3ReheatSimulation()
+      // eslint-disable-next-line no-console
+      console.log('[useGraphPhysics] force 注册成功 nodes=', nodes.length,
+        'motion=', JSON.stringify(motionLive.current),
+        'pointerOver=', pointerOverLive.current)
     } catch (e) {
       console.warn('jitter force registration failed:', e)
     }
   }, [fgRef, nodes, motionLive, pointerOverLive, tickLive])
+
+  /* DEBUG: 每秒打印 motion / pointerOver / tick 状态 —— 排查 "force 注册了但图不动"
+   * 时用。生产构建会被 Vite tree-shake 掉（import.meta.env.DEV 静态 false），
+   * 不会泄漏到 release。 */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const id = window.setInterval(() => {
+      // eslint-disable-next-line no-console
+      console.log('[useGraphPhysics] tick=',
+        tickLive.current,
+        'motion=', JSON.stringify(motionLive.current),
+        'pointerOver=', pointerOverLive.current)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [motionLive, pointerOverLive, tickLive])
 
   return { motionRef, pointerOverRef, setPointerOver, forceTickRef }
 }
