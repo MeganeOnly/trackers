@@ -76,6 +76,15 @@ export function isGoalDone(g: Goal): boolean {
   return !!g.progress && g.progress.total !== null && g.progress.current >= g.progress.total
 }
 
+/** 主题预设（视觉风格）：classic = 当前样式（保留）；codex = 朱砂红印章风 */
+export type ThemeName = 'classic' | 'library' | 'codex'
+
+/** 格式预设（信息呈现方式）：与 theme 正交，组合成 9 种 preset
+ * - list: 紧凑列表（默认；与 Classic 同款）
+ * - grid: 卡片墙（CSS grid auto-fill）
+ * - focus-stack: 焦点卡 + 紧凑清单 + 印章墙（按时间倒序） */
+export type FormatName = 'list' | 'grid' | 'focus-stack'
+
 /** 配置文件（数据目录自带） */
 export interface Config {
   version: number
@@ -83,4 +92,8 @@ export interface Config {
   data_dir: string
   language: 'zh-CN'
   default_mode: 'clean' | 'edit'
+  /** 视觉主题预设（不在 patch 里改 data_dir；theme 走 ConfigPatch.theme） */
+  theme?: ThemeName
+  /** 信息呈现格式（与 theme 正交,独立维度） */
+  format?: FormatName
 }

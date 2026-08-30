@@ -1,0 +1,65 @@
+/* packages/tracker-ui/src/themes/codex.css
+ *
+ * Codex preset —— life-tracker 的特色风格。
+ * 隐喻:印章 / 计划本 / 日志;主色朱砂红;Fraunces 衬线;
+ * 方角 + hairline border;印章 mechanic 用深绿作次要色(跟 library 反过来);
+ * 额外加 deadline 提醒色(逾期红 / 临近橙)。
+ */
+
+:root[data-theme="codex"] {
+  /* Surface —— 牛皮纸感(更黄,跟 library 区分) */
+  --bg: #f5f1e8;
+  --surface: #fbf8ef;
+  --fg: #1a1816;
+  --muted: #807a6e;
+  --border: #e0d9c8;
+  --hairline: #d4ccb8;
+
+  /* Accent —— 朱砂红(印章主色) */
+  --accent: #5a2418;
+  --accent-soft: #ecd8d2;
+  --accent-deep: #3a1408;
+  /* Stamp 跟 library 反过来 —— 用深绿做次要印章色 */
+  --stamp: #1f3a2e;
+
+  /* Type —— Fraunces 衬线 */
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+
+  /* Status(life)—— 朱砂红作 in_progress,深绿作 done */
+  --status-not-started: #999;
+  --status-in-progress: #5a2418;
+  --status-done: #1f3a2e;
+  --status-shelved: #c89456;
+  --status-abandoned: #8a3a3a;
+
+  /* Status(book)—— 在 codex 里也提供备用 token */
+  --status-want: #999;
+  --status-reading: #4a7c59;
+  --status-watching: #5a8a6c;
+  --status-finished: #1f3a2e;
+  --status-abandoned: #8a3a3a;
+
+  --danger: #a8392b;
+
+  /* Category 类别色 —— 用于 GraphView 节点色 / 卡片左侧色条 */
+  --cat-academic: #1f3a2e;
+  --cat-career: #5a2418;
+  --cat-health: #4a6a3a;
+  --cat-personal: #3a5a8a;
+  --cat-other: #6a6a6a;
+
+  /* Deadline 提醒色 —— life 特有 */
+  --deadline-soon: #c0573d;
+  --deadline-overdue: #8a2418;
+
+  /* Shape —— 方角 + 不浮起(同 library) */
+  --radius-card: 2px;
+  --radius-btn: 2px;
+  --radius-stamp: 2px;
+  --shadow-card: none;
+
+  /* Stamp mechanic —— 微旋转 -2° */
+  --stamp-transform: rotate(-2deg);
+
+  color-scheme: light;
+}

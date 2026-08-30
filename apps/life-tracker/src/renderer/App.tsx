@@ -5,10 +5,12 @@ import { CleanMode } from './pages/CleanMode'
 import { GoalForm } from './components/GoalForm'
 import { GraphModal } from './components/GraphModal'
 import { TrashModal } from './components/TrashModal'
+import { SettingsPanel } from './components/SettingsPanel'
 import { useModeStore } from './store/mode'
 import { useGoalsStore } from './store/goals'
 import { useRelationsStore } from './store/relations'
 import { useSearchStore } from './store/search'
+import { useSettingsStore } from './store/settings'
 import { api } from './lib/api'
 
 export default function App(): JSX.Element {
@@ -16,10 +18,12 @@ export default function App(): JSX.Element {
   const loadRelations = useRelationsStore((s) => s.load)
   const select = useGoalsStore((s) => s.select)
   const clearSearch = useSearchStore((s) => s.clear)
+  const hydrateSettings = useSettingsStore((s) => s.hydrate)
 
   const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
@@ -39,6 +43,7 @@ export default function App(): JSX.Element {
       try {
         const cfg = await api.config.get()
         useModeStore.getState().hydrate(cfg)
+        hydrateSettings(cfg)
         await Promise.all([loadGoals(), loadRelations()])
       } catch (e) {
         console.error('init load failed:', e)
@@ -47,7 +52,7 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [loadGoals, loadRelations])
+  }, [loadGoals, loadRelations, hydrateSettings])
 
   function openAdd(): void {
     select(null)
@@ -84,13 +89,19 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar onAdd={openAdd} onGraph={() => setGraphOpen(true)} onTrash={() => setTrashOpen(true)} />
+      <TopBar
+        onAdd={openAdd}
+        onGraph={() => setGraphOpen(true)}
+        onTrash={() => setTrashOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+      />
       <div className="app-body">
         <EditModeWrapper />
       </div>
       {formOpen && <GoalForm goal={null} onClose={() => setFormOpen(false)} />}
       {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
       {trashOpen && <TrashModal onClose={() => setTrashOpen(false)} />}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

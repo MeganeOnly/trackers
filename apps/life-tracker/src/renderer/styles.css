@@ -1,22 +1,11 @@
+/* 共享 token + 全局 reset 在 packages/tracker-ui/src/base.css(由 main.tsx import)
+ * 各 preset (classic / library / codex) 在 packages/tracker-ui/src/themes/*.css,
+ * 运行时通过 :root[data-theme] 切换。
+ *
+ * 这里只保留旧名 --shadow 别名(原组件样式大量引用 var(--shadow)),
+ * 让组件代码无须改名就能跟随 --shadow-card 切换。 */
 :root {
-  --bg: #fafaf8;
-  --fg: #1a1a1a;
-  --muted: #777;
-  --border: #e5e5e0;
-  --accent: #4a7c59;
-  --accent-soft: #eaf1ec;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
-  --status-not_started: #999;
-  --status-in_progress: #4a7c59;
-  --status-done: #2d5a3a;
-  --status-shelved: #c89456;
-  --status-abandoned: #c0573d;
-  --danger: #c0573d;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  color-scheme: light;
+  --shadow: var(--shadow-card);
 }
 
 * { box-sizing: border-box; }
@@ -1173,3 +1162,222 @@ button:focus-visible {
 .trash-item-info .title { font-weight: 500; }
 .trash-item-info .meta { font-size: 12px; }
 .trash-item-actions { display: flex; gap: 6px; }
+
+/* ============ Settings panel：theme picker ============ */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.theme-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 4px);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease;
+}
+.theme-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.theme-card.active {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;       /* 抵消 border-width 增厚导致的 1px 抖动 */
+  background: var(--accent-soft);
+}
+.theme-swatch {
+  position: relative;
+  display: inline-flex;
+  width: 48px;
+  height: 28px;
+  border-radius: var(--radius-sm, 2px);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.theme-swatch-bg {
+  position: absolute;
+  inset: 0;
+}
+.theme-swatch-accent {
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 100%;
+  height: 6px;
+}
+.theme-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.theme-card-label {
+  font-weight: 500;
+  font-size: var(--fs-base, 14px);
+}
+.theme-card-hint {
+  font-size: var(--fs-xs, 12px);
+  color: var(--muted);
+}
+
+/* ============ Settings panel：format picker ============ */
+.format-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.format-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 4px);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease;
+}
+.format-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.format-card.active {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;
+  background: var(--accent-soft);
+}
+.format-card-wire {
+  width: 48px;
+  height: 32px;
+  margin: 0;
+  padding: 4px 6px;
+  background: var(--bg, #fafaf8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 2px);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  line-height: 1.05;
+  color: var(--muted);
+  overflow: hidden;
+  flex-shrink: 0;
+  white-space: pre;
+}
+.format-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.format-card-label {
+  font-weight: 500;
+  font-size: var(--fs-base, 14px);
+}
+.format-card-hint {
+  font-size: var(--fs-xs, 12px);
+  color: var(--muted);
+}
+
+/* ============ Codex preset：列表项左侧 4px category 色条 ============
+ * 仅 codex 主题下显示;classic/library 走默认值。 */
+:root[data-theme="codex"] .goal-list li {
+  position: relative;
+  padding-left: 18px;
+}
+:root[data-theme="codex"] .goal-list li::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 5px; bottom: 5px;
+  width: 3px;
+  background: var(--item-stripe, var(--muted));
+}
+
+/* ============ Format = grid：goal-list 卡片墙（life 端）=========== */
+ul.goal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.goal-card-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 6px);
+  cursor: pointer;
+  position: relative;
+  min-height: 96px;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease,
+    transform 0.12s ease;
+}
+.goal-card-grid:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+.goal-card-grid.selected {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;
+  background: var(--accent-soft);
+}
+.goal-card-grid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.goal-card-grid-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  font-family: var(--font-display, inherit);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.goal-card-grid-meta {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+}
+.card-progress-text {
+  font-family: var(--font-mono, ui-monospace);
+  color: var(--accent);
+  font-weight: 500;
+}
+.card-deadline {
+  font-size: 11px;
+}
+:root[data-format="grid"][data-theme="library"] .goal-card-grid-title,
+:root[data-format="grid"][data-theme="codex"] .goal-card-grid-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 16px;
+}

@@ -2,20 +2,14 @@ import { create } from 'zustand'
 import { api } from '../lib/api'
 import { applyTheme, applyFormat, normalizeTheme, normalizeFormat } from '@ui/useTheme'
 import type { ThemeName, FormatName } from '@ui/useTheme'
-import type { Config, WorkKind } from '@shared/types'
+import type { Config } from '@shared/types'
 
 interface SettingsState {
-  /** 新建作品的默认类型 */
-  defaultWorkKind: WorkKind
-  /** 展示筛选："all" 或某个 WorkKind */
-  worksFilter: string
   /** 视觉主题预设(样式风格 —— accent/font/radius/shadow) */
   theme: ThemeName
   /** 信息呈现格式(格式风格 —— list/grid/focus-stack,与 theme 正交) */
   format: FormatName
   hydrate: (cfg: Config) => void
-  setDefaultWorkKind: (k: WorkKind) => Promise<void>
-  setWorksFilter: (f: string) => Promise<void>
   setTheme: (name: ThemeName) => Promise<void>
   setFormat: (name: FormatName) => Promise<void>
 }
@@ -39,8 +33,6 @@ function persistFormatLS(name: FormatName): void {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  defaultWorkKind: 'book',
-  worksFilter: 'all',
   theme: 'classic',
   format: 'list',
   hydrate: (cfg) => {
@@ -50,28 +42,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     persistFormatLS(f)
     applyTheme(t)
     applyFormat(f)
-    set({
-      defaultWorkKind: cfg.default_work_kind ?? 'book',
-      worksFilter: cfg.works_filter || 'all',
-      theme: t,
-      format: f
-    })
-  },
-  setDefaultWorkKind: async (k) => {
-    const cfg = await api.config.set({ default_work_kind: k })
-    set({ defaultWorkKind: cfg.default_work_kind })
-  },
-  setWorksFilter: async (f) => {
-    const cfg = await api.config.set({ works_filter: f })
-    set({ worksFilter: cfg.works_filter })
+    set({ theme: t, format: f })
   },
   setTheme: async (name) => {
     const t = normalizeTheme(name)
-    // 立即同步:本地状态 + DOM data-theme + localStorage(防 FOUC 用)
     persistThemeLS(t)
     applyTheme(t)
     set({ theme: t })
-    // 持久化到 config.json(失败时不回滚 UI —— 用户手动切回即可,避免无网络盘时阻塞)
     try {
       const cfg = await api.config.set({ theme: t })
       const stored = normalizeTheme(cfg.theme)

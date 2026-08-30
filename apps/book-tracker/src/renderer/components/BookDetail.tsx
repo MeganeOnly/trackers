@@ -4,6 +4,7 @@ import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
+import { StampChip } from '@ui/StampChip'
 import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
 import type { Book, BookInput, BookStatus, WorkKind } from '@shared/types'
 
@@ -241,10 +242,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           placeholder="作品名"
         />
         <div className="meta-row">
-          <span className={`status-pill status-${status}`}>
-            {STATUS_LABELS[status]}
-            {(status === 'reading' || status === 'watching') && ` · 第 ${readCount} 次`}
-          </span>
+          {status === 'finished' ? (
+            <StampChip label={STATUS_LABELS[status]} state="finished" />
+          ) : (
+            <span className={`status-pill status-${status}`}>
+              {STATUS_LABELS[status]}
+              {(status === 'reading' || status === 'watching') && ` · 第 ${readCount} 次`}
+            </span>
+          )}
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
         </div>

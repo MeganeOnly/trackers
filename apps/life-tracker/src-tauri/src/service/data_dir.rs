@@ -30,6 +30,8 @@ where
             data_dir: chosen.to_string(),
             language: "zh-CN".to_string(),
             default_mode: crate::types::DefaultMode::Clean,
+            theme: "classic".to_string(),
+            format: "list".to_string(),
         })?;
         let goals_dir = crate::data::config::paths::goals_dir(chosen);
         tracker_core::files::ensure_dir(&goals_dir)?;

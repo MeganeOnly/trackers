@@ -7,9 +7,10 @@ interface TopBarProps {
   onAdd?: () => void
   onGraph?: () => void
   onTrash?: () => void
+  onSettings?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onTrash }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onTrash, onSettings }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -61,6 +62,11 @@ export function TopBar({ onAdd, onGraph, onTrash }: TopBarProps): JSX.Element {
         />
       </div>
       <div className="topbar-right">
+        {onSettings && (
+          <button className="topbar-icon-btn" onClick={onSettings} title="设置">
+            设置
+          </button>
+        )}
         {onTrash && (
           <button
             className="topbar-icon-btn topbar-icon-btn--with-badge"

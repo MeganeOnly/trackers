@@ -36,7 +36,11 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src/renderer'),
       '@shared': resolve(__dirname, 'src/shared'),
+      // @core 指向 index.ts 文件 —— 代码里只 import '@core'(不带子路径)
       '@core': resolve(__dirname, '../../packages/tracker-core/src/index.ts'),
+      // @ui 指向 src 目录 —— 组件 import '@ui/Modal' 等,main.tsx 还 import
+      // '@ui/base.css' / '@ui/themes/*.css',目录形式让两者都能解析
+      '@ui': resolve(__dirname, '../../packages/tracker-ui/src'),
     }
   },
   plugins: [react()],

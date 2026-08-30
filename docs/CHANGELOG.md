@@ -59,3 +59,49 @@
 - `life-tracker-v1`
 
 两 tag 同 commit hash（同 v1 节点），按 `.github/workflows/release.yml` 约定分派构建对应 app。
+
+---
+
+## v1.1（2026-08）：Theme system + 共享 UI 基座落地
+
+**主题系统 + packages/tracker-ui 共享基座**。把当前样式当 `classic` 预设保留，新加两套差异化预设 `library`（book 特色）和 `codex`（life 特色），设置面板运行时切换。
+
+### 新增能力
+
+- **三套视觉预设**：
+  - `classic` —— 保留当前 sage green + 系统字体 + 圆角样式，作为基础预设（默认）。
+  - `library` —— book-tracker 特色：深森林绿 + Fraunces 衬线 + 方角 + hairline border + 印章 mechanic（`-2deg` 旋转）。
+  - `codex` —— life-tracker 特色：朱砂红 + Fraunces + 方角 + 印章 mechanic（次要色用深绿，跟 library 反过来）+ deadline 提醒色（`deadline-soon` 橙红 / `deadline-overdue` 朱红）。
+- **运行时切换**：设置面板的 theme picker（radio 卡片 + 色卡预览），点击立即生效（CSS 变量级联 < 1ms），保存到 `config.json`。两 app 都能切到任意预设（不强制默认）。
+- **防 FOUC**：`index.html` 内联 inline script 从 `localStorage` 抢先设 `data-theme`，settings store hydrate 后用 `Config.theme`（权威）覆盖一次，首屏不闪。
+- **签名元素 № NNN + StampChip**：跨 preset 通用（base.css 提供），组件代码后续可按需使用。
+
+### 共享 UI 基座
+
+- **`packages/tracker-ui`**：新增 npm workspace，提供 `Modal` / `StampChip` / `useTheme` / `applyTheme` / `normalizeTheme` / `THEME_META` 导出 + `base.css` + `themes/{classic,library,codex}.css`。
+- **`Modal` 抽取**：两 app `components/Modal.tsx`（字节级相同的 53 行）→ 共享，改为 re-export from `@ui/Modal`，其它组件引用路径 `'./Modal'` 不变。
+- **其它共享组件**（TopBar / GraphView / PrereqEditor）：差异较大本轮不抽，留 `docs/shared-boundary.md` 跟进。
+
+### 持久化
+
+- **`Config.theme`**：`'classic' | 'library' | 'codex'`（TS + Rust 镜像）；Rust 端 `normalize` + `set_config` 都按白名单过滤，垃圾值 fallback classic（两端单测 `invalid_theme_falls_back_to_classic` 覆盖）。
+
+### 字体加载
+
+- **Google Fonts CDN**（Fraunces + Inter + JetBrains Mono + `font-display: swap`），离线时回退到系统字体（Georgia / `-apple-system` / `ui-monospace`）。后续如需完全离线可改自托管 woff2 到 `renderer/public/fonts/`。
+
+### 工程化
+
+- **`vite.config.ts` + `vitest.config.ts` alias 数组化**：用 `[{ find, replacement }]` 替代 `{ '@': ... }` 对象形式，规避 Vite 5 对象形式对 `@` 开头的 find 偶发触发 `Cannot find package '@core'`。
+- **TS typecheck / Rust test / vitest** 三端全绿。
+
+### 共享范围
+
+- 两 app 完全共享 theme system + 共享基座；store/settings.ts / components/SettingsPanel.tsx / src-tauri/src/{types,data/config,service/config}.rs 两 app 都改；新增 `invalid_theme_falls_back_to_classic` 单测各一份。
+
+### 标签
+
+- `book-tracker-v1.1`
+- `life-tracker-v1.1`
+
+两 tag 同 commit hash，按 release workflow 分派构建。

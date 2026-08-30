@@ -200,6 +200,12 @@ pub struct Config {
     /// 展示筛选："all" 或某个作品类型的字符串
     #[serde(default)]
     pub works_filter: String,
+    /// 视觉主题预设(`"classic" | "library" | "codex"`)—— 缺省/无效值 fallback classic
+    #[serde(default)]
+    pub theme: String,
+    /// 信息呈现格式(`"list" | "grid" | "focus-stack"`)—— 与 theme 正交,缺省 fallback list
+    #[serde(default)]
+    pub format: String,
 }
 
 fn default_work_kind() -> WorkKind {

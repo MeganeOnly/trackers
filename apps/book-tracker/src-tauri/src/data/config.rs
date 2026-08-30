@@ -19,6 +19,8 @@ pub fn default_config() -> Config {
         default_mode: DefaultMode::Clean,
         default_work_kind: WorkKind::Book,
         works_filter: "all".to_string(),
+        theme: "classic".to_string(),
+        format: "list".to_string(),
     }
 }
 
@@ -63,6 +65,22 @@ fn normalize(raw: serde_json::Value) -> Config {
             let f = get_str("works_filter").unwrap_or_default();
             if f.is_empty() { "all".to_string() } else { f }
         },
+        theme: {
+            let t = get_str("theme").unwrap_or_default();
+            // 只接受已知 preset;其他值 fallback classic(防 renderer 发意外值)
+            match t.as_str() {
+                "classic" | "library" | "codex" => t,
+                _ => "classic".to_string(),
+            }
+        },
+        format: {
+            let f = get_str("format").unwrap_or_default();
+            // 只接受已知 preset;其他值 fallback list
+            match f.as_str() {
+                "list" | "grid" | "focus-stack" => f,
+                _ => "list".to_string(),
+            }
+        },
     }
 }
 
@@ -94,6 +112,8 @@ mod tests {
             default_mode: DefaultMode::Edit,
             default_work_kind: WorkKind::Anime,
             works_filter: "movie".to_string(),
+            theme: "library".to_string(),
+            format: "grid".to_string(),
         };
         write_config(&cfg).unwrap();
         let got = read_config(&cfg.data_dir).unwrap();
@@ -102,6 +122,33 @@ mod tests {
         assert_eq!(got.default_mode, DefaultMode::Edit);
         assert_eq!(got.default_work_kind, WorkKind::Anime);
         assert_eq!(got.works_filter, "movie");
+        assert_eq!(got.theme, "library");
+        assert_eq!(got.format, "grid");
+    }
+
+    #[test]
+    fn invalid_theme_falls_back_to_classic() {
+        let dir = tempdir().unwrap();
+        // 写一份 theme 是垃圾值的 config,读回来应该 fallback 到 classic
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"theme": "garbage_value"}"#,
+        )
+        .unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.theme, "classic");
+    }
+
+    #[test]
+    fn invalid_format_falls_back_to_list() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"format": "garbage_value"}"#,
+        )
+        .unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.format, "list");
     }
 
     #[test]

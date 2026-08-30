@@ -1,9 +1,32 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="classic" data-format="list">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>作品追踪</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <script>
+      // 防 FOUC:首屏渲染前从 localStorage 抢先设 data-theme / data-format,
+      // 让浏览器渲染 body 时已经匹配当前主题/格式。
+      // settings store hydrate 后会用 Config.theme / Config.format(权威)覆盖一次。
+      try {
+        var t = localStorage.getItem('tracker-theme');
+        if (t === 'classic' || t === 'library' || t === 'codex') {
+          document.documentElement.dataset.theme = t;
+        }
+        var f = localStorage.getItem('tracker-format');
+        if (f === 'list' || f === 'grid' || f === 'focus-stack') {
+          document.documentElement.dataset.format = f;
+        }
+      } catch (e) {
+        /* localStorage 不可用(隐私模式)时静默回退到 html 默认 classic + list */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

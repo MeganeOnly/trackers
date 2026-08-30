@@ -1,23 +1,11 @@
+/* 共享 token + 全局 reset 在 packages/tracker-ui/src/base.css(由 main.tsx import)
+ * 各 preset (classic / library / codex) 在 packages/tracker-ui/src/themes/*.css,
+ * 运行时通过 :root[data-theme] 切换。
+ *
+ * 这里只保留旧名 --shadow 别名(原组件样式大量引用 var(--shadow)),
+ * 让组件代码无须改名就能跟随 --shadow-card 切换。 */
 :root {
-  --bg: #fafaf8;
-  --fg: #1a1a1a;
-  --muted: #777;
-  --border: #e5e5e0;
-  --accent: #4a7c59;
-  --accent-soft: #eaf1ec;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
-  --status-want: #999;
-  --status-reading: #4a7c59;
-  --status-watching: #5a8a6c;
-  --status-finished: #2d5a3a;
-  --status-shelved: #c89456;
-  --status-abandoned: #c0573d;
-  --danger: #c0573d;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  color-scheme: light;
+  --shadow: var(--shadow-card);
 }
 
 * { box-sizing: border-box; }
@@ -212,12 +200,44 @@ button:focus-visible {
 .detail-panel { flex: 1; padding: 32px 40px; overflow-y: auto; }
 
 .book-list { display: flex; flex-direction: column; gap: 18px; }
-.book-list-group h3 {
-  margin: 0 0 6px; font-size: 12px; font-weight: 600;
-  color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+/* 可点击折叠 header —— 6 个 status 分组 + 「已收起」分组 + bucket 内 status 子分组都用这套样式 */
+.book-list-group .group-header,
+.book-list-group .group-header--bucket,
+.book-list-group .group-header--sub {
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  width: 100%;
+  font: inherit;
+  font-size: 12px; font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
   display: flex; align-items: center; gap: 6px;
+  user-select: none;
 }
-.book-list-group h3 .count { font-weight: 400; color: var(--muted); }
+.book-list-group .group-header:hover,
+.book-list-group .group-header--bucket:hover,
+.book-list-group .group-header--sub:hover { background: rgba(0, 0, 0, 0.03); }
+.book-list-group .group-header .count,
+.book-list-group .group-header--bucket .count,
+.book-list-group .group-header--sub .count { font-weight: 400; color: var(--muted); }
+.book-list-group .group-header .caret,
+.book-list-group .group-header--bucket .caret,
+.book-list-group .group-header--sub .caret {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.book-list-group .group-header:focus-visible,
+.book-list-group .group-header--bucket:focus-visible,
+.book-list-group .group-header--sub:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
 .book-list-group ul { list-style: none; padding: 0; margin: 0; }
 .book-list-group li {
   padding: 5px 8px; border-radius: 4px;
@@ -233,6 +253,22 @@ button:focus-visible {
 }
 .book-list-group li .read-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 .book-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
+
+/* 「已收起」最外层容器 —— 不是一个 status 组，而是『所有被收起的』专用收纳位置 */
+.book-list-group--collapsed-bucket {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.bucket-subs { display: flex; flex-direction: column; gap: 10px; padding-left: 8px; }
+/* 子分组比外层缩进更深、header 字号略小、group-name 不再 uppercase */
+.book-list-group--sub .group-header--sub {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
 
 /* 作品类型小标签 */
 .kind-tag {
@@ -1001,7 +1037,12 @@ button:focus-visible {
 .ranking-list-row .col-score { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
 
 /* ---- Ranking compare ---- */
-.ranking-compare { display: flex; flex-direction: column; gap: 16px; }
+/* 对比视图撑满 .ranking-body：两张候选卡片各占一半宽、并撑满可用高度 */
+.ranking-compare {
+  display: flex; flex-direction: column; gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
 .ranking-compare-meta {
   text-align: center;
   font-size: 12px;
@@ -1011,8 +1052,11 @@ button:focus-visible {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   gap: 16px;
-  align-items: stretch;
-  min-height: 280px;
+  /* 卡片是正方形（aspect-ratio: 1），高度由宽度决定，stage 只负责居中 */
+  align-items: center;
+  justify-items: center;
+  flex: 1;
+  min-height: 0;
 }
 .ranking-compare-vs {
   display: flex; align-items: center; justify-content: center;
@@ -1024,7 +1068,13 @@ button:focus-visible {
 .ranking-compare-card {
   display: flex; flex-direction: column;
   align-items: stretch;
-  padding: 24px 20px;
+  /* 正方形：宽度吃满 grid 轨道，高度跟随；stage 高度不够时按 max-height 回退 */
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 22px 20px;
   background: white;
   border: 2px solid var(--border);
   border-radius: 8px;
@@ -1033,7 +1083,7 @@ button:focus-visible {
   font: inherit;
   color: inherit;
   transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 .ranking-compare-card:hover {
@@ -1046,38 +1096,99 @@ button:focus-visible {
 }
 .ranking-compare-card--left:hover { border-color: var(--accent); }
 .ranking-compare-card--right:hover { border-color: var(--accent); }
-.ranking-compare-card-title {
-  font-size: 18px;
+.ranking-compare-card-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.ranking-compare-card-kind {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.ranking-compare-card-rank {
+  color: var(--accent);
   font-weight: 600;
-  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-compare-card-title {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
   word-break: break-word;
 }
-.ranking-compare-card-meta {
+.ranking-compare-card-rows {
+  display: flex; flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  font-size: 15px;
+}
+.ranking-compare-card-row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+.ranking-compare-card-row dt {
+  color: var(--muted);
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ranking-compare-card-row dd {
+  margin: 0;
+  word-break: break-word;
+}
+.ranking-compare-card-notes {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  /* 笔记只露 4 行摘要，详情去编辑模式看 */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.ranking-compare-card-meta {
+  font-size: 14px;
   color: var(--muted);
 }
 .ranking-compare-card-tags {
-  display: flex; flex-wrap: wrap; gap: 4px;
-  margin-top: auto;
+  display: flex; flex-wrap: wrap; gap: 5px;
+  margin-top: 4px;
 }
 .ranking-compare-card-tag {
-  font-size: 11px;
-  padding: 2px 6px;
+  font-size: 12px;
+  padding: 3px 8px;
   background: var(--accent-soft);
   color: var(--accent);
   border-radius: 3px;
 }
-.ranking-compare-card-pick {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border);
-  text-align: center;
-  font-size: 13px;
+.ranking-compare-card-foot {
+  /* 评分脚注钉在卡片底部：左侧大号评分，右侧两行小字（预期胜率 / 交手战绩） */
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
-.ranking-compare-card:hover .ranking-compare-card-pick {
+.ranking-compare-card-score {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
   color: var(--accent);
-  font-weight: 600;
+}
+.ranking-compare-card-footmeta {
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+  margin-left: auto;
 }
 .ranking-compare-actions {
   display: flex; justify-content: center; gap: 12px;
@@ -1100,4 +1211,227 @@ button:focus-visible {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.6;
+}
+
+/* ============ Settings panel：theme picker ============ */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.theme-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 4px);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease;
+}
+.theme-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.theme-card.active {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;       /* 抵消 border-width 增厚导致的 1px 抖动 */
+  background: var(--accent-soft);
+}
+.theme-swatch {
+  position: relative;
+  display: inline-flex;
+  width: 48px;
+  height: 28px;
+  border-radius: var(--radius-sm, 2px);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.theme-swatch-bg {
+  position: absolute;
+  inset: 0;
+}
+.theme-swatch-accent {
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 100%;
+  height: 6px;
+}
+.theme-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.theme-card-label {
+  font-weight: 500;
+  font-size: var(--fs-base, 14px);
+}
+.theme-card-hint {
+  font-size: var(--fs-xs, 12px);
+  color: var(--muted);
+}
+
+/* ============ Settings panel：format picker(与 theme picker 共享布局) ============ */
+.format-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+/* format-card 复用 theme-card 的所有布局(避免重复),
+   这里只覆盖 preview 区域 + meta 文案颜色 */
+.format-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 4px);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease;
+}
+.format-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.format-card.active {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;
+  background: var(--accent-soft);
+}
+.format-card-wire {
+  width: 48px;
+  height: 32px;
+  margin: 0;
+  padding: 4px 6px;
+  background: var(--bg, #fafaf8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 2px);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  line-height: 1.05;
+  color: var(--muted);
+  overflow: hidden;
+  flex-shrink: 0;
+  white-space: pre;
+}
+.format-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.format-card-label {
+  font-weight: 500;
+  font-size: var(--fs-base, 14px);
+}
+.format-card-hint {
+  font-size: var(--fs-xs, 12px);
+  color: var(--muted);
+}
+
+/* ============ Library preset：列表项左侧 4px kind 色条 ============
+ * 仅 library 主题下显示;classic/codex 走默认值。 */
+:root[data-theme="library"] .book-list li {
+  position: relative;
+  padding-left: 18px;
+}
+:root[data-theme="library"] .book-list li::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 5px; bottom: 5px;
+  width: 3px;
+}
+:root[data-theme="library"] .book-list li.kind-book::before   { background: var(--kind-book); }
+:root[data-theme="library"] .book-list li.kind-anime::before { background: var(--kind-anime); }
+:root[data-theme="library"] .book-list li.kind-tv::before    { background: var(--kind-tv); }
+:root[data-theme="library"] .book-list li.kind-movie::before { background: var(--kind-movie); }
+:root[data-theme="library"] .book-list li.kind-other::before { background: var(--kind-other); }
+
+/* ============ Format = grid：卡片墙 ============
+ * format 与 theme 正交 —— 三套 theme × grid 都能用。 */
+ul.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.book-card-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 6px);
+  cursor: pointer;
+  position: relative;
+  min-height: 92px;
+  transition: border-color var(--dur-quick, 120ms) ease,
+    background var(--dur-quick, 120ms) ease,
+    transform 0.12s ease;
+}
+.book-card-grid:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+.book-card-grid.selected {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 9px 11px;        /* 抵消 border-width 1px 抖动 */
+  background: var(--accent-soft);
+}
+.book-card-grid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.book-card-grid-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  font-family: var(--font-display, inherit);
+  font-style: normal;
+  /* 标题过长时省略号 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book-card-grid-author {
+  font-size: 12px;
+  line-height: 1.3;
+}
+.book-card-grid-progress {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: auto;         /* 把进度推到卡片底部 */
+}
+/* grid 模式 + library/codex:用 Fraunces italic 标题 + 编号更显眼 */
+:root[data-format="grid"][data-theme="library"] .book-card-grid-title,
+:root[data-format="grid"][data-theme="codex"] .book-card-grid-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 16px;
 }

@@ -1,0 +1,58 @@
+/* packages/tracker-ui/src/themes/library.css
+ *
+ * Library preset —— book-tracker 的特色风格。
+ * 隐喻:旧图书馆 / 借书卡 / 档案柜;主色深森林绿;Fraunces 衬线;
+ * 方角 + hairline border,不用 box-shadow 浮起;印章 chip 微旋转 -2°。
+ */
+
+:root[data-theme="library"] {
+  /* Surface —— 暖白纸感再深一点 */
+  --bg: #f4f2ec;
+  --surface: #fbfaf6;
+  --fg: #171715;
+  --muted: #7d7a72;
+  --border: #e0dcd1;
+  --hairline: #d6d2c5;
+
+  /* Accent —— 深森林绿(书架木盒) */
+  --accent: #1f3a2e;
+  --accent-soft: #e8ede9;
+  --accent-deep: #14281f;
+  --stamp: #a8392b;
+
+  /* Type —— Fraunces 衬线 */
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+
+  /* Status —— 在 classic 基础上把 finished 提到 --accent 深森林绿 */
+  --status-want: #999;
+  --status-reading: #4a7c59;
+  --status-watching: #5a8a6c;
+  --status-finished: #1f3a2e;
+  --status-shelved: #c89456;
+  --status-abandoned: #a8392b;
+
+  /* Status(life)—— 在 library 里也提供备用 token */
+  --status-not-started: #999;
+  --status-in-progress: #5a2418;
+  --status-done: #1f3a2e;
+
+  --danger: #a8392b;
+
+  /* Kind 类别色 —— 用于左侧色条 / GraphView 节点色 */
+  --kind-book: #1f3a2e;
+  --kind-anime: #5a3a8a;
+  --kind-tv: #3a5a8a;
+  --kind-movie: #8a3a3a;
+  --kind-other: #6a6a6a;
+
+  /* Shape —— 方角 + 不浮起 */
+  --radius-card: 2px;
+  --radius-btn: 2px;
+  --radius-stamp: 2px;
+  --shadow-card: none;
+
+  /* Stamp mechanic —— 微旋转 -2°,呼应"印章" */
+  --stamp-transform: rotate(-2deg);
+
+  color-scheme: light;
+}

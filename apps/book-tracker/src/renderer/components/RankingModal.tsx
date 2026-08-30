@@ -72,7 +72,7 @@ export function RankingModal({ onClose }: RankingModalProps): JSX.Element {
     <Modal
       title="作品排名"
       onClose={onClose}
-      width={780}
+      width={920}
       className="modal-card--ranking"
     >
       <div className="ranking-toolbar">

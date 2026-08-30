@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useGroupedByStatus } from '../store/selectors'
 import { useGoalsStore } from '../store/goals'
 import { useSearchStore, matchGoal } from '../store/search'
+import { useSettingsStore } from '../store/settings'
+import { categoryVar } from '@shared/categoryColor'
 import type { Goal, GoalStatus } from '@shared/types'
 
 const STATUS_LABELS: Record<GoalStatus, string> = {
@@ -106,19 +108,19 @@ interface ItemRowProps {
 }
 
 /**
- * 侧栏一行：标题 + 进度 / 截止日期徽标。
- *
+ * 列表模式 li：紧凑文字流(default / focus-stack)。
  * 不再展示 status 徽标：
  * - 常规 status 分组：每个分组的 section header 已经标了 status 名 + dot，
  *   分组内每条都同 status，多余徽标。
  * - 被收起 bucket 的子分组：同款结构，再加每条 status 徽标跟 sub-header 重复。
  * - 真要看 status：右侧详情面板有「状态」select + status-pill（EditMode 真正的设置位）。
  */
-function ItemRow({ g, selected, onSelect }: ItemRowProps): JSX.Element {
+function ItemRowList({ g, selected, onSelect }: ItemRowProps): JSX.Element {
   return (
     <li
       className={selected ? 'selected' : ''}
       onClick={() => onSelect(g.id)}
+      style={{ '--item-stripe': categoryVar(g.category) } as React.CSSProperties}
     >
       <span className="title">{g.title}</span>
       {g.status === 'in_progress' && g.progress && (
@@ -131,7 +133,48 @@ function ItemRow({ g, selected, onSelect }: ItemRowProps): JSX.Element {
       {g.status !== 'in_progress' && g.deadline && (
         <span className="read-count">截止 {g.deadline}</span>
       )}
+      <span className="tracker-id">{g.id}</span>
     </li>
+  )
+}
+
+/**
+ * 网格模式 li：项目卡片(grid format) —— 顶部编号 + 标题 + 分类 + deadline + 量化进度 + 印章
+ */
+function ItemRowCard({ g, selected, onSelect }: ItemRowProps): JSX.Element {
+  return (
+    <li
+      className={`goal-card-grid${selected ? ' selected' : ''}`}
+      onClick={() => onSelect(g.id)}
+      style={{ '--item-stripe': categoryVar(g.category) } as React.CSSProperties}
+    >
+      <div className="goal-card-grid-header">
+        <span className="card-category muted">{g.category || '未分类'}</span>
+        <span className="tracker-id">{g.id}</span>
+      </div>
+      <h3 className="goal-card-grid-title">{g.title}</h3>
+      <div className="goal-card-grid-meta muted">
+        {g.status === 'in_progress' && g.progress && g.progress.total !== null && (
+          <span className="card-progress-text">
+            {g.progress.current}/{g.progress.total}
+          </span>
+        )}
+        {g.deadline && <span className="card-deadline">截止 {g.deadline}</span>}
+      </div>
+      {g.status === 'done' && (
+        <span className="tracker-stamp" data-state="done">已达成</span>
+      )}
+    </li>
+  )
+}
+
+/** 根据 format 选 list 或 card 渲染 */
+function ItemRow(props: ItemRowProps): JSX.Element {
+  const format = useSettingsStore((s) => s.format)
+  return format === 'grid' ? (
+    <ItemRowCard g={props.g} selected={props.selected} onSelect={props.onSelect} />
+  ) : (
+    <ItemRowList g={props.g} selected={props.selected} onSelect={props.onSelect} />
   )
 }
 
@@ -140,6 +183,7 @@ export function GoalList(): JSX.Element {
   const selectedId = useGoalsStore((s) => s.selectedId)
   const select = useGoalsStore((s) => s.select)
   const query = useSearchStore((s) => s.query)
+  const format = useSettingsStore((s) => s.format)
   const { isCollapsed, toggle } = useCollapsibleSections()
 
   // 编辑模式侧栏"被收起"：跨 status 收集 (collapsed=true OR status=abandoned)
@@ -200,7 +244,7 @@ export function GoalList(): JSX.Element {
               (items.length === 0 ? (
                 <p className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</p>
               ) : (
-                <ul>
+                <ul className={format === 'grid' ? 'goal-grid' : undefined}>
                   {items.map((g) => (
                     <ItemRow
                       key={g.id}
@@ -250,6 +294,7 @@ function CollapsedBucket({
   isCollapsed,
   toggle
 }: CollapsedBucketProps): JSX.Element | null {
+  const format = useSettingsStore((s) => s.format)
   if (collapsedTotal === 0) return null
   // 外层 bucket header 自己也走折叠机制（与上方 5 个 status 分组同款 button）：
   // - 折叠 bucket → 整片「被收起」区块（连同子 sub-section）一起折叠
@@ -304,7 +349,7 @@ function CollapsedBucket({
                   </span>
                 </button>
                 {!subCollapsed && (
-                  <ul>
+                  <ul className={format === 'grid' ? 'goal-grid' : undefined}>
                     {items.map((g) => (
                       <ItemRow
                         key={g.id}

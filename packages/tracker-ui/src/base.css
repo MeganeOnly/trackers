@@ -1,0 +1,403 @@
+/* packages/tracker-ui/src/base.css
+ *
+ * 共享 UI 基座的 CSS 基础 —— 两 app 共用。
+ * - :root 提供 type scale / spacing / layout / motion 的共享 token
+ * - 各 preset (classic / library / codex) 在 themes/*.css 里 :root[data-theme="..."] 覆盖
+ * - 组件样式不进 base.css,留各 app 的 styles.css;base.css 只放全局 reset + 通用排版
+ */
+
+:root {
+  /* Type —— 默认值（classic），preset 在 themes/*.css 覆盖为 Fraunces 等 */
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Roboto Mono', monospace;
+
+  /* Scale —— 7 档,跨 preset 一致 */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+  --fs-3xl: 40px;
+
+  /* Spacing —— 4/8 阶梯 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+
+  /* Layout */
+  --content-max: 720px;
+  --sidebar-w: 280px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Motion */
+  --ease-stamp: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --dur-stamp: 240ms;
+  --dur-quick: 120ms;
+}
+
+/* ===== 全局 reset ===== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button { font: inherit; color: inherit; }
+
+a { color: var(--accent); }
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+/* ===== 通用排版基线(由 preset override) ===== */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+code, pre, kbd {
+  font-family: var(--font-mono);
+}
+
+/* ===== 签名元素：№ NNN 编号(跨 preset 都显示) ===== */
+.tracker-id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  user-select: none;
+  display: none;            /* 默认 classic 隐藏(避免破坏当前视觉密度) */
+}
+.tracker-id::before {
+  content: '№ ';
+  opacity: 0.6;
+}
+/* library / codex 下显示 № 编号 —— 档案盒侧边的标签 mechanic */
+:root[data-theme="library"] .tracker-id,
+:root[data-theme="codex"] .tracker-id {
+  display: inline-block;
+  margin-left: auto;
+  padding-left: var(--s-2, 8px);
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+/* ===== 签名元素：印章 chip(跨 preset 都显示,样式随 preset 变) ===== */
+.tracker-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--stamp);
+  color: white;
+  border-radius: var(--radius-stamp, 999px);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transform: var(--stamp-transform, none);
+  transition: transform var(--dur-stamp) var(--ease-stamp);
+}
+.tracker-stamp[data-state="done"],
+.tracker-stamp[data-state="finished"] {
+  background: var(--accent);
+}
+.tracker-stamp:hover {
+  transform: var(--stamp-transform, none) scale(1.04);
+}
+
+/* ===== Library / Codex preset —— 让差异化看得见(不仅仅换色) ===== */
+
+/* TopBar app title:library / codex 用 Fraunces italic(衬线斜体大字) */
+:root[data-theme="library"] .topbar-left .app-title,
+:root[data-theme="codex"] .topbar-left .app-title {
+  font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.005em;
+}
+
+/* CleanMode 列表项左侧 4px 装饰条:
+ * - library/codex 才显示;classic 保持现有浮起卡片样式
+ * - book 用 data-kind 走 CSS rule(enum 五档);life 用 inline style --item-stripe 走 var
+ *   (category 是 string 开放字段,fallback var(--cat-other))
+ */
+:root[data-theme="library"] .clean-item,
+:root[data-theme="codex"] .clean-item {
+  position: relative;
+  padding-left: 18px;
+}
+:root[data-theme="library"] .clean-item::before,
+:root[data-theme="codex"] .clean-item::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 8px; bottom: 8px;
+  width: 3px;
+  background: var(--item-stripe, var(--muted));
+}
+
+/* ===== Format = grid —— CleanMode 列表自适应成卡片墙 ===== */
+:root[data-format="grid"] .clean-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+:root[data-format="grid"] .clean-item {
+  flex-direction: column;
+  align-items: stretch;
+}
+:root[data-format="grid"] .clean-item-right {
+  margin-left: 0;
+  margin-top: var(--s-2, 8px);
+  justify-content: space-between;
+}
+
+/* ===== Format = focus-stack —— 三段式:焦点卡 + 紧凑清单 + 印章墙 ===== */
+.focus-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6, 24px);
+  margin-top: var(--s-4, 16px);
+}
+
+/* --- 焦点卡 --- */
+.focal-card {
+  position: relative;
+  padding: 20px 24px 24px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-card, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+.focal-card-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.focal-card-eyebrow {
+  font-size: var(--fs-xs, 12px);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}
+.focal-card-title {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--accent-deep, var(--accent));
+}
+/* library / codex 用 Fraunces italic 巨大字 */
+:root[data-format="focus-stack"][data-theme="library"] .focal-card-title,
+:root[data-format="focus-stack"][data-theme="codex"] .focal-card-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 32px;
+  font-weight: 700;
+}
+.focal-card-meta {
+  font-size: var(--fs-sm, 13px);
+}
+.focal-card-deadline.deadline-overdue { color: var(--deadline-overdue); font-weight: 500; }
+.focal-card-deadline.deadline-soon { color: var(--deadline-soon); font-weight: 500; }
+.focal-card-progress {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.focal-card-progress-text {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--fs-lg, 16px);
+  font-weight: 600;
+  color: var(--accent-deep, var(--accent));
+  flex-shrink: 0;
+}
+.focal-card-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.focal-card-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+/* --- 紧凑清单 --- */
+.compact-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.compact-list-header {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.compact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 6px);
+  overflow: hidden;
+}
+.compact-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  background: var(--surface, white);
+  position: relative;
+  transition: background 0.1s;
+}
+.compact-item::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 6px; bottom: 6px;
+  width: 2px;
+  background: var(--item-stripe, var(--muted));
+}
+.compact-item:hover { background: var(--accent-soft); }
+.compact-item-title {
+  font-size: var(--fs-sm, 13px);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compact-item-meta {
+  font-size: var(--fs-xs, 12px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.compact-item-actions {
+  display: flex;
+  gap: 4px;
+}
+.btn-tiny {
+  padding: 2px 8px !important;
+  font-size: var(--fs-xs, 12px) !important;
+}
+
+/* --- 印章墙 --- */
+.stamp-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stamp-wall-header {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 12px;
+  border-left: 2px solid var(--stamp, var(--accent));
+}
+.stamp-wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.stamp-card {
+  position: relative;
+  padding: 12px 10px 14px;
+  background: var(--surface, white);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--item-stripe, var(--stamp, var(--muted)));
+  border-radius: var(--radius-card, 4px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  text-align: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.stamp-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card, 0 4px 12px rgba(0, 0, 0, 0.08));
+}
+.stamp-card-id {
+  font-family: var(--font-mono, ui-monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.stamp-card-title {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+  line-height: 1.3;
+  font-family: var(--font-display, inherit);
+  /* 标题过长时省略号 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+:root[data-format="focus-stack"][data-theme="library"] .stamp-card-title,
+:root[data-format="focus-stack"][data-theme="codex"] .stamp-card-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-weight: 600;
+}
+.stamp-card-category {
+  font-size: var(--fs-xs, 11px);
+}
+.stamp-card .tracker-stamp {
+  margin-top: 6px;
+  padding: 3px 10px;
+  font-size: 10px;
+}

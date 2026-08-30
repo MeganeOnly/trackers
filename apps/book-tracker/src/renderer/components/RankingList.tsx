@@ -19,6 +19,13 @@ export function RankingList({ pool, kind }: RankingListProps): JSX.Element {
     return <div className="ranking-empty">请先选择一种作品类型</div>
   }
   const { ratings, counts, poolIds } = deriveRanking(file, pool, kind)
+  // 防御：后端字段错位 / 老文件缺参数时 initialRating 可能是 undefined，
+  // 直接 `score.toFixed()` 会抛 TypeError 把整个 App 崩成白屏。
+  const baseRating = Number.isFinite(file.initialRating) ? file.initialRating : 1500
+  const scoreOf = (id: string): number => {
+    const v = ratings[id]
+    return Number.isFinite(v) ? v : baseRating
+  }
 
   if (poolIds.length === 0) {
     return (
@@ -32,14 +39,14 @@ export function RankingList({ pool, kind }: RankingListProps): JSX.Element {
 
   // 按评分倒序；评分相同按对比次数升序（新条目优先）
   const sorted = [...poolIds].sort((x, y) => {
-    const d = (ratings[y] ?? file.initialRating) - (ratings[x] ?? file.initialRating)
+    const d = scoreOf(y) - scoreOf(x)
     if (Math.abs(d) > 1e-6) return d
     return (counts[x] ?? 0) - (counts[y] ?? 0)
   })
 
   const bookMap = new Map(pool.map((b) => [b.id, b]))
-  const maxRating = Math.max(...sorted.map((id) => ratings[id] ?? file.initialRating))
-  const minRating = Math.min(...sorted.map((id) => ratings[id] ?? file.initialRating))
+  const maxRating = Math.max(...sorted.map(scoreOf))
+  const minRating = Math.min(...sorted.map(scoreOf))
   const range = Math.max(maxRating - minRating, 1)
 
   return (
@@ -55,7 +62,7 @@ export function RankingList({ pool, kind }: RankingListProps): JSX.Element {
         {sorted.map((id, idx) => {
           const b = bookMap.get(id)
           if (!b) return null
-          const score = ratings[id] ?? file.initialRating
+          const score = scoreOf(id)
           const count = counts[id] ?? 0
           // 归一化到 0-1，画条形图
           const norm = (score - minRating) / range

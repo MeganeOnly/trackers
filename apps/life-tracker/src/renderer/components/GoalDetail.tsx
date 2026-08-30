@@ -5,6 +5,7 @@ import { PrereqEditor } from './PrereqEditor'
 import { progressPercent } from '@core'
 import { formatGoalProgress } from '@shared/progress'
 import { daysUntil, urgencyOf } from '@shared/deadline'
+import { StampChip } from '@ui/StampChip'
 import type { Goal, GoalInput, GoalStatus } from '@shared/types'
 
 interface GoalDetailProps {
@@ -247,7 +248,11 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           placeholder="目标名称"
         />
         <div className="meta-row">
-          <span className={`status-pill status-${status}`}>{STATUS_LABELS[status]}</span>
+          {status === 'done' ? (
+            <StampChip label={STATUS_LABELS[status]} state="done" />
+          ) : (
+            <span className={`status-pill status-${status}`}>{STATUS_LABELS[status]}</span>
+          )}
           {!isUnlocked && !cycle && <span className="lock-pill">未解锁</span>}
           {cycle && <span className="lock-pill error">循环依赖</span>}
         </div>

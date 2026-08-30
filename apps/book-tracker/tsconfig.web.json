@@ -18,12 +18,15 @@
       "@/*": ["src/renderer/*"],
       "@shared/*": ["src/shared/*"],
       "@core": ["../../packages/tracker-core/src/index.ts"],
-      "@core/*": ["../../packages/tracker-core/src/*"]
+      "@core/*": ["../../packages/tracker-core/src/*"],
+      "@ui": ["../../packages/tracker-ui/src/index.ts"],
+      "@ui/*": ["../../packages/tracker-ui/src/*"]
     }
   },
   "include": [
     "src/renderer/**/*",
     "src/shared/**/*",
-    "../../packages/tracker-core/src/**/*"
+    "../../packages/tracker-core/src/**/*",
+    "../../packages/tracker-ui/src/**/*"
   ]
 }

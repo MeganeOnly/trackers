@@ -1087,3 +1087,41 @@
 - **教训**：解锁图相关 UI 文案要明确"本节点是多个前置条件之一"而非"本节点完成后必然解锁",避免用户对解锁图产生过度简化的心智模型。
 - **共享范围**：两 app 的 PrereqEditor（book + life）+ 对应 styles.css 注释同步更新。
 
+---
+
+## 2026-08：Theme system（packages/tracker-ui + 三套 preset + 运行时切换）
+
+### 1. [共享] 现象：两 app styles.css 几乎完全相同却各自一份；用户希望在设置里切风格且保留现状
+
+- **现象**：book-tracker 与 life-tracker 的 styles.css 各自一份（1163 vs 1185 行，token + 组件样式几乎完全相同），仅 status 命名不同。同时用户提出"为了方便切美术风格，至少保留现在的样子作为基础预设"。
+- **根因**：AGENTS.md §四 描述的 `packages/tracker-ui` 共享 UI 基座从未真正落地——只在文档里约定，没有从两 app 抽出。本次借主题系统机会一并落地。
+- **设计要点**：
+  - **三套 preset**：`classic` 保留当前样式（sage green + 系统字体 + 圆角）作为 fallback；`library` 是 book-tracker 特色（深森林绿 + Fraunces + 印章 mechanic）；`codex` 是 life-tracker 特色（朱砂红 + Fraunces + 印章 mechanic + deadline 提醒色）。三个 preset 都用同一套 base token，仅 override surface / accent / stamp / font-display / radius / shadow。
+  - **运行时切换用 CSS 变量 + `data-theme` 属性**：`:root[data-theme="classic"]` 选择器覆盖 `:root` 提供的默认值；Vite 把三个 theme CSS 全部静态 import，切换零延迟（不重新加载 CSS）。Preset 间互不影响。
+  - **共享 UI 基座顺手落地**：`Modal.tsx` 抽到 `packages/tracker-ui`（两 app 字节级相同的 53 行 → 共享），其它共享组件（TopBar / GraphView / PrereqEditor）差异较大，本轮先不抽，留 `docs/shared-boundary.md` 跟进。
+  - **持久化**：theme 字段加到 `Config`（TS + Rust），Rust 端 `normalize` 与 `set_config` 都按"只接受已知 preset / 其它值 fallback classic"过滤，读写对称。
+  - **防 FOUC**：`index.html` 内联 inline script 在 React 渲染前从 `localStorage` 抢先设 `data-theme`，让浏览器渲染 body 时背景/字体已匹配当前主题；settings store hydrate 后用 `Config.theme`（权威）覆盖一次。localStorage 是性能优化、不是 source of truth，避免 React 渲染前闪一帧。
+  - **签名元素 № NNN + StampChip**：跨 preset 通用（`base.css` 提供 `.tracker-id` / `.tracker-stamp`），样式随 preset 变——classic 圆角无旋转，library/codex 方角 -2° 旋转。组件代码可在后续按需使用。
+- **修复**（35 个文件改动）：
+  - **新 `packages/tracker-ui`**：`package.json` / `tsconfig.json` / `src/base.css`（共享 token + reset + 通用排版 + 签名元素）/ `src/themes/{classic,library,codex}.css` / `src/useTheme.ts`（`applyTheme` / `normalizeTheme` / `THEME_META`）/ `src/Modal.tsx`（从两 app 抽取）/ `src/StampChip.tsx`（跨 preset 印章组件）/ `src/index.ts`。
+  - **book-tracker + life-trenderer**：`vite.config.ts` + `tsconfig.web.json` 加 `@ui` alias + include；`index.html` 加 Google Fonts + 防 FOUC inline script；`main.tsx` 加四个 CSS import（base + 三个 theme + 自己的 styles.css）；`styles.css` 删 `:root` 块（token 已在 base + themes 里），保留旧名 `--shadow` 别名让组件代码不动；`components/Modal.tsx` 改 re-export from `@ui`；`store/settings.ts` 加 theme + hydrate 应用 theme + setTheme 同步 localStorage；`components/SettingsPanel.tsx` 加 theme picker（life 新建整个 SettingsPanel + TopBar 加 `onSettings` 按钮）；`shared/types.ts` 加 `ThemeName` + `Config.theme`；`src-tauri/src/{types,data/config,service/config}.rs` 镜像 theme 字段 + 加 `invalid_theme_falls_back_to_classic` 单测。
+- **回归验证**：
+  - `tsc --build apps/book-tracker apps/life-tracker packages/tracker-ui` 三端全绿；
+  - `cargo test -p book-tracker -p life-tracker`：book 27/27 + life 23/23 全过（各 +1 新测试 `invalid_theme_falls_back_to_classic`）；
+  - `vitest run`：book 89/89 + life 169/169 全过；
+  - vitest alias 用数组形式 `{ find, replacement }`（Vite 5 推荐）替代对象形式，否则对 `@` 开头的 find 在 vitest 4 下报 `Cannot find package '@core'`——这是已知问题，对象形式偶尔被识别成 npm scope 名绕过 alias 解析。
+
+### 2. [共享] 教训：CSS preset 切换用 `data-theme` 属性比 dynamic import 简单十倍
+
+- **教训**：第一直觉是"用户切主题时 dynamic import 不同的 CSS"，但 Vite 的 dynamic import 不直接支持 css（只能 js 里 import css 再插入 style 标签），需要写个 hook 管理 `<link>` 注入/移除，复杂度高。**用 `:root[data-theme]` + 三个 theme CSS 全部静态 import** 简单太多：
+  - 切换性能：纯 DOM 属性改写（< 1ms），无网络、无解析；
+  - 切换抖动：CSS 选择器 `:root[data-theme="x"]` 的 specificity `(0,1,1)` 高于 `:root`，preset 内的变量自动覆盖基础值；
+  - bundle 体积：三个 theme CSS 都很小（每个 ~30 行），多加载 ~2KB 一次性成本，换永久零延迟切换 + 水合安全。
+- **教训**：跨 preset 的"通用识别元素"（№ NNN 编号 + StampChip）放 `base.css` 而不是三个 theme 各写一遍——基础组件跨 preset 一致性比差异化更重要，差异化留给 token。
+- **教训**：防 FOUC 的 localStorage 不是 source of truth——只是性能优化。真正的 source of truth 是 `Config.theme`（持久化在 Rust 后端）。settings store hydrate 时同步 localStorage + Config，避免两套值偏离导致"切了一次不持久化"。
+
+### 3. [共享] 教训：vite/vitest alias 对 `@` 开头的 find 用数组形式
+
+- **教训**：Vite 5 的 `resolve.alias` 接受对象 `{ '@': ... }` 和数组 `[{ find: '@', replacement: ... }]` 两种形式。**对象形式偶发触发 `Cannot find package '@core'`**——Vite 把 `@core` 当 npm scope 名处理（npm 私有 scope 命名约定），绕过了 alias 解析。**数组形式绕开这个判定**，所有 find 都按字面量匹配 replacement。统一两 app 的 `vite.config.ts` + `vitest.config.ts` 都用数组形式，避免一处对象一处数组导致调试方向走偏。
+- **教训**：vitest 用 vite.config 的 alias，但**从 monorepo root 跑 vitest 找不到各 app 的 `vitest.config.ts`**——vitest 默认 cwd 是当前目录，不会自动找子目录的 config。正确做法：从各 app 目录 `cd apps/<name> && npx vitest run`，或者在根 `package.json` 的 scripts 里显式 `npm --workspace <name> run test`。本轮 4 个 shared 测试失败就是这个原因，alias 改数组形式之后从 app 目录跑全部通过。
+

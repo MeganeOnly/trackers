@@ -3,9 +3,11 @@ import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
 import { useSearchStore, matchGoal } from '../store/search'
+import { useSettingsStore } from '../store/settings'
 import { isGoalDone } from '@shared/types'
 import { computeDailyHidden } from '@shared/visibility'
 import { URGENCY_WEIGHT, daysUntil, urgencyOf } from '@shared/deadline'
+import { categoryVar } from '@shared/categoryColor'
 import type { DeadlineUrgency } from '@shared/deadline'
 import type { Goal, GoalStatus } from '@shared/types'
 
@@ -47,6 +49,7 @@ export function CleanMode(): JSX.Element {
   const edges = useRelationsStore((s) => s.edges)
   const { unlocked } = useUnlocked()
   const query = useSearchStore((s) => s.query)
+  const format = useSettingsStore((s) => s.format)
 
   const [openSections, setOpenSections] = useState<Set<string>>(new Set())
 
@@ -162,76 +165,98 @@ export function CleanMode(): JSX.Element {
         )}
       </header>
 
-      {doableList.length === 0 ? (
-        <p className="muted empty-hint">
-          {query ? '无匹配。' : '暂无已解锁的目标。先在右侧编辑模式加几个。'}
-        </p>
+      {format === 'focus-stack' ? (
+        <FocusStackView
+          doableList={doableList}
+          doneList={goals
+            .filter((g) => g.status === 'done')
+            .sort((a, b) => b.updated.localeCompare(a.updated))}
+          focalGoal={nowInProgress[0]}
+          query={query}
+          onDone={markDone}
+          onShelve={shelve}
+          onAbandon={abandon}
+          onHide={hide}
+        />
       ) : (
-        <ul className="clean-list">
-          {doableList.map(({ goal, refCount }) => {
-            const u = urgencyOf(goal.deadline)
-            const d = goal.deadline ? daysUntil(goal.deadline) : null
-            return (
-              <li key={goal.id} className="clean-item">
-                <div className="clean-item-left">
-                  <span className="title">{goal.title}</span>
-                  <span className="author muted">
-                    {goal.category || '未分类'}
-                    {goal.deadline && (
-                      <span className={urgencyClass(u)}>
-                        {' · '}
-                        {goal.deadline}
-                        {u === 'overdue' && ` 已逾期 ${Math.abs(d ?? 0)} 天`}
-                        {u === 'urgent' && ` 还剩 ${d} 天`}
-                        {u === 'soon' && ` ${d} 天后到期`}
-                      </span>
-                    )}
-                    {goal.progress &&
-                      goal.progress.total !== null &&
-                      goal.progress.current >= goal.progress.total && (
-                        <span className="auto-done-hint"> · 进度已满</span>
-                      )}
-                  </span>
-                </div>
-                <div className="clean-item-right">
-                  <span
-                    className="ref-badge"
-                    style={{ visibility: refCount > 0 ? 'visible' : 'hidden' }}
-                    aria-hidden={refCount > 0 ? undefined : true}
+        <>
+          {doableList.length === 0 ? (
+            <p className="muted empty-hint">
+              {query ? '无匹配。' : '暂无已解锁的目标。先在右侧编辑模式加几个。'}
+            </p>
+          ) : (
+            <ul className="clean-list">
+              {doableList.map(({ goal, refCount }) => {
+                const u = urgencyOf(goal.deadline)
+                const d = goal.deadline ? daysUntil(goal.deadline) : null
+                return (
+                  <li
+                    key={goal.id}
+                    className="clean-item"
+                    style={{ '--item-stripe': categoryVar(goal.category) } as React.CSSProperties}
                   >
-                    解锁 {refCount} 个
-                  </span>
-                  <div className="quick-actions">
-                    <button
-                      className="btn-secondary"
-                      onClick={() => hide(goal.id)}
-                      title="在日常模式『现在能推进』中收起（隐藏）"
-                    >
-                      收起
-                    </button>
-                    <button className="btn-secondary" onClick={() => shelve(goal.id)} title="搁置">
-                      搁置
-                    </button>
-                    <button
-                      className="quick-finish"
-                      onClick={() => markDone(goal.id)}
-                      title="标记为已达成"
-                    >
-                      达成
-                    </button>
-                    <button
-                      className="btn-secondary quick-abandon"
-                      onClick={() => abandon(goal.id)}
-                      title="放弃（从可推进列表移除，可恢复）"
-                    >
-                      放弃
-                    </button>
-                  </div>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                    <div className="clean-item-left">
+                      <span className="title">{goal.title}</span>
+                      <span className="author muted">
+                        {goal.category || '未分类'}
+                        {goal.deadline && (
+                          <span className={urgencyClass(u)}>
+                            {' · '}
+                            {goal.deadline}
+                            {u === 'overdue' && ` 已逾期 ${Math.abs(d ?? 0)} 天`}
+                            {u === 'urgent' && ` 还剩 ${d} 天`}
+                            {u === 'soon' && ` ${d} 天后到期`}
+                          </span>
+                        )}
+                        {goal.progress &&
+                          goal.progress.total !== null &&
+                          goal.progress.current >= goal.progress.total && (
+                            <span className="auto-done-hint"> · 进度已满</span>
+                          )}
+                      </span>
+                    </div>
+                    <div className="clean-item-right">
+                      <span
+                        className="ref-badge"
+                        style={{ visibility: refCount > 0 ? 'visible' : 'hidden' }}
+                        aria-hidden={refCount > 0 ? undefined : true}
+                      >
+                        解锁 {refCount} 个
+                      </span>
+                      <div className="quick-actions">
+                        <button
+                          className="btn-secondary"
+                          onClick={() => hide(goal.id)}
+                          title="在日常模式『现在能推进』中收起（隐藏）"
+                        >
+                          收起
+                        </button>
+                        <button className="btn-secondary" onClick={() => shelve(goal.id)} title="搁置">
+                          搁置
+                        </button>
+                        <button
+                          className="quick-finish"
+                          onClick={() => markDone(goal.id)}
+                          title="标记为已达成"
+                        >
+                          达成
+                        </button>
+                        <button
+                          className="btn-secondary quick-abandon"
+                          onClick={() => abandon(goal.id)}
+                          title="放弃（从可推进列表移除，可恢复）"
+                        >
+                          放弃
+                        </button>
+                      </div>
+                      <span className="tracker-id">{goal.id}</span>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </>
       )}
 
       <div className="collapsed-sections">
@@ -292,6 +317,163 @@ export function CleanMode(): JSX.Element {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/* ============================================================
+ * focus-stack 视图:三段式(focal card + compact list + stamp wall)
+ * 与 list / grid 平行的另一种 format,差异点在 CleanMode 布局结构。
+ * ============================================================ */
+interface FocusStackViewProps {
+  doableList: { goal: Goal; refCount: number }[]
+  doneList: Goal[]
+  focalGoal: Goal | undefined
+  query: string
+  onDone: (id: string) => Promise<void>
+  onShelve: (id: string) => Promise<void>
+  onAbandon: (id: string) => Promise<void>
+  onHide: (id: string) => Promise<void>
+}
+
+function FocusStackView({
+  doableList,
+  doneList,
+  focalGoal,
+  query,
+  onDone,
+  onShelve,
+  onAbandon,
+  onHide
+}: FocusStackViewProps): JSX.Element {
+  return (
+    <div className="focus-stack">
+      {/* 焦点卡:pinned in_progress 的目标 / 没有就不渲染 */}
+      {focalGoal && (
+        <section
+          className="focal-card"
+          style={{ '--item-stripe': categoryVar(focalGoal.category) } as React.CSSProperties}
+        >
+          <div className="focal-card-label">
+            <span className="focal-card-eyebrow muted">当前焦点 · 进行中</span>
+            <span className="tracker-id">{focalGoal.id}</span>
+          </div>
+          <h2 className="focal-card-title">{focalGoal.title}</h2>
+          <div className="focal-card-meta muted">
+            {focalGoal.category || '未分类'}
+            {focalGoal.deadline && (
+              <span className={`focal-card-deadline ${urgencyClass(urgencyOf(focalGoal.deadline)) ?? ''}`}>
+                {' · '}
+                截止 {focalGoal.deadline}
+                {urgencyOf(focalGoal.deadline) === 'overdue' &&
+                  ` 已逾期 ${Math.abs(focalGoal.deadline ? daysUntil(focalGoal.deadline) ?? 0 : 0)} 天`}
+              </span>
+            )}
+          </div>
+          {focalGoal.progress && focalGoal.progress.total !== null && (
+            <div className="focal-card-progress">
+              <span className="focal-card-progress-text">
+                {focalGoal.progress.current}/{focalGoal.progress.total}
+              </span>
+              <div className="focal-card-progress-bar">
+                <div
+                  className="focal-card-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.round((focalGoal.progress.current / focalGoal.progress.total) * 100))}%`
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 紧凑清单:现在能推进的目标(去掉 kind-tag / 操作按钮,只留标题 + deadline + ref-count) */}
+      {doableList.length > 0 && (
+        <section className="compact-list-section">
+          <h3 className="compact-list-header">现在能推进 · {doableList.length}</h3>
+          <ul className="compact-list">
+            {doableList.map(({ goal, refCount }) => {
+              const u = urgencyOf(goal.deadline)
+              return (
+                <li
+                  key={goal.id}
+                  className="compact-item"
+                  style={{ '--item-stripe': categoryVar(goal.category) } as React.CSSProperties}
+                >
+                  <span className="compact-item-title">{goal.title}</span>
+                  <span className="compact-item-meta muted">
+                    {goal.category && <span>{goal.category}</span>}
+                    {goal.deadline && (
+                      <span className={urgencyClass(u)}>
+                        {goal.category ? ' · ' : ''}截止 {goal.deadline}
+                      </span>
+                    )}
+                    {refCount > 0 && <span> · 解锁 {refCount} 个</span>}
+                  </span>
+                  <span className="compact-item-actions">
+                    <button
+                      className="btn-secondary btn-tiny"
+                      onClick={() => void onDone(goal.id)}
+                      title="标记为已达成"
+                    >
+                      达成
+                    </button>
+                    <button
+                      className="btn-secondary btn-tiny"
+                      onClick={() => void onShelve(goal.id)}
+                      title="搁置"
+                    >
+                      搁置
+                    </button>
+                    <button
+                      className="btn-secondary btn-tiny"
+                      onClick={() => void onAbandon(goal.id)}
+                      title="放弃"
+                    >
+                      放弃
+                    </button>
+                    <button
+                      className="btn-secondary btn-tiny"
+                      onClick={() => void onHide(goal.id)}
+                      title="在日常模式『现在能推进』中收起（隐藏）"
+                    >
+                      收起
+                    </button>
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* 印章墙:已达成目标横排,每条带 StampChip 印章 */}
+      {doneList.length > 0 && (
+        <section className="stamp-wall">
+          <h3 className="stamp-wall-header">印章墙 · 已达成 {doneList.length}</h3>
+          <div className="stamp-wall-grid">
+            {doneList.map((g) => (
+              <article
+                key={g.id}
+                className="stamp-card"
+                style={{ '--item-stripe': categoryVar(g.category) } as React.CSSProperties}
+              >
+                <span className="stamp-card-id muted">№ {g.id}</span>
+                <h4 className="stamp-card-title">{g.title}</h4>
+                <span className="stamp-card-category muted">{g.category || '未分类'}</span>
+                <span className="tracker-stamp" data-state="done">已达成</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {doableList.length === 0 && !focalGoal && doneList.length === 0 && (
+        <p className="muted empty-hint">
+          {query ? '无匹配。' : '暂无已解锁的目标。先在右侧编辑模式加几个。'}
+        </p>
+      )}
     </div>
   )
 }

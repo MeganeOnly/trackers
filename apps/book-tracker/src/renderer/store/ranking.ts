@@ -39,6 +39,21 @@ interface RankingState {
   resetSession: () => void
 }
 
+/**
+ * 后端返回值净化 —— 缺字段 / 字段错位（如键名不是 camelCase）时兜底成默认值。
+ * 缺了这层，`initialRating` 会是 undefined，评分全线变成 undefined/NaN，
+ * 渲染 `score.toFixed()` 直接抛 TypeError 把整个 App 崩成白屏。
+ */
+function sanitizeFile(file: RankingFile): RankingFile {
+  const d = defaultRankingFile()
+  return {
+    version: Number.isFinite(file?.version) ? file.version : d.version,
+    initialRating: Number.isFinite(file?.initialRating) ? file.initialRating : d.initialRating,
+    kFactor: Number.isFinite(file?.kFactor) ? file.kFactor : d.kFactor,
+    history: Array.isArray(file?.history) ? file.history : []
+  }
+}
+
 export const useRankingStore = create<RankingState>((set, get) => ({
   file: defaultRankingFile(),
   kind: null,
@@ -50,7 +65,7 @@ export const useRankingStore = create<RankingState>((set, get) => ({
     set({ loading: true })
     try {
       const file = await api.ranking.get()
-      set({ file, loading: false })
+      set({ file: sanitizeFile(file), loading: false })
     } catch (e) {
       console.error('ranking load failed:', e)
       set({ loading: false })
@@ -83,7 +98,7 @@ export const useRankingStore = create<RankingState>((set, get) => ({
     try {
       const newFile = await api.ranking.apply({ a, b, winner })
       set((s) => ({
-        file: newFile,
+        file: sanitizeFile(newFile),
         sessionCount: s.sessionCount + 1
       }))
       // 立即选下一对（用刚刚拿到的最新 file + 同 pool）
@@ -92,8 +107,9 @@ export const useRankingStore = create<RankingState>((set, get) => ({
         const poolIds = pool
           .filter((bk) => bk.status === 'finished' && bk.kind === kind)
           .map((bk) => bk.id)
-        const ratings = recomputeRatings(newFile.history, poolIds, newFile.initialRating, newFile.kFactor)
-        const nextPair = pickNextPair(poolIds, newFile.history, ratings, newFile.initialRating)
+        const cur = get().file
+        const ratings = recomputeRatings(cur.history, poolIds, cur.initialRating, cur.kFactor)
+        const nextPair = pickNextPair(poolIds, cur.history, ratings, cur.initialRating)
         set({ currentPair: nextPair })
       }
     } catch (e) {

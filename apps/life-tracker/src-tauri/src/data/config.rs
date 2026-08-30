@@ -17,6 +17,8 @@ pub fn default_config() -> Config {
         data_dir: String::new(),
         language: "zh-CN".to_string(),
         default_mode: DefaultMode::Clean,
+        theme: "classic".to_string(),
+        format: "list".to_string(),
     }
 }
 
@@ -51,6 +53,22 @@ fn normalize(raw: serde_json::Value) -> Config {
                 .unwrap_or("clean");
             if m == "edit" { DefaultMode::Edit } else { DefaultMode::Clean }
         },
+        theme: {
+            let t = get_str("theme").unwrap_or_default();
+            // 只接受已知 preset;其他值 fallback classic(防 renderer 发意外值)
+            match t.as_str() {
+                "classic" | "library" | "codex" => t,
+                _ => "classic".to_string(),
+            }
+        },
+        format: {
+            let f = get_str("format").unwrap_or_default();
+            // 只接受已知 preset;其他值 fallback list
+            match f.as_str() {
+                "list" | "grid" | "focus-stack" => f,
+                _ => "list".to_string(),
+            }
+        },
     }
 }
 
@@ -80,12 +98,40 @@ mod tests {
             data_dir: dir.path().to_string_lossy().to_string(),
             language: "zh-CN".to_string(),
             default_mode: DefaultMode::Edit,
+            theme: "codex".to_string(),
+            format: "focus-stack".to_string(),
         };
         write_config(&cfg).unwrap();
         let got = read_config(&cfg.data_dir).unwrap();
         assert_eq!(got.data_dir, cfg.data_dir);
         assert_eq!(got.language, cfg.language);
         assert_eq!(got.default_mode, DefaultMode::Edit);
+        assert_eq!(got.theme, "codex");
+        assert_eq!(got.format, "focus-stack");
+    }
+
+    #[test]
+    fn invalid_theme_falls_back_to_classic() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"theme": "garbage_value"}"#,
+        )
+        .unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.theme, "classic");
+    }
+
+    #[test]
+    fn invalid_format_falls_back_to_list() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"format": "garbage_value"}"#,
+        )
+        .unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.format, "list");
     }
 
     #[test]

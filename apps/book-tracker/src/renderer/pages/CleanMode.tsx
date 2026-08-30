@@ -35,6 +35,7 @@ export function CleanMode(): JSX.Element {
   const { unlocked } = useUnlocked()
   const query = useSearchStore((s) => s.query)
   const worksFilter = useSettingsStore((s) => s.worksFilter)
+  const format = useSettingsStore((s) => s.format)
 
   const [openSections, setOpenSections] = useState<Set<BookStatus>>(new Set())
 
@@ -123,39 +124,56 @@ export function CleanMode(): JSX.Element {
         )}
       </header>
 
-      {readableList.length === 0 ? (
-        <p className="muted empty-hint">
-          {query ? '无匹配。' : '暂无已解锁的作品。先在右侧编辑模式加几部。'}
-        </p>
+      {format === 'focus-stack' ? (
+        <FocusStackView
+          readableList={readableList}
+          finishedList={visibleBooks
+            .filter((b) => b.status === 'finished')
+            .sort((a, b) => b.updated.localeCompare(a.updated))}
+          focalBook={nowReading}
+          query={query}
+          byFilter={byFilter}
+          onFinish={markFinished}
+          onShelve={shelve}
+        />
       ) : (
-        <ul className="clean-list">
-          {readableList.map(({ book, refCount }) => (
-            <li key={book.id} className="clean-item">
-              <div className="clean-item-left">
-                <span className={`kind-tag kind-${book.kind}`}>{WORK_KIND_LABELS[book.kind]}</span>
-                <span className="title">{book.title}</span>
-                <span className="author muted">{book.author}</span>
-              </div>
-              <div className="clean-item-right">
-                <span
-                  className="ref-badge"
-                  style={{ visibility: refCount > 0 ? 'visible' : 'hidden' }}
-                  aria-hidden={refCount > 0 ? undefined : true}
-                >
-                  解锁 {refCount} 部
-                </span>
-                <div className="quick-actions">
-                  <button className="btn-secondary" onClick={() => shelve(book.id)} title="搁置">
-                    搁置
-                  </button>
-                  <button className="quick-finish" onClick={() => markFinished(book.id)} title="标记为已看/已读">
-                    看完
-                  </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          {readableList.length === 0 ? (
+            <p className="muted empty-hint">
+              {query ? '无匹配。' : '暂无已解锁的作品。先在右侧编辑模式加几部。'}
+            </p>
+          ) : (
+            <ul className="clean-list">
+              {readableList.map(({ book, refCount }) => (
+                <li key={book.id} className={`clean-item kind-${book.kind}`}>
+                  <div className="clean-item-left">
+                    <span className={`kind-tag kind-${book.kind}`}>{WORK_KIND_LABELS[book.kind]}</span>
+                    <span className="title">{book.title}</span>
+                    <span className="author muted">{book.author}</span>
+                  </div>
+                  <div className="clean-item-right">
+                    <span
+                      className="ref-badge"
+                      style={{ visibility: refCount > 0 ? 'visible' : 'hidden' }}
+                      aria-hidden={refCount > 0 ? undefined : true}
+                    >
+                      解锁 {refCount} 部
+                    </span>
+                    <div className="quick-actions">
+                      <button className="btn-secondary" onClick={() => shelve(book.id)} title="搁置">
+                        搁置
+                      </button>
+                      <button className="quick-finish" onClick={() => markFinished(book.id)} title="标记为已看/已读">
+                        看完
+                      </button>
+                    </div>
+                    <span className="tracker-id">{book.id}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
 
       <div className="collapsed-sections">
@@ -196,6 +214,134 @@ export function CleanMode(): JSX.Element {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/* ============================================================
+ * focus-stack 视图:三段式(focal card + compact list + stamp wall)
+ * 与 list / grid 平行的另一种 format,差异点在 CleanMode 布局结构。
+ * ============================================================ */
+interface FocusStackViewProps {
+  readableList: { book: Book; refCount: number }[]
+  finishedList: Book[]
+  focalBook: Book | undefined
+  query: string
+  byFilter: (b: Book) => boolean
+  onFinish: (id: string) => Promise<void>
+  onShelve: (id: string) => Promise<void>
+}
+
+function FocusStackView({
+  readableList,
+  finishedList,
+  focalBook,
+  query,
+  byFilter,
+  onFinish,
+  onShelve
+}: FocusStackViewProps): JSX.Element {
+  return (
+    <div className="focus-stack">
+      {/* 焦点卡:reading/watching 第一个(进行中) */}
+      {focalBook && (
+        <section
+          className="focal-card"
+          style={{ '--item-stripe': `var(--kind-${focalBook.kind})` } as React.CSSProperties}
+        >
+          <div className="focal-card-label">
+            <span className="focal-card-eyebrow muted">当前焦点 · {WORK_KIND_LABELS[focalBook.kind]}</span>
+            <span className="tracker-id">{focalBook.id}</span>
+          </div>
+          <h2 className="focal-card-title">{focalBook.title}</h2>
+          <div className="focal-card-meta muted">
+            {focalBook.author}
+            {focalBook.year > 0 && ` · ${focalBook.year}`}
+            {focalBook.read_count > 1 && ` · 第 ${focalBook.read_count} 次`}
+          </div>
+          {focalBook.progress && focalBook.progress.total !== null && (
+            <div className="focal-card-progress">
+              <span className="focal-card-progress-text">
+                {focalBook.progress.current}/{focalBook.progress.total}
+              </span>
+              <div className="focal-card-progress-bar">
+                <div
+                  className="focal-card-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.round((focalBook.progress.current / focalBook.progress.total) * 100))}%`
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 紧凑清单:现在能看的(去掉 kind-tag,只留标题 + author + ref + 快速操作) */}
+      {readableList.length > 0 && (
+        <section className="compact-list-section">
+          <h3 className="compact-list-header">现在能看 · {readableList.length}</h3>
+          <ul className="compact-list">
+            {readableList.map(({ book, refCount }) => (
+              <li
+                key={book.id}
+                className="compact-item"
+                style={{ '--item-stripe': `var(--kind-${book.kind})` } as React.CSSProperties}
+              >
+                <span className="compact-item-title">{book.title}</span>
+                <span className="compact-item-meta muted">
+                  <span>{WORK_KIND_LABELS[book.kind]}</span>
+                  <span> · {book.author}</span>
+                  {refCount > 0 && <span> · 解锁 {refCount} 部</span>}
+                </span>
+                <span className="compact-item-actions">
+                  <button
+                    className="btn-secondary btn-tiny"
+                    onClick={() => void onShelve(book.id)}
+                    title="搁置"
+                  >
+                    搁置
+                  </button>
+                  <button
+                    className="btn-secondary btn-tiny"
+                    onClick={() => void onFinish(book.id)}
+                    title="标记为已看/已读"
+                  >
+                    看完
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 印章墙:已达成作品横排,每条带 StampChip 印章 */}
+      {finishedList.length > 0 && (
+        <section className="stamp-wall">
+          <h3 className="stamp-wall-header">印章墙 · 已读 {finishedList.length}</h3>
+          <div className="stamp-wall-grid">
+            {finishedList.map((b) => (
+              <article
+                key={b.id}
+                className="stamp-card"
+                style={{ '--item-stripe': `var(--kind-${b.kind})` } as React.CSSProperties}
+              >
+                <span className="stamp-card-id muted">№ {b.id}</span>
+                <h4 className="stamp-card-title">{b.title}</h4>
+                <span className="stamp-card-category muted">{WORK_KIND_LABELS[b.kind]}</span>
+                <span className="tracker-stamp" data-state="finished">已读</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {readableList.length === 0 && !focalBook && finishedList.length === 0 && (
+        <p className="muted empty-hint">
+          {query ? '无匹配。' : '暂无已解锁的作品。先在右侧编辑模式加几部。'}
+        </p>
+      )}
     </div>
   )
 }

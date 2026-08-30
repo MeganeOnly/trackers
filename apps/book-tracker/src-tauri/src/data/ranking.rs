@@ -96,6 +96,33 @@ mod tests {
     }
 
     #[test]
+    fn serializes_algorithm_params_as_camel_case() {
+        // 前端 RankingFile 用 initialRating / kFactor；IPC JSON 键名必须对齐，
+        // 否则前端读到 undefined，排名列表渲染 `score.toFixed()` 会崩成白屏。
+        let dir = tempdir().unwrap();
+        write_ranking(dir.path(), &RankingFile::default()).unwrap();
+        let s = std::fs::read_to_string(dir.path().join("rankings.json")).unwrap();
+        assert!(s.contains("\"initialRating\""), "got: {s}");
+        assert!(s.contains("\"kFactor\""), "got: {s}");
+        assert!(!s.contains("\"initial_rating\""), "got: {s}");
+        assert!(!s.contains("\"k_factor\""), "got: {s}");
+    }
+
+    #[test]
+    fn legacy_snake_case_params_still_parse() {
+        // 兼容旧版本写下的 rankings.json（snake_case 键名）
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("rankings.json"),
+            r#"{"version":1,"initial_rating":1200.0,"k_factor":24.0,"history":[]}"#,
+        )
+        .unwrap();
+        let f = read_ranking(dir.path()).unwrap();
+        assert_eq!(f.initial_rating, 1200.0);
+        assert_eq!(f.k_factor, 24.0);
+    }
+
+    #[test]
     fn missing_algorithm_params_use_defaults() {
         let dir = tempdir().unwrap();
         std::fs::write(

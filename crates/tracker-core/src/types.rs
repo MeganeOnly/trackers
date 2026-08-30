@@ -251,14 +251,18 @@ pub enum PairwiseWinner {
 ///
 /// 仅持久化 history + 算法参数，评分由前端实时从 history 重算（与
 /// `packages/tracker-core/src/ranking.ts::recomputeRatings` 对齐）。
+/// 字段名走 camelCase：TS 侧 `RankingFile` 用 `initialRating` / `kFactor`，
+/// IPC JSON 必须与之对齐（snake_case 会让前端读到 `undefined` 并在渲染时崩溃）。
+/// `alias` 保留 snake_case 入口，兼容旧版本写下的 `rankings.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RankingFile {
     pub version: u32,
     /// 新条目进入评分池时的初始分数
-    #[serde(default = "default_initial_rating")]
+    #[serde(default = "default_initial_rating", alias = "initial_rating")]
     pub initial_rating: f64,
     /// Elo K 因子
-    #[serde(default = "default_k_factor")]
+    #[serde(default = "default_k_factor", alias = "k_factor")]
     pub k_factor: f64,
     pub history: Vec<PairwiseResult>,
 }

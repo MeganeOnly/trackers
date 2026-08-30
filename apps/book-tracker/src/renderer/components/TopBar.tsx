@@ -55,7 +55,7 @@ export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): 
       <div className="topbar-right">
         {onSettings && (
           <button className="topbar-icon-btn" onClick={onSettings} title="设置">
-            ⚙
+            设置
           </button>
         )}
         {onGraph && (

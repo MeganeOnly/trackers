@@ -1,0 +1,57 @@
+/* packages/tracker-ui/src/themes/classic.css
+ *
+ * Classic preset —— 保留当前 sage green + 系统字体 + 圆角样式。
+ * 作为基础预设,首次启动 + 老用户默认。两 app 都能切到这套。
+ */
+
+:root[data-theme="classic"] {
+  /* Surface —— 暖白纸 */
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #777;
+  --border: #e5e5e0;
+  --hairline: #d9d9d4;
+
+  /* Accent —— sage green */
+  --accent: #4a7c59;
+  --accent-soft: #eaf1ec;
+  --accent-deep: #2d5a3a;
+  --stamp: #c0573d;
+
+  /* Type —— classic 不用 Fraunces,用系统 serif */
+  --font-display: Georgia, 'Times New Roman', serif;
+
+  /* Status(book) —— 与原 styles.css 完全一致 */
+  --status-want: #999;
+  --status-reading: #4a7c59;
+  --status-watching: #5a8a6c;
+  --status-finished: #2d5a3a;
+  --status-shelved: #c89456;
+  --status-abandoned: #c0573d;
+
+  /* Status(life) */
+  --status-not-started: #999;
+  --status-in-progress: #4a7c59;
+  --status-done: #2d5a3a;
+
+  --danger: #c0573d;
+
+  /* Kind/Category 色 —— book 的 kind-tag 已有内联色,这里提供 token 备用 */
+  --kind-book: #4a6a8a;
+  --kind-anime: #8a5aa0;
+  --kind-tv: #9a6a3a;
+  --kind-movie: #a04a4a;
+  --kind-other: #5a6a4a;
+
+  /* Shape —— 圆角 + 浮起阴影 */
+  --radius-card: 8px;
+  --radius-btn: 4px;
+  --radius-stamp: 999px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+
+  /* Stamp mechanic —— 不旋转 */
+  --stamp-transform: none;
+
+  color-scheme: light;
+}

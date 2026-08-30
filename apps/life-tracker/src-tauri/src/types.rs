@@ -144,6 +144,12 @@ pub struct Config {
     pub data_dir: String,
     pub language: String,
     pub default_mode: DefaultMode,
+    /// 视觉主题预设(`"classic" | "library" | "codex"`)—— 缺省/无效值 fallback classic
+    #[serde(default)]
+    pub theme: String,
+    /// 信息呈现格式(`"list" | "grid" | "focus-stack"`)—— 与 theme 正交,缺省 fallback list
+    #[serde(default)]
+    pub format: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
