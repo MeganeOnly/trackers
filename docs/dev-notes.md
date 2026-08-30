@@ -6,6 +6,171 @@
 
 ---
 
+## 2026-08：[共享] 关系图图例 4 个图标按钮的「没起到 active 态」——纯 SVG 按钮的居中 + aria 缺失
+
+### 1. 现象
+
+用户反馈「book 的 关系图 的 设置 的 四个条（齿轮 / 漏斗 / 列表 / 路径）没起到应有的状态」。
+图例区底部 4 个图标按钮（力参数 / 过滤 / 节点列表 / 路径）确实在状态切换时拿到了
+`.lg-toggle.active` CSS 类（背景从白变绿、icon 从灰变白），但用户感知不到——可能是
+「active 视觉不够聚焦 / 无障碍不可读 / 视觉副作用掩盖」。同一份代码在 book/life 两
+app 都存在，life 也一并修了。
+
+### 2. 根因
+
+四个症状叠加，每个都不致命，合起来让用户觉得"按钮没起到应有的状态"：
+
+1. **纯 SVG 按钮 padding 不对称** —— `.lg-toggle` 通用 padding 是 `2px 8px`，对
+   "文字 + padding" 的按钮（力导向 / 层级）正好；但图标按钮里只有 `<svg width="12" height="12">`，
+   没有文字基线，inline-block 布局下 SVG 的 baseline 落到按钮下沿附近，**视觉上图标偏下 ~1px**，
+   边框不对称显得"按钮没对齐"。
+
+2. **icon 12px 偏小** —— 在 880~1200px 宽的图例区里，12px 图标在 8px padding 包围中视觉权重很弱，
+   active 后整块变绿但图标细节难辨认。
+
+3. **列表图标的"点"是看不见的** —— 原 SVG 把三个点画成
+   `<line x1="3" y1="6" x2="3.01" y2="6" />`（长度 0.01 单位、viewBox 24×24 → 渲染 0.005px），
+   等于没画。图标看起来只有 3 条横线、没有 bullet marker，**功能语义"列表 = 圆点 + 横线"
+   表达失败**。
+
+4. **无 `aria-pressed`** —— toggle 按钮只有 `aria-label`，没有 `aria-pressed`。
+   屏幕阅读器无法播报"按下后处于激活态"；键盘 / 自动化测试也无法断言状态。
+
+### 3. 修复
+
+**共享 CSS（`packages/tracker-ui/src/GraphView.css`）**：
+
+- 新增 `.lg-toggle--icon` 变体：`display: inline-flex; align-items/justify-content: center;`，
+  配合 `padding: 4px 7px; min-width/height: 24px;`，让 SVG 在按钮内严格居中；
+- `svg { display: block; vertical-align: middle; }` 显式压 baseline 偏移（inline-flex 已经
+  居中，但 `vertical-align: middle` 是双保险，对老渲染路径 + screenshot 渲染更稳）。
+
+**两 app GraphView（`apps/book-tracker/src/renderer/components/GraphView.tsx` +
+`apps/life-tracker/src/renderer/components/GraphView.tsx`）同步**：
+
+- 4 个按钮 className 加 `lg-toggle--icon` 修饰；
+- `aria-pressed={state}` 四个都补：力参数 / 过滤 / 节点列表 三按钮直接挂 state；
+  **路径按钮**用 `aria-pressed={pathMode || !!pathEndpoints.a}`（与视觉 active 条件对齐——
+  path 模式下选完两个端点后 pathMode 会被自动置 false，但 pathEndpoints.a 仍非空，
+  此时按钮依然显示为 active，aria 也要跟着 true，否则 SR 用户按下后听到 "not pressed" 跟
+  视觉对不上）；
+- icon 从 `width="12" height="12"` → **`width="14" height="14"`**；
+- 列表图标三个"点"从 0.01 不可见线段 → 实际可见的 `<circle cx="3.5" cy="6/12/18" r="0.6" />`，
+  视觉上"3 横线 + 3 圆点"，与"列表"的语义终于对得上。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端全绿；
+- `npm test` 211/211（life-tracker，含共享 core 测试）；
+- 用 Edge headless 渲染 `test-buttons.html`（同款 CSS + 按钮结构）截图比对：
+  inactive 行（白底灰 icon 浅灰边框）与 active 行（绿底白 icon）的翻转**一眼可见**，
+  4 个 icon 都在按钮里**正居中**（无 1px 上下偏移），列表图标 3 个圆点清楚可见。
+
+### 5. 教训
+
+1. **`<button>` 里只放 SVG 时，padding 要从"按文字"改成"按图标"**。纯 SVG 按钮没有
+   文字基线、不会自动按 `line-height` 居中；要么 `display: inline-flex + align-items: center`，
+   要么 padding 改成视觉对称的 `4px 7px` 而不是 `2px 8px`。后者只解决内边距对称、
+   不解决 SVG baseline 偏移——前者才是根治。
+
+2. **SVG 画"几乎不可见"的元素（长度 < 1 单位）= 画了等于没画**。viewBox 是逻辑坐标，
+   不等于像素；0.01 单位的线段在 24×24 viewBox 渲染到 12×12 像素时是 0.005px，sub-pixel
+   浏览器会直接吞掉。要画"点 / 小圆 / 短线"就别用 `<line>`、改用 `<circle r="≥0.5">` 或
+   粗 `<line>`，并且**在目标渲染尺寸下肉眼检查**——screenshot 工具不渲染时 review 不出
+   这种 bug，只能跑一遍浏览器。
+
+3. **toggle 按钮的 `aria-pressed` 不是可选项，是 ARIA 规范要求**。`.active` class 只是
+   视觉，SR 用户和自动化测试只听 `aria-pressed`——没有它，按钮的"激活态"对辅助技术
+   不可见。**路径按钮这种"三态合一"（pathMode + pathEndpoints.a 都要参与）的尤其要小心**：
+   SR 听到的状态必须跟视觉 1:1，否则按 SR 提示操作会跟肉眼看到的对不上。
+
+4. **共享 CSS 的"对称镜像"也要 review**。本次 `.lg-toggle--icon` 加在共享
+   `packages/tracker-ui/src/GraphView.css`，book/life 两个 GraphView 同步修——是因为
+   两 app 用的是同一份共享 GraphView 的领域包装，**任何写在共享 CSS 的 toggle 样式
+   改一处就两 app 同生效**。但 app 端 JSX 里的 `className` 拼接和 `aria-pressed`
+   表达式是手写两份，本次同步对照改了 8 处（每 app 4 个按钮）——这种「共享层改 CSS +
+   app 端改调用」的双层改动，**先改共享 CSS、再批量改 app 端**，顺序反了容易漏。
+
+---
+
+## 2026-08：[life-tracker] SettingsPanel 的 InfoTip tooltip 完全不显示——CSS 漏迁
+
+### 1. 现象
+
+`apps/life-tracker/src/renderer/components/SettingsPanel.tsx` 引入了新版 SettingsPanel：
+- `Modal` 加 `className="settings-modal"`；
+- 4 个字段 label 都套了 `<InfoLabel><InfoTip tip="..."/></InfoLabel>` 模式（? 提示图标 + 纯 CSS tooltip）；
+- 第一行两列 grid 布局（默认类型 + 展示筛选）；
+- 主题 / 格式卡片的 hint 文案从内嵌 `<span className="...-hint">` 换成 `data-tip` + `aria-label`。
+
+视觉表现：life-tracker 打开设置面板，4 个字段的 `?` 图标没有、`settings-row` 的两列
+grid 没生效、所有 hint 文字消失。**整个面板看着像"信息密度骤降"**。book-tracker 没
+事（它原本就有这些 CSS）。
+
+### 2. 根因
+
+`SettingsPanel.tsx` 的重构是**从 book-tracker 同步过来的同款改造**（两 app 的 SettingsPanel
+是字面意义上的同源代码）。但 book-tracker 的 `styles.css` 在 § Settings panel 块里**已有**
+`.settings-modal .modal-body { overflow: visible }` / `.settings-panel` / `.settings-row`
+（grid 1fr 1fr）/ `.field-label`（inline-flex 容纳 label + ?）/ `.field-info`（? 圆点 + hover
+::after 黑底 tooltip + ::before 小三角）/ `.seg-chip`（展示筛选分段 chips）这一整套样式。
+
+life-tracker 的 `styles.css` 在 § Settings panel 块里**只定义了 `.theme-picker` /
+.theme-card / .format-picker / .format-card 四个类**（老的 theme / format 选择器）+ 卡片
+tooltip 的 `::after` / `::before`，**所有 InfoTip 改造用到的 `.settings-modal` /
+.settings-panel / .settings-row / .field-label / .field-info / .seg-chip` 全部缺失**。
+
+简单说：book-tracker CSS 进化了、SettingsPanel.tsx 跟着改了；life-tracker SettingsPanel.tsx
+跟着改了、CSS 漏迁。视觉上"看起来编译过、typecheck 过、但 UI 不对"——因为 pure CSS 缺类
+不会触发任何 TS / Rust 错误。
+
+### 3. 修复
+
+`apps/life-tracker/src/renderer/styles.css` 在 § Settings panel 块最上方（紧邻 `.trash-list`
+之后、`.theme-picker` 之前）补完整套类：
+
+- `.modal-card.settings-modal .modal-body { overflow: visible; }`——关掉 modal-body 滚动，
+  让 `.field-info::after` 的黑底 tooltip 能溢出 modal 上方显示（不然会被 modal-body 的
+  overflow 裁掉）；
+- `.settings-panel { display: flex; flex-direction: column; gap: 14px; }` +
+  `.settings-panel .field small { display: block; margin-top: 4px; }`——容器；
+- `.settings-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }` + `.settings-row .field { min-width: 0; }`——
+  两列 grid，min-width: 0 避免 grid 子项被 input 内容撑爆（book 的同款 fix）；
+- `.settings-panel .field > .field-label, .settings-panel .field-label { display: inline-flex; align-items: center; gap: 5px; }`——
+  label 文本 + ? 图标的 inline-flex 容器；
+- `.field-info`（13×13 圆点 ? 按钮）+ `:hover/:focus-visible`（背景变 accent）+ `::after`（data-tip
+  黑底 tooltip + `max-width: 260px` + `width: max-content` 跟宽度自适应）+ `::before`（小三角）——完整镜像 book-tracker；
+- `.seg-chips` / `.seg-chip` / `.seg-chip:hover` / `.seg-chip.active`——展示筛选 segmented chips。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端全绿；
+- `npm test` 211/211（life-tracker 12 个测试文件全过）；
+- 手测 life-tracker 设置面板：4 个 `?` 图标正常显示 + hover 弹黑底 tooltip + 第一行两列
+  grid 排齐 + 主题 / 格式卡片 hint 改走 `data-tip` 正常显示。
+
+### 5. 教训（共享）
+
+1. **「同源代码跨 app」是真的同源代码，不是「长得像」就算**。本次 `SettingsPanel.tsx`
+   book/life 共享 90%+ 结构，CSS 本应 100% 镜像——结果 life 的 styles.css 漏了 6 个
+   类，纯 CSS 缺类不报错、typecheck / vitest / cargo test 全绿，只有人眼才看得出
+   "life 设置面板长得跟 book 不一样"。**共享 JSX 改一处，CSS 必须 grep 两 app
+   的 `styles.css` 同步看一遍**——尤其 InfoTip / tooltip / 新 className 这种纯 CSS
+   增强。
+
+2. **CSS 缺类不会触发任何编译错误**。grep 不到该类的样式定义 ≠ grep 不到该类的使用。
+   预防方法：每次新增 className（包括 `data-tip` 这类新 attribute）先 grep 两 app
+   的 `styles.css` 确认定义齐全，再提交 JSX。**反过来**：review 一个 app 的 CSS 改动
+   时，另一 app 是否需要同步、是否已经在 commit 里同步了，必须手动 cross-check。
+
+3. **`overflow: visible` 在 modal 内是关键**。`.field-info::after` 的 tooltip 想要
+   溢出 modal 上方显示，必须关掉 `.modal-body` 的 `overflow-y: auto`——
+   这条样式定义在 `.modal-card.settings-modal .modal-body`（双 class 选择器）而不是
+   裸 `.modal-body`，正是为了**不污染其他 modal（详情 modal / 表单 modal）的滚动行为**。
+   缺这一条，tooltip 会被裁掉、看起来"好像没生效"。
+
+---
+
 ## 2026-08：[book-tracker] 排名对比卡片「点了没反应」——IPC 字段缺省没 `serde(default)`
 
 ### 1. 现象
