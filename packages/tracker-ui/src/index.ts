@@ -33,6 +33,7 @@ export {
   applyInitialFormat
 } from './useTheme'
 export type { ThemeName, FormatName, ThemeMeta, FormatMeta } from './useTheme'
+export type { ColorPickerOption } from './GraphView'
 
 export { GraphView } from './GraphView'
 export type {
@@ -52,6 +53,10 @@ export {
   ForceParamsPanel,
   SearchBox,
   FiltersPanel,
+  ColorPicker,
+  tagColor,
+  tagBgColor,
+  hashHue,
   useGraphFilters,
   useResize
 } from './GraphView'
@@ -60,5 +65,6 @@ export type {
   PhysicsController,
   TreeLayoutDims,
   Dims,
-  GraphFilters
+  GraphFilters,
+  ColorBy
 } from './GraphView'

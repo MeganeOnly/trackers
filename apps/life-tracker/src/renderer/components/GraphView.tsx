@@ -18,7 +18,10 @@ import {
   GraphView as GraphCanvas,
   type BaseGraphNode,
   type BaseGraphLink,
-  useGraphFilters
+  useGraphFilters,
+  tagColor,
+  ColorPicker,
+  type ColorBy
 } from '@ui/GraphView'
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
@@ -154,6 +157,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [showForceParams, setShowForceParams] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [colorBy, setColorBy] = useState<ColorBy>('status')
   const { filters, setFilters, resetFilters } = useGraphFilters({
     storageKey: 'life-tracker-graph-filters'
   })
@@ -268,6 +272,13 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
           return STATUS_COLORS[n.status]
         }
         if (highlightId && n.id === highlightId) return '#3b6cf2'
+        if (colorBy === 'unlock') {
+          return n.unlocked ? STATUS_COLORS[n.status] : '#c8c8c8'
+        }
+        if (colorBy === 'category') {
+          return n.category ? tagColor(n.category) : '#c8c8c8'
+        }
+        /* status（默认）*/
         if (!n.unlocked) return '#c8c8c8'
         return STATUS_COLORS[n.status]
       }}
@@ -305,13 +316,47 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       onSelect={(id) => select(id)}
       legend={
         <>
-          <span className="lg-dot" style={{ background: STATUS_COLORS.not_started }} />未开始
-          <span className="lg-dot" style={{ background: STATUS_COLORS.in_progress }} />进行中
-          <span className="lg-dot" style={{ background: STATUS_COLORS.done }} />已达成
-          <span className="lg-dot" style={{ background: STATUS_COLORS.shelved }} />搁置
-          <span className="lg-dot" style={{ background: STATUS_COLORS.abandoned }} />放弃
-          <span className="lg-sep" />
-          <span className="lg-dot" style={{ background: '#c8c8c8' }} />未解锁
+          {layoutMode !== 'analyze' && colorBy === 'category' ? (
+            /* category 模式：前 5 个 category + "无类别" */
+            <>
+              {availableTags.slice(0, 5).map((c) => (
+                <span key={c}>
+                  <span className="lg-dot" style={{ background: tagColor(c) }} />
+                  {c}
+                </span>
+              ))}
+              <span className="lg-sep" />
+              <span className="lg-dot" style={{ background: '#c8c8c8' }} />无类别
+            </>
+          ) : layoutMode !== 'analyze' && (
+            <>
+              <span className="lg-dot" style={{ background: STATUS_COLORS.not_started }} />未开始
+              <span className="lg-dot" style={{ background: STATUS_COLORS.in_progress }} />进行中
+              <span className="lg-dot" style={{ background: STATUS_COLORS.done }} />已达成
+              <span className="lg-dot" style={{ background: STATUS_COLORS.shelved }} />搁置
+              <span className="lg-dot" style={{ background: STATUS_COLORS.abandoned }} />放弃
+              {colorBy === 'status' && (
+                <>
+                  <span className="lg-sep" />
+                  <span className="lg-dot" style={{ background: '#c8c8c8' }} />未解锁
+                </>
+              )}
+            </>
+          )}
+          {layoutMode !== 'analyze' && (
+            <>
+              <span className="lg-sep" />
+              <ColorPicker
+                value={colorBy}
+                onChange={setColorBy}
+                options={[
+                  { value: 'status', label: '状态', hint: '按 5 种状态着色' },
+                  { value: 'category', label: '类别', hint: '按 goal.category 哈希着色' },
+                  { value: 'unlock', label: '解锁', hint: '解锁=状态色 / 未解锁=灰' }
+                ]}
+              />
+            </>
+          )}
           <span className="lg-sep" />
           <button
             type="button"

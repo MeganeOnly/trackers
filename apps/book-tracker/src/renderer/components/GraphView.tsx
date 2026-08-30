@@ -16,7 +16,10 @@ import {
   GraphView as GraphCanvas,
   type BaseGraphNode,
   type BaseGraphLink,
-  useGraphFilters
+  useGraphFilters,
+  tagColor,
+  ColorPicker,
+  type ColorBy
 } from '@ui/GraphView'
 import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
@@ -65,6 +68,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [showForceParams, setShowForceParams] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [colorBy, setColorBy] = useState<ColorBy>('status')
   const { filters, setFilters, resetFilters } = useGraphFilters({
     storageKey: 'book-tracker-graph-filters'
   })
@@ -157,6 +161,14 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       emptyText="还没有作品。加几部试试。"
       getNodeColor={(n) => {
         if (highlightId && n.id === highlightId) return '#3b6cf2'
+        if (colorBy === 'unlock') {
+          return n.unlocked ? STATUS_COLORS[n.status] : '#c8c8c8'
+        }
+        if (colorBy === 'tag') {
+          const firstTag = n.tags?.[0]
+          return firstTag ? tagColor(firstTag) : '#c8c8c8'
+        }
+        /* status（默认）*/
         if (!n.unlocked) return '#c8c8c8'
         return STATUS_COLORS[n.status]
       }}
@@ -165,14 +177,44 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       onSelect={(id) => select(id)}
       legend={
         <>
-          <span className="lg-dot" style={{ background: STATUS_COLORS.want }} />想看
-          <span className="lg-dot" style={{ background: STATUS_COLORS.reading }} />在读
-          <span className="lg-dot" style={{ background: STATUS_COLORS.watching }} />在看
-          <span className="lg-dot" style={{ background: STATUS_COLORS.finished }} />已读
-          <span className="lg-dot" style={{ background: STATUS_COLORS.shelved }} />搁置
-          <span className="lg-dot" style={{ background: STATUS_COLORS.abandoned }} />弃读
+          {colorBy === 'tag' ? (
+            /* tag 模式：前几个 tag + "无 tag" */
+            <>
+              {availableTags.slice(0, 5).map((t) => (
+                <span key={t}>
+                  <span className="lg-dot" style={{ background: tagColor(t) }} />
+                  {t}
+                </span>
+              ))}
+              <span className="lg-sep" />
+              <span className="lg-dot" style={{ background: '#c8c8c8' }} />无 tag
+            </>
+          ) : (
+            <>
+              <span className="lg-dot" style={{ background: STATUS_COLORS.want }} />想看
+              <span className="lg-dot" style={{ background: STATUS_COLORS.reading }} />在读
+              <span className="lg-dot" style={{ background: STATUS_COLORS.watching }} />在看
+              <span className="lg-dot" style={{ background: STATUS_COLORS.finished }} />已读
+              <span className="lg-dot" style={{ background: STATUS_COLORS.shelved }} />搁置
+              <span className="lg-dot" style={{ background: STATUS_COLORS.abandoned }} />弃读
+              {colorBy === 'status' && (
+                <>
+                  <span className="lg-sep" />
+                  <span className="lg-dot" style={{ background: '#c8c8c8' }} />未解锁
+                </>
+              )}
+            </>
+          )}
           <span className="lg-sep" />
-          <span className="lg-dot" style={{ background: '#c8c8c8' }} />未解锁
+          <ColorPicker
+            value={colorBy}
+            onChange={setColorBy}
+            options={[
+              { value: 'status', label: '状态', hint: '按 6 种状态着色' },
+              { value: 'tag', label: '标签', hint: '按第一个 tag 哈希着色' },
+              { value: 'unlock', label: '解锁', hint: '解锁=状态色 / 未解锁=灰' }
+            ]}
+          />
           <span className="lg-sep" />
           <button
             type="button"

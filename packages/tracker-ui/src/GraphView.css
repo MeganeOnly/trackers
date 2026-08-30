@@ -330,3 +330,32 @@
   background: var(--accent);
   color: white;
 }
+
+/* ============ 节点色维度切换（commit 4）============ */
+.graph-color-picker {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-left: 4px;
+}
+.graph-color-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: white;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  line-height: 1.4;
+}
+.graph-color-chip:last-child { border-right: none; }
+.graph-color-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.graph-color-chip.active {
+  background: var(--accent);
+  color: white;
+  font-weight: 500;
+}
