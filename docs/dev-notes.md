@@ -6,6 +6,81 @@
 
 ---
 
+## 2026-08：[共享] 新增 Unlock 图健康度分析（analyzeGraph + distanceTo）
+
+### 1. 决策与算法
+
+- **动机**：life-tracker 用户面对几十个目标的"前置依赖图"时，看不出图的健康状况——
+  哪个是瓶颈、距离"国奖"还有多远、有没有孤立目标该清理。这是把"图记录工具"升级为
+  "图决策工具"的关键一步，也是直接强化 monorepo 核心差异化（前置依赖 + 解锁）的扩展。
+- **算法（analyzeGraph）**：拓扑角色（in/out degree）+ 节点分类（孤立 / 根 / 叶）+
+  瓶颈 top 10（按出度排序）+ critical path（拓扑 + DP，已 done 折叠）+ 连通分量（DFS）+
+  健康度（0..100，含完成率 / 孤立 / 瓶颈三段子项）+ `distanceTo(target)`（副产品）。
+- **架构决策**：算法放 `packages/tracker-core/src/analyze.ts`，与 `computeUnlocked` /
+  `computeBlockingRelations` 同款签名。book-tracker 也能 import，但 UI **仅 life-tracker**
+  接入——保留 monorepo 的 core/app 分界（参考 docs/shared-boundary.md）。
+- **谓词统一**：调用方传 `isDone`，由 life-tracker 的 `buildDonePredicate` 提供（含
+  ExcludeSpec 改写 + countable 处理）。analyze 不重写谓词，避免与 unlock 路径不一致。
+
+### 2. 踩坑与教训
+
+1. **`localeCompare` 在 zh-CN 系统下中英混排顺序不稳定**——Node.js 默认 locale 跟随系统，
+   zh-CN Windows 上 `localeCompare('SCI1', '三好')` 按拼音排，与其他 locale 不一致，
+   跨平台测试会"同代码不同结果"。**统一用 `<`/`>` + 纯 Unicode 码点比较**（提取
+   `cmpId(a, b)` helper），可预测、跨平台一致。性能对 O(N log N) 排序无感知。
+
+2. **(r, e.to) 维度去重必须在循环内**——`blocksById[r]` 用 Set 去重只能保证下游列表唯一，
+   但 inDeg / outDeg 已在循环里 +1 多次（同一对节点被多条 edge 重复指向，会算 N 倍出度）。
+   countable 任务被多次 spec 引用（每次 count 不同）是真实场景，不修就夸大瓶颈分。
+   **修复**：在循环顶部加 `seenPairs: Set<string>` early-return。配套：`countable` 任务
+   一节点多 spec 引用现在只算一次出度，但**仍出现在 critical path 上**（作为前置），
+   符合 unlock 语义。
+
+3. **环节点在分类 + DP 两处都要显式跳过**——`detectCycles` 拿到环集合后：
+   - **分类循环**（孤立 / 根 / 叶）必须 `if (cycleNodes.has(id)) continue`；否则环节点
+     inDeg=outDeg=0 被错分到孤立（用户看到"3 个孤立"但其实只有 1 个真孤立）；
+   - **critical path DP** 同款：环节点 `dist.set(n, 0)` 后 continue，不参与 maxD 计算，
+     避免环节点串接成"伪最长链"。
+   漏一处就 bug，测试用例要分别覆盖"分类排除"和"DP 排除"两条路径。
+
+4. **`distanceTo` 是 `criticalPath` DP 的副产品**——单独实现 distanceTo 要重跑拓扑 + DP，
+   浪费算力。**修复**：抽 `computeCriticalPathWithDist`，返回 `{dist, parent}`，
+   `computeCriticalPath` 只算 max + 反推 path；`distanceTo` 直接读 `dist.get(target)`。
+   API 表面对调用方多传一次 ids 是小代价，换零重复计算。
+
+5. **空图的 healthScore 是设计选择**——按公式"0% 完成 + 0 孤立 + 0 瓶颈 = 0 + 30 + 30 = 60"
+   看起来像"中等"。但"无可衡量 = 无问题"更符合直觉（用户刚开始用就没数据，不该扣分）。
+   **修复**：`total === 0 ? 100 : ...`，同时 healthBreakdown 子项独立赋值，前端做
+   breakdown 展示时不依赖总分。配套 vitest 改 expect 100。
+
+6. **综合场景测试容易把"孤立节点"误归类为 root**——人工写测试期望时凭直觉把"我应该有
+   X 个 root"算成"所有 0 入度节点"。但孤立节点（0 入度 + 0 出度）也是 0 入度——
+   **是 orphan 不是 root**。**修复**：写测试期望时去翻算法分类的 if-else 条件（先
+   `inDeg === 0 && outDeg === 0` 才 orphan，再 `inDeg === 0 && outDegree > 0` 才 root），
+   不要"凭直觉写数字"。这种 bug 跑测试能立刻发现（典型综合场景期望 5 个 root，
+   实际 3 个 + 2 个 orphan）。
+
+### 3. UI 集成的架构红线
+
+- **GraphView 第三种 mode 不破坏现有 force / tree 逻辑**——所有新分支都包在
+  `if (layoutMode === 'analyze')` 里；motion / fx/fy 处理走单独分支
+  （`motion=0` 静止但不重排，保留 force 当前位置）；不动 d3-force 模拟参数。
+- **复用 `buildDonePredicate`，不绕谓词改写**——`useGraphAnalysis()` 与 `useUnlocked()`
+  同款谓词构造，避免 analyze 路径下 ExcludeSpec 不生效或 countable 任务永远算 done。
+- **不引入新组件类型**——复用 `@ui/Modal`、GraphView `nodeCanvasObject` canvas 描边、
+  TopBar 现有 `on*` prop 模式。AnalyzeModal 是个新文件但不引入新组件类型。
+- **CleanMode summary banner 不破坏现有 UI**——加 `onOpenAnalyze?` 可选 prop，
+  默认空函数，App.tsx 透传 setAnalyzeOpen。空 goals 时不显示 banner（避免"100/100"
+  误导用户"图是健康的"）。
+
+### 4. 回归验证
+
+`npm run test:core` → 131/131 pass（含 analyze.test.ts 42 个新用例）。
+`npm run typecheck` 三 workspace 全绿。life-tracker 接入后 `npm run test:life` →
+211/211 pass。
+
+---
+
 ## 2026-08：[共享/领域] 影视主创字段加新成员（`screenwriter`）的对称实现模式
 
 - **现象**：用户提出"电影信息里要有编剧"——已有的影视专用字段只有 `starring`（主演），
