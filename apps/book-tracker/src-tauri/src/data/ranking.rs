@@ -134,4 +134,28 @@ mod tests {
         assert_eq!(f.initial_rating, 1500.0);
         assert_eq!(f.k_factor, 32.0);
     }
+
+    #[test]
+    fn pairwise_result_deserializes_without_ts() {
+        // 回归测试：renderer 端调用 `ranking_apply` 时**故意不传 `ts`**（设计上是后端用
+        // `frontmatter::now_iso()` 覆盖）。如果 `PairwiseResult.ts` 缺了 `#[serde(default)]`，
+        // Tauri IPC 反序列化会直接报错，整个 `applyResult` 调用被静默 catch，
+        // 表现就是「点了左右卡片没反应、currentPair 不变」。
+        //
+        // 这个测试直接模拟 IPC 入参 JSON，验证 serde 能从「缺 ts」恢复成空串，
+        // 确保 `ranking::append_result` 走到 `entry.ts = now_iso()` 那行正常写盘。
+        let json = r#"{"a":"1","b":"2","winner":"a"}"#;
+        let r: PairwiseResult = serde_json::from_str(json).expect("missing ts must deserialize");
+        assert_eq!(r.a, "1");
+        assert_eq!(r.b, "2");
+        assert!(matches!(r.winner, PairwiseWinner::A));
+        assert_eq!(r.ts, "", "ts 缺省时反序列化为空串，由后端 now_iso 覆盖");
+
+        // tie / b 两种 winner 同样要能不带 ts 反序列化
+        let json_tie = r#"{"a":"3","b":"4","winner":"tie"}"#;
+        let r_tie: PairwiseResult =
+            serde_json::from_str(json_tie).expect("tie without ts must deserialize");
+        assert!(matches!(r_tie.winner, PairwiseWinner::Tie));
+        assert_eq!(r_tie.ts, "");
+    }
 }

@@ -234,7 +234,11 @@ pub struct PairwiseResult {
     pub b: String,
     /// 哪一方获胜：`'a'` / `'b'` / `'tie'`
     pub winner: PairwiseWinner,
-    /// ISO 8601 时间戳
+    /// ISO 8601 时间戳。
+    ///
+    /// 客户端 IPC 入参时可省略 —— 服务端 `service::ranking::append_result` 总是用
+    /// `frontmatter::now_iso()` 覆盖。缺省时反序列化为空串，便于前端"后端覆写"语义。
+    #[serde(default)]
     pub ts: String,
 }
 
