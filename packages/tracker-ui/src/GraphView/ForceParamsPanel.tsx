@@ -104,23 +104,10 @@ export function ForceParamsPanel({
     if (fg) {
       try {
         fg.d3ReheatSimulation()
-        // eslint-disable-next-line no-console
-        console.log(
-          '[ForceParamsPanel]',
-          key,
-          '=',
-          value,
-          'motionRef:',
-          motionRef.current,
-          'fg ready'
-        )
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('reheat on motion change failed:', e)
       }
-    } else {
-      // eslint-disable-next-line no-console
-      console.warn('[ForceParamsPanel] fgRef.current is undefined, reheat skipped')
     }
   }
 
