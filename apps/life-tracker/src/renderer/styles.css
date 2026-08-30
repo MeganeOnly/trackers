@@ -1316,17 +1316,22 @@ ul.goal-grid {
   padding: 0;
   margin: 0;
 }
+/* 卡片盒样式：单行流式布局。
+ * 默认 ~36px 高(title 1 行)；title 过长(line-clamp: 2)允许折到第 2 行,卡片自然撑到 2 行高。
+ * stamp(done)绝对定位到右上角,不挤占主行。 */
 .goal-card-grid {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 10px;
   background: var(--surface, white);
   border: 1px solid var(--border);
   border-radius: var(--radius-card, 6px);
   cursor: pointer;
   position: relative;
-  min-height: 96px;
+  min-height: 36px;
   transition: border-color var(--dur-quick, 120ms) ease,
     background var(--dur-quick, 120ms) ease,
     transform 0.12s ease;
@@ -1339,32 +1344,41 @@ ul.goal-grid {
 .goal-card-grid.selected {
   border-color: var(--accent);
   border-width: 2px;
-  padding: 9px 11px;
+  padding: 5px 9px;
   background: var(--accent-soft);
 }
-.goal-card-grid-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+/* 长 title 让出 stamp 的空间(只在 done 时才有 stamp,避免视觉重叠) */
+.goal-card-grid:has(.tracker-stamp) {
+  padding-right: 56px;
+}
+.card-category {
+  flex-shrink: 0;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .goal-card-grid-title {
+  flex: 1 1 100px;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
   font-family: var(--font-display, inherit);
+  /* 1 行默认；过长允许折到第 2 行,再长才 ellipsis */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  word-break: break-word;
 }
 .goal-card-grid-meta {
-  font-size: 12px;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .card-progress-text {
   font-family: var(--font-mono, ui-monospace);
@@ -1373,6 +1387,12 @@ ul.goal-grid {
 }
 .card-deadline {
   font-size: 11px;
+}
+/* stamp 绝对定位到右上角,不挤占主行（保留主题自带的颜色 / 旋转 / 缩放 hover） */
+.goal-card-grid > .tracker-stamp {
+  position: absolute;
+  top: 4px;
+  right: 6px;
 }
 :root[data-format="grid"][data-theme="library"] .goal-card-grid-title,
 :root[data-format="grid"][data-theme="codex"] .goal-card-grid-title {

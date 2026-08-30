@@ -118,7 +118,13 @@ function ItemRowList({
   )
 }
 
-/** 网格模式 li —— 借阅卡式方角卡片(grid format) */
+/**
+ * 网格模式 li —— 借阅卡式方角卡片(grid format)
+ *
+ * 单行流式布局：kind-tag → title → author/year → progress → id；stamp(finished)绝对定位
+ * 到右上角,不挤占主行。默认 ~36px 高（title 1 行）；title 过长(line-clamp: 2)允许折到
+ * 第 2 行,卡片自然撑到 2 行高。
+ */
 function ItemRowCard({
   b,
   selected,
@@ -128,27 +134,32 @@ function ItemRowCard({
   selected: boolean
   onSelect: (id: string) => void
 }): JSX.Element {
+  const progress =
+    (b.status === 'reading' || b.status === 'watching') && b.progress
+      ? b.progress
+      : null
+  const hasAuthor = !!b.author || b.year > 0
   return (
     <li
       className={`book-card-grid kind-${b.kind}${selected ? ' selected' : ''}`}
       onClick={() => onSelect(b.id)}
     >
-      <div className="book-card-grid-header">
-        <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
-        <span className="tracker-id">{b.id}</span>
-      </div>
+      <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
       <h3 className="book-card-grid-title">{b.title}</h3>
-      <div className="book-card-grid-author muted">
-        {b.author}
-        {b.year > 0 && ` · ${b.year}`}
-      </div>
-      {(b.status === 'reading' || b.status === 'watching') && b.progress && (
-        <div className="book-card-grid-progress">
-          {b.progress.current}
-          {b.progress.total ? `/${b.progress.total}` : '+'}
-          {b.read_count > 1 && ` · 第 ${b.read_count} 次`}
-        </div>
+      {hasAuthor && (
+        <span className="book-card-grid-author muted">
+          {b.author}
+          {b.year > 0 && ` · ${b.year}`}
+        </span>
       )}
+      {progress && (
+        <span className="book-card-grid-progress muted">
+          {progress.current}
+          {progress.total ? `/${progress.total}` : '+'}
+          {b.read_count > 1 && ` · 第 ${b.read_count} 次`}
+        </span>
+      )}
+      <span className="tracker-id">{b.id}</span>
       {b.status === 'finished' && (
         <span className="tracker-stamp" data-state="finished">已读</span>
       )}

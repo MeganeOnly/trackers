@@ -139,28 +139,37 @@ function ItemRowList({ g, selected, onSelect }: ItemRowProps): JSX.Element {
 }
 
 /**
- * 网格模式 li：项目卡片(grid format) —— 顶部编号 + 标题 + 分类 + deadline + 量化进度 + 印章
+ * 网格模式 li：项目卡片(grid format) —— 单行流式布局（默认 1 行,长 title 允许折到第 2 行,最多 2 行）
+ *
+ * 行内顺序:category → title → meta(progress / deadline) → id；stamp 绝对定位到右上角,
+ * 不挤占主行。min-height ~36px 让"1 行标题"的卡片保持紧凑；title 用 line-clamp: 2,
+ * 真需要时自然撑高到 2 行。
  */
 function ItemRowCard({ g, selected, onSelect }: ItemRowProps): JSX.Element {
+  const progress =
+    g.status === 'in_progress' && g.progress && g.progress.total !== null
+      ? g.progress
+      : null
+  const hasMeta = progress !== null || !!g.deadline
   return (
     <li
       className={`goal-card-grid${selected ? ' selected' : ''}`}
       onClick={() => onSelect(g.id)}
       style={{ '--item-stripe': categoryVar(g.category) } as React.CSSProperties}
     >
-      <div className="goal-card-grid-header">
-        <span className="card-category muted">{g.category || '未分类'}</span>
-        <span className="tracker-id">{g.id}</span>
-      </div>
+      <span className="card-category muted">{g.category || '未分类'}</span>
       <h3 className="goal-card-grid-title">{g.title}</h3>
-      <div className="goal-card-grid-meta muted">
-        {g.status === 'in_progress' && g.progress && g.progress.total !== null && (
-          <span className="card-progress-text">
-            {g.progress.current}/{g.progress.total}
-          </span>
-        )}
-        {g.deadline && <span className="card-deadline">截止 {g.deadline}</span>}
-      </div>
+      {hasMeta && (
+        <span className="goal-card-grid-meta muted">
+          {progress && (
+            <span className="card-progress-text">
+              {progress.current}/{progress.total}
+            </span>
+          )}
+          {g.deadline && <span className="card-deadline">截止 {g.deadline}</span>}
+        </span>
+      )}
+      <span className="tracker-id">{g.id}</span>
       {g.status === 'done' && (
         <span className="tracker-stamp" data-state="done">已达成</span>
       )}

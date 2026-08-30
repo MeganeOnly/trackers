@@ -1373,17 +1373,22 @@ ul.book-grid {
   padding: 0;
   margin: 0;
 }
+/* 卡片盒样式：单行流式布局。
+ * 默认 ~36px 高(title 1 行)；title 过长(line-clamp: 2)允许折到第 2 行,卡片自然撑到 2 行高。
+ * stamp(finished)绝对定位到右上角,不挤占主行。 */
 .book-card-grid {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 10px;
   background: var(--surface, white);
   border: 1px solid var(--border);
   border-radius: var(--radius-card, 6px);
   cursor: pointer;
   position: relative;
-  min-height: 92px;
+  min-height: 36px;
   transition: border-color var(--dur-quick, 120ms) ease,
     background var(--dur-quick, 120ms) ease,
     transform 0.12s ease;
@@ -1396,36 +1401,49 @@ ul.book-grid {
 .book-card-grid.selected {
   border-color: var(--accent);
   border-width: 2px;
-  padding: 9px 11px;        /* 抵消 border-width 1px 抖动 */
+  padding: 5px 9px;        /* 抵消 border-width 1px 抖动 */
   background: var(--accent-soft);
 }
-.book-card-grid-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+/* 长 title 让出 stamp 的空间(只在 finished 时才有 stamp,避免视觉重叠) */
+.book-card-grid:has(.tracker-stamp) {
+  padding-right: 56px;
 }
 .book-card-grid-title {
+  flex: 1 1 100px;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
   font-family: var(--font-display, inherit);
   font-style: normal;
-  /* 标题过长时省略号 */
+  /* 1 行默认；过长允许折到第 2 行,再长才 ellipsis */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  word-break: break-word;
 }
 .book-card-grid-author {
   font-size: 12px;
   line-height: 1.3;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .book-card-grid-progress {
   font-size: 11px;
-  color: var(--muted);
-  margin-top: auto;         /* 把进度推到卡片底部 */
+  font-family: var(--font-mono, ui-monospace);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+/* stamp 绝对定位到右上角,不挤占主行（保留主题自带的颜色 / 旋转 / 缩放 hover） */
+.book-card-grid > .tracker-stamp {
+  position: absolute;
+  top: 4px;
+  right: 6px;
 }
 /* grid 模式 + library/codex:用 Fraunces italic 标题 + 编号更显眼 */
 :root[data-format="grid"][data-theme="library"] .book-card-grid-title,
