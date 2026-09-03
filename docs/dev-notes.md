@@ -2290,3 +2290,77 @@ UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert �
 
 ---
 
+## 2026-09：[book-tracker] 季设置实时写盘 + 「下一季」单向字段 + CleanMode 点击入口——v1.6 三处体验修复
+
+用户反馈三处 tv/anime 相关问题:① 编辑模式改集数保存没用;② 没有"下一季"实际增添的地方;③ 日常模式点击作品后想做笔记 + 选看到哪但没入口。本轮一次性修复。
+
+### 1. 现象 v1.5
+
+- ① BookForm 弹窗"季设置"区块的 `episodeCount` input 只挂了 `onChange`,所有修改必须等底部"保存"按钮统一提交。EpisodesPanel 的"X 集"input 走失焦实时 IPC(setSeasons)——**两处季编辑入口行为不一致**:同一份季数据两个写盘时机,用户心智混乱,容易丢修改。
+- ② 现有"季结构"= 同一 book 内的季列表(`seasons: SeasonInfo[]`);用户要的"下一季"是**跨作品关联**(S01 / S02 / S03+ 拆成独立 book 追踪时,把它们串起来),不是 book 内部加空季。
+- ③ CleanMode 只有"搁置 / 看完"两个快捷按钮,每行不可点。要做笔记 / 选看到哪必须先切到 EditMode + 从左栏选作品,操作链路过长。
+
+### 2. 修复
+
+**修复 ① 季设置实时写盘**:
+
+- BookForm `season.ts` input 加 `onBlur` + `onKeyDown(Enter)`,触发 `setSeasons(book.id, next)` IPC(与 EpisodesPanel 同款)。
+- 新增 `flushSeasonsSaved()` 工具函数 + `seasonsSaved` 短提示 state,写盘成功 1.5s 显示"季设置已保存"。
+- `addSeason` / `removeSeason` 同样改为实时写盘(避免"+ 新增一季"按钮触发后用户切走丢失)。
+- BookForm `handleSubmit` 编辑模式不再带 `seasons` 字段(`delete patch.seasons`):避免"实时写盘 + 保存按钮 patch"双写竞态(虽然 Rust 端 update_book 不会覆盖 None 字段,但 patch 序列化 + 写盘 + read 三步仍有 IPC round-trip,语义不洁)。
+- 新建模式保留 `input.seasons = seasons`(没有 book prop,onBlur 无处可写)。
+
+**修复 ②「下一季」单向 `Book.nextSeasonId` 字段**:
+
+数据模型选型对比三个候选:
+
+| 候选 | 优势 | 劣势 |
+|---|---|---|
+| A. 复用 `Edge` 加 `kind: 'prereq' \| 'sequel'` | 不增字段 | 方向相反(prereq 是"想读 A 必须先读 B",sequel 是"读 A 之后看 B");`compute_unlocked` 需分流;GraphView 边样式要区分 |
+| B. `Book.nextSeasonId?: string` 单向 | 最小侵入;用户场景单向 | 反向查询遍历所有 book |
+| C. 独立 `sequels.json` | IO 独立 | 多一份文件;读写双路 |
+
+**采纳 B**:语义清晰 = "我的下一季是 X";最小改动 Book 模型 + 新增 IPC `books_set_next_season`;反向"谁的下季是本季"代价可接受(用户场景不需要)。
+
+实现细节:
+
+- `types.rs` Book 加 `next_season_id: Option<String>`,`#[serde(default, skip_serializing_if = "Option::is_none")]`,空值不写 frontmatter。
+- `data/books.rs` `persist` 写盘 `nextSeasonId`(同 notes / starring 策略);`normalize_book` 解析容错老文件缺字段 → None。
+- `service/books.rs::set_next_season` 走专用业务方法(不走 BookPatch,因 next_season_id 不进 patch —— 与 seasons / episodes / characters 同款"关联字段走专用 IPC"):read → 改 merged.next_season_id → 调 `data::books::persist` 直接写盘。
+- `data::books::persist` 从 `fn` 改为 `pub(crate) fn`,为 set_next_season 暴露。
+- 校验:self-loop 拒绝(id === nextSeasonId → Err);目标 book 不存在不拒绝,前端 UI 兜底「原作品已删除 [× 清除]」。
+- 新组件 `NextSeasonPicker.tsx`:弹 inline 选择器,候选排除自己 + tv/anime 优先 + title 模糊搜索(参考 PrereqEditor picker 模式)。
+- BookDetail 加"下一季"区块:有 nextSeasonId → 显示 title 链接(点击跳到目标 book)+ 改/移除按钮;无 → 显示"+ 设置下一季"按钮;引用已删除 book → 显示「原作品已删除 (id: X)」+ 清除按钮。
+- CSS 加 `.next-season-block` / `.next-season` / `.next-season-picker` 等类(单 app 样式,不动共享 base.css)。
+
+**修复 ③ CleanMode 点击 → 切 EditMode + 选中**:
+
+- CleanMode 新增 `openInEdit(id)` 函数:`useBooksStore.select(id)` + `useModeStore.setMode('edit')`。
+- 三种视图(list / grid / focus-stack)的可点击元素加 onClick + `role="button"` + `tabIndex={0}` + Enter/Space 键盘支持:
+  - list: `.clean-item-left`(标题 + 作者 + kind-tag)
+  - focus-stack: `.focal-card`(整体)/ `.compact-item`(整体)/ `.stamp-card`(整体)
+  - 折叠区: `.collapsed-item`(整体)
+- 按钮区(搁置 / 看完 / 恢复)加 `onClick={(e) => e.stopPropagation()}` 防止冒泡触发切模式(否则用户点"搁置"会同时切模式 + 选中该作品)。
+- CSS 加 `cursor: pointer` + `:focus-visible` 轮廓 + `transition: background`,提示可点击且符合 a11y。
+
+### 3. 关键决策 & 教训
+
+**BookForm 季设置两种模式混用**:同一个表单里"高频小步修改"(季集数)走实时 IPC + 失焦写盘,"一次性提交字段"(title / status / progress / notes / tags)走 form 提交 + 保存按钮。两种心智并存,但 UI 上要给用户足够提示(顶部"· 季设置已保存"短标签),否则容易让用户以为"我点保存了为什么没反应"。
+
+**「下一季」用单向字段而不是复用前置依赖图**:前置依赖方向是"想读 A 必须先读 B",续作方向是"读 A 之后看 B",**方向相反**。复用会让 computeUnlocked 语义混乱,Edge 也要加 kind 字段分流。**判断关系图方向**比"省一个字段"更重要。
+
+**专用 IPC vs 通用 patch**:`seasons` / `episodes` / `characters` / `nextSeasonId` 都走专用 IPC(`books_seasons_set` / `books_episode_*` / `books_characters_set` / `books_set_next_season`),不走通用 `books_update` 的 BookPatch。理由:① 关联字段写盘策略复杂(最稀疏、自空串、整体替换),通用 patch 的 merge 语义扛不住;② 专用 IPC 服务端可独立校验(self-loop、ref 完整性);③ 不进 BookPatch 让 patch 的 spread / 三态语义保持简单。
+
+**Rust `persist` 函数从 `fn` 改 `pub(crate) fn`**:为 set_next_season 业务方法提供"读 → 改 → 写"的入口,避免把 patch 字段硬塞进 BookPatch。trade-off:`pub(crate)` 让模块边界松一点,但只在 service / data 同 crate 内可见,不破坏封装边界。
+
+**CleanMode 点击按钮区要 stopPropagation**:列表行整体可点击时,行内的"搁置 / 看完 / 恢复"按钮必须 `e.stopPropagation()`,否则点按钮会同时切模式 + 选中该作品,与用户预期"只切状态"不符。这是「li 内嵌 button」通用模式,任何 clickable row + inline action 都要小心。
+
+### 4. 回归
+
+- `next_season_id_round_trip_and_omit`(`data/books.rs::tests`)—— 4 个不变量:① None / 空串不写盘;② 写入 nextSeasonId 后 raw 确实含字段;③ None 显式清空不写盘;④ 老文件缺字段 → None(向后兼容)。
+- book-tracker typecheck / vitest / cargo 全绿,monorepo 全量 718 个测试(563 vitest + 155 cargo)全过。
+- `cargo test -p book-tracker --lib` 35 → 36(新增 nextSeasonId round-trip 测试)。
+- 手动流程验证:① BookForm 季设置失焦立即写盘 + 顶部"已保存"提示;② BookDetail 下一季关联 + 跳转;③ CleanMode 点击 + 按钮区 stopPropagation。
+
+---
+
