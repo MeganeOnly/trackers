@@ -66,7 +66,15 @@ pub enum BookStatus {
 /// - `notes`: 该季整体笔记(可选;空串 → 不写盘)
 /// - `last_modified`: 该季笔记最后修改时间(毫秒;v1.5 起,仅 notes 被改时刷新;
 ///   number / episode_count 变化不刷 —— 季结构变更 ≠ 笔记内容变更)
+///
+/// **IPC 字段名**：`#[serde(rename_all = "camelCase")]` —— TS 端 `SeasonInfo`
+/// 用 camelCase (`episodeCount` / `lastModified`),Tauri 2 的 `#[tauri::command]`
+/// 宏只对**顶层参数**做 snake ↔ camel 转换,嵌套 struct 字段仍走 serde 默认,
+/// 不加 rename_all 会导致 `books_seasons_set` IPC payload 直接被拒(报
+/// "missing field `episode_count`")。文件格式不受影响(persist / parse_seasons
+/// 手写 JSON,不经过 serde)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SeasonInfo {
     pub number: u32,
     pub episode_count: u32,
@@ -115,7 +123,13 @@ pub struct TimeStamp {
 /// - `stamps`: 该集时间戳笔记数组(v1.3 新增;空数组 → 不写盘)
 /// - `last_modified`: 该集笔记内容最后修改时间(毫秒;v1.5 起,
 ///   仅 note / title / stamps 任一被改时刷新;watched toggle 不刷)
+///
+/// **IPC 字段名**：`#[serde(rename_all = "camelCase")]` —— 同 `SeasonInfo`,
+/// TS 端用 `lastModified`,不加 rename_all 会让 `last_modified` 字段(`#[serde(default)]`)
+/// 静默吞掉 TS 传来的时间戳(不报错,但数据丢失)。详见 SeasonInfo 注释 +
+/// `docs/dev-notes.md` 2026-09 同主题条目。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EpisodeRecord {
     pub watched: bool,
     #[serde(default)]
@@ -167,7 +181,12 @@ pub fn parse_episode_key(key: &str) -> Option<(u32, u32)> {
 /// - `name`: 角色名(必填;空字符串视为脏数据,IPC 前由前端过滤)
 /// - `notes`: 角色笔记(可选;空串 → 不写盘,但保留 character 条目)
 /// - `last_modified`: 该 character 最后修改时间(毫秒;仅 name / notes 任一被改时刷新)
+///
+/// **IPC 字段名**：`#[serde(rename_all = "camelCase")]` —— 同 SeasonInfo / EpisodeRecord,
+/// TS 端用 `lastModified`,不加 rename_all 会让 `last_modified`(`#[serde(default)]`)
+/// 静默吞掉 TS 传来的时间戳。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Character {
     pub id: String,
     pub name: String,
@@ -243,7 +262,15 @@ pub struct Book {
     /// 反向"谁的下季是本季"通过遍历所有 book 的 next_season_id 推断。
     /// 写盘策略:`Some(非空)` 才写,空串 / None 不写 frontmatter。
     /// 老文件缺字段 → `None`(向后兼容,`serde(default)`)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// **IPC 字段名**：单字段 `#[serde(rename = "nextSeasonId")]` —— Book 顶层
+    /// 不整体 `rename_all = "camelCase"`(会破坏 TS 端 `book.read_count` 等 8 处
+    /// snake_case 访问);`nextSeasonId` 是 Book 中唯一需要 camelCase 的字段,
+    /// 用单字段 rename 兜底。Tauri 2 宏顶层参数转换照旧处理 IPC 入参(`setNextSeason`
+    /// 收到 `nextSeasonId` 自动转回 `next_season_id`),出参 Book 序列化为
+    /// `nextSeasonId` 后 TS `book.nextSeasonId` 才有值。文件格式不受影响(persist
+    /// 手写 `nextSeasonId` 字面量,见 data/books.rs)。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "nextSeasonId")]
     pub next_season_id: Option<String>,
 }
 
