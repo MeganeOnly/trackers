@@ -830,7 +830,9 @@ button:focus-visible {
   /* v1.6 起:新增第 4 列承载 per-stamp lastModified 显示;
      4 列 = time | note | lm | delete;note 列保持 1fr 自适应 */
   grid-template-columns: minmax(110px, auto) 1fr auto auto;
-  align-items: center;
+  /* v1.6 起:textarea 多行展示,网格项垂直对齐顶部(不再 center,
+     否则长笔记会把 time/lm/delete 拉到中间) */
+  align-items: start;
   gap: 6px;
   padding: 4px 8px;
   background: var(--accent-soft);
@@ -845,6 +847,8 @@ button:focus-visible {
   white-space: nowrap;
   color: var(--muted);
   min-width: 96px; /* 兜底 "MM-DD HH:MM" / "YYYY-MM-DD HH:MM" 的展示宽度,避免 note 输入抖动 */
+  /* v1.6 起:与 textarea 顶部对齐(不再 center) */
+  padding-top: 2px;
 }
 .stamp-row-lm-empty {
   /* 老数据 / 刚加未编辑:占位空白,保持列宽一致(避免第一行有 lm 第二行没有 → 网格塌陷) */
@@ -855,17 +859,29 @@ button:focus-visible {
   font-weight: 600;
   color: var(--accent);
   white-space: nowrap;
+  /* v1.6 起:与 textarea 顶部对齐(不再 center) */
+  padding-top: 2px;
 }
 .stamp-row-note {
-  /* 笔记 —— 可编辑,单行 input(短描述够用) */
+  /* v1.6 起:textarea 多行 —— 显示全部内容,不再被单行截断。
+     height 由 JS useEffect / onChange 写 `ta.scrollHeight` 撑开;
+     max-height 兜底,超出滚动避免一条超长笔记把整个 episode 编辑器撑爆 */
   border: none;
   background: transparent;
-  font-size: 12px;
+  font: inherit;
   color: var(--fg);
   padding: 2px 0;
+  margin: 0;
   min-width: 0;
   width: 100%;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  max-height: 240px; /* 约 12 行,超长 scroll;不撑破 episode 编辑器 */
+  line-height: 1.45;
+  /* 取消 textarea 默认 min-height(浏览器通常给 2 行高),用 rows=1 + JS 撑高
+     控制单行初始高度(与单行 input 等高) */
+  min-height: calc(1.45em + 4px);
 }
 .stamp-row-note:focus {
   background: white;
@@ -887,12 +903,53 @@ button:focus-visible {
 }
 
 .stamp-add {
+  /* v1.6 起:5 列 = start-time-pair | → | end-time-pair | note | + */
   display: grid;
-  grid-template-columns: 88px 12px 88px 1fr 28px;
+  grid-template-columns: auto 12px auto 1fr 28px;
   align-items: center;
   gap: 4px;
 }
-.stamp-add-time,
+.stamp-time-pair {
+  /* MM : SS 子容器 —— ":" 是固定视觉分隔符,只填数字 */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.stamp-add-mm,
+.stamp-add-ss {
+  /* 紧凑两位输入框 —— mm/ss 各 1-2 位数字,窄一些(< 88px) */
+  width: 30px;
+  padding: 4px 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  color: var(--fg);
+  /* 隐藏浏览器原生数字 input 的 spin 按钮(只允许键入两位) */
+  -moz-appearance: textfield;
+}
+.stamp-add-mm::-webkit-outer-spin-button,
+.stamp-add-mm::-webkit-inner-spin-button,
+.stamp-add-ss::-webkit-outer-spin-button,
+.stamp-add-ss::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.stamp-add-mm:focus,
+.stamp-add-ss:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.stamp-add-colon {
+  /* 固定的 ":" 分隔符 —— 视觉不可改,与 input 文本区分(粗 + muted) */
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 12px;
+  user-select: none; /* 防止用户误选 ":" */
+  pointer-events: none; /* 不响应点击 —— 双击 ":" 不会选中 input */
+}
 .stamp-add-note {
   padding: 4px 6px;
   font-size: 12px;
@@ -903,7 +960,6 @@ button:focus-visible {
   color: var(--fg);
   min-width: 0;
 }
-.stamp-add-time:focus,
 .stamp-add-note:focus {
   outline: none;
   border-color: var(--accent);

@@ -512,40 +512,56 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
   // 已排序的展示列表 —— 每次 props.stamps 变化重排(防止外部不按序传入)
   const sortedStamps = useMemo(() => sortStamps(stamps), [stamps])
 
-  // 三段输入:开始时间 / 结束时间(可选) / 笔记
-  const [startInput, setStartInput] = useState<string>('')
-  const [endInput, setEndInput] = useState<string>('')
+  // v1.6 起:开始 / 结束 各拆成 [MM][:][SS] 两段独立 input —— ":" 是固定的视觉分隔符,
+  // 用户只填数字(分 / 秒)。原因:整段单 input + 手敲 ":" 易输入 "12:34" / "1:2" /
+  // "12 : 34"(空格) 等需要 parseStamp 容错的格式,UX 不直观;MM / SS 分两段自动拼 "mm:ss"
+  // 即可,parseStamp 路径也走同一份。hh:mm:ss 仍由 StampRow 编辑时用更宽松的 mm:ss 表达
+  // (本仓库数据时间戳以 mm:ss 为主,hh:mm:ss 用 stamp note 文字里写出来)。
+  const [startMin, setStartMin] = useState<string>('')
+  const [startSec, setStartSec] = useState<string>('')
+  const [endMin, setEndMin] = useState<string>('')
+  const [endSec, setEndSec] = useState<string>('')
   const [noteInput, setNoteInput] = useState<string>('')
   // 输入校验错误提示;空 = 无错误
   const [inputError, setInputError] = useState<string>('')
+  // 自动聚焦 MM→SS —— MM 满 2 位时焦点跳到 SS,减少 Tab 切换
+  const startSecRef = useRef<HTMLInputElement | null>(null)
+  const endSecRef = useRef<HTMLInputElement | null>(null)
+
+  /** 只允许非负整数,最多 maxLen 位;用于 MM / SS 输入过滤 */
+  function digitsOnly(raw: string, maxLen: number): string {
+    return raw.replace(/\D/g, '').slice(0, maxLen)
+  }
 
   function handleAdd(): void {
     setInputError('')
-    const startTrimmed = startInput.trim()
     const noteTrimmed = noteInput.trim()
-    // 校验 1:开始时间必填且能解析
-    if (startTrimmed === '') {
+    // 校验 1:开始时间必填 —— MM / SS 都空才算空
+    if (startMin === '' && startSec === '') {
       setInputError('请输入开始时间')
       return
     }
-    const startSec = parseStamp(startTrimmed)
-    if (startSec === null) {
-      setInputError(`开始时间格式错误:"${startTrimmed}"(支持 ss / mm:ss / hh:mm:ss)`)
+    // 拼成 "mm:ss" 给 parseStamp(parseStamp 接受任意位数的 mm / ss)
+    const startStr = `${startMin}:${startSec}`
+    const startSecNum = parseStamp(startStr)
+    if (startSecNum === null) {
+      setInputError(`开始时间格式错误:"${startStr}"(秒位需 < 60)`)
       return
     }
     // 校验 2:结束时间(可选)能解析
-    const endTrimmed = endInput.trim()
-    let endSec: number | undefined = undefined
-    if (endTrimmed !== '') {
-      const parsed = parseStamp(endTrimmed)
+    let endSecNum: number | undefined = undefined
+    const endHasContent = endMin !== '' || endSec !== ''
+    if (endHasContent) {
+      const endStr = `${endMin}:${endSec}`
+      const parsed = parseStamp(endStr)
       if (parsed === null) {
-        setInputError(`结束时间格式错误:"${endTrimmed}"`)
+        setInputError(`结束时间格式错误:"${endStr}"(秒位需 < 60)`)
         return
       }
-      endSec = parsed
+      endSecNum = parsed
     }
     // 校验 3:end >= start(若给了 end)
-    if (endSec !== undefined && endSec < startSec) {
+    if (endSecNum !== undefined && endSecNum < startSecNum) {
       setInputError('结束时间不能早于开始时间')
       return
     }
@@ -553,15 +569,17 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
     // 与 v1.5 Character.new lastModified 同款语义
     const newStamp: TimeStamp = {
       id: makeStampId(),
-      start: startSec,
-      end: endSec,
+      start: startSecNum,
+      end: endSecNum,
       note: noteTrimmed,
       lastModified: Date.now()
     }
     onChange(sortStamps([...sortedStamps, newStamp]))
     // 清空输入(让用户看清"已添加");焦点自然回落到第一个 input
-    setStartInput('')
-    setEndInput('')
+    setStartMin('')
+    setStartSec('')
+    setEndMin('')
+    setEndSec('')
     setNoteInput('')
   }
 
@@ -629,70 +647,93 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
       {sortedStamps.length > 0 && (
         <ul className="stamp-list-items">
           {sortedStamps.map((s) => (
-            <li key={s.id} className="stamp-row">
-              <span className="stamp-row-time">
-                {formatStamp(s.start)}
-                {s.end !== undefined && (
-                  <>
-                    {' → '}
-                    {formatStamp(s.end)}
-                  </>
-                )}
-              </span>
-              <input
-                className="stamp-row-note"
-                value={s.note}
-                onChange={(e) => handleEditNote(s.id, e.target.value)}
-                placeholder="(无笔记)"
-              />
-              {/* v1.6 起:per-row lastModified —— 显示"该条"最后修改时间
-                  (与 EpisodeRecord.lastModified 解耦,后者只反映 note / title) */}
-              {s.lastModified !== undefined ? (
-                <span
-                  className="stamp-row-lm muted"
-                  title="该时间戳最后修改时间(per-row,与整集最后修改时间独立)"
-                >
-                  {formatLastModified(s.lastModified)}
-                </span>
-              ) : (
-                <span className="stamp-row-lm muted stamp-row-lm-empty" />
-              )}
-              <button
-                type="button"
-                className="stamp-row-del"
-                onClick={() => handleDelete(s.id)}
-                title="删除这条时间戳"
-              >
-                ×
-              </button>
-            </li>
+            <StampRow
+              key={s.id}
+              stamp={s}
+              onEditNote={(raw) => handleEditNote(s.id, raw)}
+              onDelete={() => handleDelete(s.id)}
+            />
           ))}
         </ul>
       )}
-      {/* 添加区:开始 / 结束(可选) / 笔记 / + */}
+      {/* 添加区:开始(MM:SS) / → / 结束(MM:SS 可选) / 笔记 / + */}
       <div className="stamp-add">
-        <input
-          className="stamp-add-time"
-          value={startInput}
-          onChange={(e) => setStartInput(e.target.value)}
-          placeholder="开始 mm:ss"
-          aria-label="开始时间"
-        />
+        {/* 开始 MM:SS —— ":" 是固定视觉分隔符,只填数字 */}
+        <div className="stamp-time-pair">
+          <input
+            className="stamp-add-mm"
+            value={startMin}
+            onChange={(e) => {
+              const v = digitsOnly(e.target.value, 2)
+              setStartMin(v)
+              // MM 满 2 位 → 自动跳到 SS,避免手敲 Tab
+              if (v.length === 2) startSecRef.current?.focus()
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="00"
+            aria-label="开始 分钟"
+          />
+          <span className="stamp-add-colon">:</span>
+          <input
+            ref={startSecRef}
+            className="stamp-add-ss"
+            value={startSec}
+            onChange={(e) => setStartSec(digitsOnly(e.target.value, 2))}
+            onKeyDown={(e) => {
+              // Enter 直接添加(避免鼠标点 +)
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAdd()
+              }
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="00"
+            aria-label="开始 秒钟"
+          />
+        </div>
         <span className="stamp-add-sep">→</span>
-        <input
-          className="stamp-add-time"
-          value={endInput}
-          onChange={(e) => setEndInput(e.target.value)}
-          placeholder="结束(可选)"
-          aria-label="结束时间"
-        />
+        {/* 结束 MM:SS —— 留空 = 单时间点(只有"这一刻") */}
+        <div className="stamp-time-pair">
+          <input
+            className="stamp-add-mm"
+            value={endMin}
+            onChange={(e) => {
+              const v = digitsOnly(e.target.value, 2)
+              setEndMin(v)
+              if (v.length === 2) endSecRef.current?.focus()
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="--"
+            aria-label="结束 分钟"
+          />
+          <span className="stamp-add-colon">:</span>
+          <input
+            ref={endSecRef}
+            className="stamp-add-ss"
+            value={endSec}
+            onChange={(e) => setEndSec(digitsOnly(e.target.value, 2))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAdd()
+              }
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="--"
+            aria-label="结束 秒钟"
+          />
+        </div>
         <input
           className="stamp-add-note"
           value={noteInput}
           onChange={(e) => setNoteInput(e.target.value)}
           placeholder="这一段讲什么"
           onKeyDown={(e) => {
-            // Enter 直接添加(Ctrl+Enter 留给多行?当前单行所以 Enter 就提交)
+            // Enter 直接添加
             if (e.key === 'Enter') {
               e.preventDefault()
               handleAdd()
@@ -705,9 +746,88 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
       </div>
       {inputError && <div className="stamp-add-error">{inputError}</div>}
       <p className="stamp-list-hint muted">
-        时间格式支持 <code>ss</code> / <code>mm:ss</code> / <code>hh:mm:ss</code>;留空结束 = 单时间点(标记"这一刻")
+        时间填分:秒(秒位需 &lt; 60);留空结束 = 单时间点(标记"这一刻")
       </p>
     </div>
+  )
+}
+
+// ==================== 子组件:StampRow (per-stamp 行,v1.6 起 textarea 多行 + 自动撑高) ====================
+
+interface StampRowProps {
+  stamp: TimeStamp
+  onEditNote: (raw: string) => void
+  onDelete: () => void
+}
+
+/**
+ * 单条 stamp 行 —— 用户最关心的"该片段讲什么"用 textarea 多行展示全部内容。
+ *
+ * 设计要点(v1.6 起):
+ * - **多行展示**:`<textarea>` 替代原先 `<input>`;用户写长笔记不再被截断,
+ *   Enter 创建换行(与 episode-level note / character note 的 textarea 体验一致)
+ * - **自动撑高**:用 useEffect + scrollHeight 把高度自动撑到内容;max-height
+ *   兜底避免一条超长笔记把整个 episode 编辑器撑爆(超出滚动)
+ * - **per-row lastModified**:沿用 v1.6 决定,行级显示 + 不影响 EpisodeRecord.lastModified
+ */
+function StampRow({ stamp, onEditNote, onDelete }: StampRowProps): JSX.Element {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // 自动撑高:mount + stamp.note 变化时(外部 store 更新或本组件 onChange)
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    // 先设 auto 让 scrollHeight 反映真实内容高度,再设回 scrollHeight
+    // (避免内容减少后高度不收缩)
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [stamp.note])
+
+  return (
+    <li className="stamp-row">
+      <span className="stamp-row-time">
+        {formatStamp(stamp.start)}
+        {stamp.end !== undefined && (
+          <>
+            {' → '}
+            {formatStamp(stamp.end)}
+          </>
+        )}
+      </span>
+      <textarea
+        ref={textareaRef}
+        className="stamp-row-note"
+        value={stamp.note}
+        rows={1}
+        onChange={(e) => {
+          // 立即撑高(不等 React re-render)—— 用户敲键时高度跟随
+          e.currentTarget.style.height = 'auto'
+          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`
+          onEditNote(e.currentTarget.value)
+        }}
+        placeholder="(无笔记;Enter 换行)"
+      />
+      {/* per-row lastModified —— 显示"该条"最后修改时间
+          (与 EpisodeRecord.lastModified 解耦,后者只反映 note / title) */}
+      {stamp.lastModified !== undefined ? (
+        <span
+          className="stamp-row-lm muted"
+          title="该时间戳最后修改时间(per-row,与整集最后修改时间独立)"
+        >
+          {formatLastModified(stamp.lastModified)}
+        </span>
+      ) : (
+        <span className="stamp-row-lm muted stamp-row-lm-empty" />
+      )}
+      <button
+        type="button"
+        className="stamp-row-del"
+        onClick={onDelete}
+        title="删除这条时间戳"
+      >
+        ×
+      </button>
+    </li>
   )
 }
 
