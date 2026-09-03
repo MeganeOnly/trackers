@@ -302,6 +302,14 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 21. **rankId 扩展语义**：v1 RANK 的 PairwiseResult.a/b 是 book.id(字符串),v1.2 扩展为 `book.id` 或 `"${book.id}#${seasonNumber}"` —— Rust 端只改 `string` 语义,不动 PairwiseResult 结构;已有的 rankings.json 数据继续可用(老 rankId = book.id 不会变),UI 端按 `#` 存在与否区分候选
 22. **`books_episode_bump` vs `books_progress_bump` 区分**：前者 progress + 联动 watched,后者只动 progress。`-1` 走 episode_bump 但不动 episodes(允许用户保留笔记);如果复用 progress_bump 再单独调 setEpisodeWatched 会需要两次 IPC,且若用户连续点 `-1 +1` 会出现 race。最终:单一原子 command 解决
 23. **`Omit<Book, ...>` 加新字段时记得同步 3 个地方**:`Book` 加 `seasons` / `episodes` 后,(1) `BookInput` 要 `Omit` 掉 `episodes`(单集不进表单);(2) `BookPatch` 加对应 Option 字段;(3) 写盘逻辑判定稀疏策略(空数组 / 空 map 不写盘)。漏一处 typecheck / 行为必错
+24. **季结构编辑下沉到 EpisodesPanel(v1.4)**:季结构(`seasons`)最初只能在 BookForm 弹窗里改,详情页没法"+1 季"也没法改某季集数——用户只能"编辑作品→打开表单→找到季设置→改→保存",违反就地编辑心智。修复方案:`EpisodesPanel` 顶部加「+ 季」按钮 + 季标题里"X 集"做成 inline `<input type="number">`(失焦/回车写盘)+ 「删除此季」按钮(confirm + 整段 setSeasons)。要点:(a)「X 集」input 用本地 draft 避免每输入一位都触发 IPC;(b)空串/非法值还原不写盘;(c)只改当前季 episodeCount,其他季不动;(d)**不联动改 `book.progress.total`**,理由见下条
+25. **季结构变更 ≠ 进度联动**:EpisodesPanel 改季集数时**不**同步 `book.progress.total`,理由:(a) progress.total 是"线性最高已看"参考,季集数变化不影响"已看到第 N 集"的事实;(b) 强行同步会让"+1 季"产生意外的 progress 副作用(用户没主动改进度却看到 total 跳变);(c) 用户后续主动编辑表单时,BookForm 会按 v1.2 的规则把 total = seasons.sum()。**例外**:若新集数 < `progress.current`(用户把 S01 从 24 集改成 12 集但 progress.current=20)——不 clamp,让用户手动处理;已超过新集数范围的旧集笔记按决策 B 保留 key,不再显示
+26. **v1.5 lastModified 边界 —— "什么都没改,老时间不变"**:每条笔记(`EpisodeRecord` / `SeasonInfo` / `Character`)顶层挂 `lastModified: number`(毫秒),**仅在笔记内容被改时刷新**。边界三档:
+    - **刷**:note 非空字符串写入 / title 非空字符串写入 / stamps 非空数组写入 / name 或 notes 被改
+    - **不刷**:`watched` toggle(状态而非笔记内容) / `episode_bump` 联动 / 季号或集数变化(结构变更) / 空字符串"删笔记" / 空数组"删 stamp" / 删除整个 character
+    - 实现:后端 service 接受 `last_modified: Option<u64>` 参数,**只有"实际写入内容"分支才刷**;前端 IPC 时**主动判断"是不是真改了"**——空操作不传时间戳。双向保险,避免误刷
+    - 老数据缺 `lastModified` 字段 → 读回 `None`(向后兼容);`Some(0)` 等同 `None` 不写盘
+27. **v1.5 角色笔记整段 setCharacters IPC(跟 setSeasons / setEpisodeStamps 同款)**:`Book.characters` 数组用 `Vec<Character>`(用户 add 顺序,**不是** BTreeMap —— 跟 EpisodeNotes 的语义区别;`Character` 内部仍带稳定 UUID 用于编辑定位)。UI 在 add / edit / remove character 时**构造新数组整体回写**;**只对"被改的那条"刷 lastModified**,其他角色原值保持。整段 IPC 看起来浪费但实现简单 / 可恢复 / 避免并发冲突(跟 stamp 同款)
 
 ## 十一、已实现功能清单
 
@@ -338,8 +346,26 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - 自动按 `start` 升序排序(同 start 按 id 字典序);服务端读回时再排序一次兜底
   - 写盘策略:stamp 数组为空 → 不写字段;单条 stamp 的 `end`/`note` 允许空串/null
   - 设计选择:**整体替换式回写**(不再做单条 IPC),add/edit/delete 都构造新数组 + sortStamps;简单 / 可恢复 / 避免并发冲突
+- [x] **笔记实际修改日期保留**（`EpisodeRecord.lastModified` / `SeasonInfo.lastModified`,v1.5 新增）—— 用户核心诉求"点进去但什么都没改,老时间不变"
+  - `lastModified: number`(毫秒)出现在 EpisodeRecord 和 SeasonInfo 顶层;note / title / stamps 任一被改时刷
+  - **关键决策**:`watched` toggle / `episode_bump` 联动 / 季号 / 集数变化**不刷** `lastModified`(用户期望"什么都没改,老时间不变")
+  - 空串"删笔记" / 空数组"删 stamp"**不刷**(结构变更 ≠ 笔记内容变更)
+  - UI:展开区底部显示"最后修改:YYYY-MM-DD HH:MM";季标题里也可展示
+  - 写盘策略:`Some(非 0)` 写盘;`None` / `0` 不写;老文件缺字段 → 读回 `None`(向后兼容)
+- [x] **角色笔记**（`Book.characters: Character[]`,v1.5 新增,**所有类型**都能用）—— 给"人物 / 主角 / 配角 / 阵营 / 组织"做独立笔记
+  - `Character = { id: UUID, name: 必填, notes?: 可选, lastModified?: 毫秒 }`
+  - **关键决策**:所有类型(书/动画/电视剧/电影/其他)都能用,不只是 tv/anime
+  - 写盘策略:空数组 / 全 name 空 → 不写 frontmatter;单条 character name 空 → 跳过该条;notes 空串 → 不写 notes 字段(保留 character 实体);lastModified undefined / 0 → 不写
+  - UI:`CharactersPanel`(参考 EpisodesPanel 风格:列表 + 展开区 + 新增/删除);CharacterRow 头部显示名字 + 📝 标记 + 最后修改时间;展开后有名字输入 + 笔记 textarea + 删除按钮
+  - **整段 setCharacters IPC**(跟 setSeasons / setEpisodeStamps 同款),组件在 add/edit/remove character 时构造新数组,**只对"被改的那条"刷 lastModified**
+  - 顺序:用户主动 add 顺序(用 `Vec<Character>` 而不是 BTreeMap —— 跟 EpisodeNotes 的语义区别)
 - [x] **进度 +1/-1 联动集笔记**（`books_episode_bump` command）—— `+1` 时线性遍历 seasons,把接下来 N 个未看集标 watched;`-1` 不动 episodes(允许用户保留笔记 / 标记状态)
 - [x] **季选择器**(「上一季 / 下一季」+ tab) —— 用户要求放在集笔记区上方,默认选中第一个未完全看完的季
+- [x] **季结构就地编辑**(v1.4 新增,仅 tv/anime) —— 详情页「集笔记」面板可直接改季结构,**不再退回 BookForm**:
+  - 「+ 季」按钮:在季选择器右端追加新季,number = max+1, episodeCount = 0
+  - 「X 集」inline `<input type="number">`:季标题里改单季集数,失焦/回车写盘(本地 draft 防抖,空串/非法值还原)
+  - 「删除此季」按钮:整段 setSeasons 过滤掉当前季,带 confirm 提示,旧 episodes key 按决策 B 保留
+  - 不联动改 `book.progress.total`(理由见 §十.25)
 - [x] **RANK 按季拆分**（v1.2 排名细化）—— tv/anime 按季独立排名,rankId = `${bookId}#${seasonNumber}`;其他 kind 保持原 rankId;对比卡片 / 排名列表都加「S0X」徽标
   - 解决:大明王朝(46 集单季) 跟 绝命毒师(7+13+13+13+16 五季) 放一起比不合理
 - [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
