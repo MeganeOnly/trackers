@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::data::books as data;
-use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp};
+use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, CharacterNotes, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp};
 
 /// 列出所有书 + 损坏列表。
 pub fn list_books(books_dir: impl AsRef<Path>) -> std::io::Result<data::BookListResult> {
@@ -65,11 +65,13 @@ pub fn set_episode_watched(
     let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
     if watched {
         // watched=true: 写 key(可能新建),保留旧 note/title/stamps
+        // v1.5:watched toggle 不刷 last_modified(用户期望"什么都没改,老时间不变")
         let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
             watched: false,
             note: String::new(),
             title: None,
             stamps: None,
+            last_modified: None,
         });
         entry.watched = true;
     } else {
@@ -93,12 +95,16 @@ pub fn set_episode_watched(
 
 /// 设置单集笔记。空串 → 删 key(决策 4 = 最稀疏)。
 /// 已存 watched/title 时也照样删 key(因为该集没有任何有意义的字段了)。
+///
+/// v1.5 起:`last_modified`(毫秒;Option<u64>)为 Some(非 0)时刷该集 `last_modified` 字段;
+/// 仅当 `note` 非空(实际写入笔记内容)时才刷 —— 空串"删笔记"是结构变更,不该刷时间戳。
 pub fn set_episode_note(
     books_dir: impl AsRef<Path>,
     id: &str,
     season: u32,
     episode: u32,
     note: String,
+    last_modified: Option<u64>,
 ) -> std::io::Result<Book> {
     let existing = data::read_book(&books_dir, id)?
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
@@ -115,6 +121,7 @@ pub fn set_episode_note(
             } else {
                 if let Some(e) = episodes.get_mut(&key) {
                     e.note = String::new();
+                    // v1.5:空串 = 清空笔记 → 不刷 last_modified(用户期望"什么都没改,老时间不变")
                 }
             }
         }
@@ -124,8 +131,15 @@ pub fn set_episode_note(
             note: String::new(),
             title: None,
             stamps: None,
+            last_modified: None,
         });
         entry.note = note;
+        // v1.5:实际写入笔记内容时刷 last_modified
+        if let Some(ts) = last_modified {
+            if ts > 0 {
+                entry.last_modified = Some(ts);
+            }
+        }
     }
     let patch = BookPatch {
         episodes: Some(episodes),
@@ -136,12 +150,16 @@ pub fn set_episode_note(
 
 /// 设置单集标题。空串 → 删 title 字段(保留 key 当 watched/note 还有数据时)。
 /// 若 watched=false 且 note 空且 title 被删 → 整个 key 删(最稀疏)。
+///
+/// v1.5 起:`last_modified`(毫秒;Option<u64>)为 Some(非 0)且 title 非空时刷;
+/// 空串"删 title"不刷时间戳。
 pub fn set_episode_title(
     books_dir: impl AsRef<Path>,
     id: &str,
     season: u32,
     episode: u32,
     title: String,
+    last_modified: Option<u64>,
 ) -> std::io::Result<Book> {
     let existing = data::read_book(&books_dir, id)?
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
@@ -162,8 +180,14 @@ pub fn set_episode_title(
             note: String::new(),
             title: None,
             stamps: None,
+            last_modified: None,
         });
         entry.title = Some(title);
+        if let Some(ts) = last_modified {
+            if ts > 0 {
+                entry.last_modified = Some(ts);
+            }
+        }
     }
     let patch = BookPatch {
         episodes: Some(episodes),
@@ -210,11 +234,13 @@ pub fn episode_bump(books_dir: impl AsRef<Path>, id: &str, delta: i32) -> std::i
                 break;
             }
             let key = episode_key(s.number, ep);
+            // v1.5:episode_bump 是 watched 联动,不刷 last_modified
             let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
                 watched: false,
                 note: String::new(),
                 title: None,
                 stamps: None,
+                last_modified: None,
             });
             if !entry.watched {
                 entry.watched = true;
@@ -244,12 +270,15 @@ pub fn watched_episodes(book: &Book) -> Vec<(u32, u32)> {
         .unwrap_or_default()
 }
 
-/// 整体替换单集的时间戳笔记数组(v1.3 新增)。
+/// 整体替换单集的时间戳笔记数组(v1.3 新增,v1.5 加 last_modified)。
 ///
 /// 语义:
 /// - `stamps = vec![]` → 等同"清空该集所有 stamp";若该集也没 watched / note / title → 删 key
 /// - `stamps = non_empty` → 整体替换(不是 append),由前端先合并再传过来;
 ///   服务端按 `start` 升序重新排序(同 start 按 id 字典序),与前端 `sortStamps` 同步
+///
+/// v1.5:`last_modified`(毫秒;Option<u64>)为 Some(非 0)且 stamps 非空时刷该集时间戳;
+/// 空 stamps("清空 stamp")不刷。
 ///
 /// 服务端只做"读 → 改 → 写"三步,不做单条 stamp 级别的"add / update / delete"
 /// (那都是前端组合:list → 改 → 整体传过来)。
@@ -259,6 +288,7 @@ pub fn set_episode_stamps(
     season: u32,
     episode: u32,
     mut stamps: Vec<TimeStamp>,
+    last_modified: Option<u64>,
 ) -> std::io::Result<Book> {
     let existing = data::read_book(&books_dir, id)?
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
@@ -289,12 +319,41 @@ pub fn set_episode_stamps(
             note: String::new(),
             title: None,
             stamps: None,
+            last_modified: None,
         });
         entry.stamps = Some(stamps);
+        if let Some(ts) = last_modified {
+            if ts > 0 {
+                entry.last_modified = Some(ts);
+            }
+        }
     }
 
     let patch = BookPatch {
         episodes: Some(episodes),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+// ==================== v1.5 角色笔记业务方法 ====================
+
+/// 整段替换角色笔记数组。`characters` 为空 Vec → 清空（等同 patch 语义）。
+///
+/// 稀疏写盘策略(由 data 层兜底):
+/// - 空数组 → 不写 frontmatter
+/// - 单条 character 的 `name` 空 → 跳过该条(脏数据防御)
+/// - 单条 character 的 `notes` 空 → 不写 notes 字段,但保留 character 条目
+/// - 单条 character 的 `last_modified` undefined / 0 → 不写字段
+///
+/// 前端在 IPC 前应主动过滤掉 `name` 空的条目;这里的过滤只是兜底(防御性)。
+pub fn set_characters(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    characters: CharacterNotes,
+) -> std::io::Result<Book> {
+    let patch = BookPatch {
+        characters: Some(characters),
         ..Default::default()
     };
     data::update_book(books_dir, id, &patch)

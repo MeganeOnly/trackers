@@ -14,7 +14,7 @@ use tracker_core::files::{atomic_write_file, ensure_dir};
 use tracker_core::frontmatter::{now_iso, split_frontmatter};
 use tracker_core::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
 use tracker_core::slug::make_base_id;
-use crate::types::{Book, BookInput, BookPatch, BookStatus, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp, WorkKind};
+use crate::types::{Book, BookInput, BookPatch, BookStatus, Character, CharacterNotes, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp, WorkKind};
 
 fn is_valid_status(s: &str) -> bool {
     matches!(
@@ -86,10 +86,12 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
         screenwriter: data.get("screenwriter").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         seasons: parse_seasons(data.get("seasons")),
         episodes: parse_episodes(data.get("episodes")),
+        characters: parse_characters(data.get("characters")),
     }
 }
 
 /// 解析 frontmatter `seasons` 数组。`None` / 空数组 / 元素字段缺失 → None（最稀疏策略）。
+/// `last_modified` 字段缺损 / 非数字 → None（向后兼容;老数据无此字段）。
 fn parse_seasons(v: Option<&serde_json::Value>) -> Option<Vec<SeasonInfo>> {
     let arr = v?.as_array()?;
     let mut seasons = Vec::with_capacity(arr.len());
@@ -98,10 +100,12 @@ fn parse_seasons(v: Option<&serde_json::Value>) -> Option<Vec<SeasonInfo>> {
         let Some(number) = obj.get("number").and_then(|x| x.as_u64()) else { continue };
         let Some(episode_count) = obj.get("episodeCount").and_then(|x| x.as_u64()) else { continue };
         let notes = obj.get("notes").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
+        let last_modified = obj.get("lastModified").and_then(|x| x.as_u64()).filter(|&n| n > 0);
         seasons.push(SeasonInfo {
             number: number as u32,
             episode_count: episode_count as u32,
             notes,
+            last_modified,
         });
     }
     if seasons.is_empty() { None } else { Some(seasons) }
@@ -109,6 +113,7 @@ fn parse_seasons(v: Option<&serde_json::Value>) -> Option<Vec<SeasonInfo>> {
 
 /// 解析 frontmatter `episodes` 对象。`None` / 空对象 / 子对象字段缺失 → None（最稀疏策略）。
 /// 任一非对象 value 容错跳过（不抛错,避免坏数据整本不可读）。
+/// `last_modified` 字段缺损 / 非数字 / 0 → None（向后兼容;老数据无此字段）。
 fn parse_episodes(v: Option<&serde_json::Value>) -> Option<EpisodeNotes> {
     let obj = v?.as_object()?;
     let mut map = EpisodeNotes::new();
@@ -118,9 +123,41 @@ fn parse_episodes(v: Option<&serde_json::Value>) -> Option<EpisodeNotes> {
         let note = rec_obj.get("note").and_then(|x| x.as_str()).unwrap_or("").to_string();
         let title = rec_obj.get("title").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
         let stamps = parse_stamps(rec_obj.get("stamps"));
-        map.insert(k.clone(), EpisodeRecord { watched, note, title, stamps });
+        let last_modified = rec_obj.get("lastModified").and_then(|x| x.as_u64()).filter(|&n| n > 0);
+        map.insert(k.clone(), EpisodeRecord { watched, note, title, stamps, last_modified });
     }
     if map.is_empty() { None } else { Some(map) }
+}
+
+/// 解析 frontmatter `characters` 数组（v1.5 新增）。
+///
+/// 稀疏策略:
+/// - `None` / 空数组 → `None`（不写盘）
+/// - 单条 character `name` 为空 → 跳过该条（脏数据防御）;
+///   实际"删除 character"由前端在 IPC 前过滤掉,这里只兜底
+/// - 单条 character `notes` 空 → 保留条目,notes 字段为 None
+/// - `last_modified` 字段缺损 / 非数字 / 0 → None
+/// - 任一非对象元素 → 跳过（不抛错,避免坏数据整本不可读）
+fn parse_characters(v: Option<&serde_json::Value>) -> Option<CharacterNotes> {
+    let arr = v?.as_array()?;
+    let mut chars = Vec::with_capacity(arr.len());
+    for item in arr {
+        let Some(obj) = item.as_object() else { continue };
+        // 必填:id / name 缺一不可 —— 缺失就跳过(避免坏数据整本不可读)
+        let Some(id) = obj.get("id").and_then(|x| x.as_str()) else { continue };
+        let Some(name) = obj.get("name").and_then(|x| x.as_str()) else { continue };
+        // name 空 → 兜底跳过(同前端 IPC 前过滤的语义)
+        if name.is_empty() { continue; }
+        let notes = obj.get("notes").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
+        let last_modified = obj.get("lastModified").and_then(|x| x.as_u64()).filter(|&n| n > 0);
+        chars.push(Character {
+            id: id.to_string(),
+            name: name.to_string(),
+            notes,
+            last_modified,
+        });
+    }
+    if chars.is_empty() { None } else { Some(chars) }
 }
 
 /// 解析单集 `stamps` 数组。`None` / 空数组 / 任一非对象元素 → None（最稀疏）。
@@ -225,6 +262,8 @@ pub fn write_book(
         screenwriter: input.screenwriter.clone(),
         seasons: input.seasons.clone().filter(|v| !v.is_empty()),
         episodes: None,
+        // characters 不在 BookInput 里;详情页独占编辑;新建作品时为空
+        characters: None,
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -273,6 +312,11 @@ pub fn update_book(
     // episodes 同 seasons 语义
     if let Some(v) = &patch.episodes {
         merged.episodes = if v.is_empty() { None } else { Some(v.clone()) };
+    }
+    // characters 同 seasons 语义:None = 不改;Some(empty) = 清空;Some(non_empty) = 替换
+    // 实际写盘策略由 persist 兜底:全空 / 全 name 空的 character 不写盘
+    if let Some(v) = &patch.characters {
+        merged.characters = if v.is_empty() { None } else { Some(v.clone()) };
     }
     merged.updated = now_iso();
 
@@ -379,6 +423,12 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
                             obj.insert("notes".into(), serde_json::Value::String(notes.clone()));
                         }
                     }
+                    // last_modified:Some(非 0) 才写;None / 0 视为无
+                    if let Some(ts) = s.last_modified {
+                        if ts > 0 {
+                            obj.insert("lastModified".into(), serde_json::Value::Number(ts.into()));
+                        }
+                    }
                     serde_json::Value::Object(obj)
                 })
                 .collect();
@@ -423,9 +473,45 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
                         rec_obj.insert("stamps".into(), serde_json::Value::Array(arr));
                     }
                 }
+                // last_modified:Some(非 0) 才写;None / 0 视为无(向后兼容老数据)
+                if let Some(ts) = rec.last_modified {
+                    if ts > 0 {
+                        rec_obj.insert("lastModified".into(), serde_json::Value::Number(ts.into()));
+                    }
+                }
                 obj.insert(k.clone(), serde_json::Value::Object(rec_obj));
             }
             fm.insert("episodes".into(), serde_json::Value::Object(obj));
+        }
+    }
+    // characters: 仅在 Some(non_empty) 时写盘;v1.5 新增
+    // 稀疏策略:整条 character 的 name 空 → 跳过该条;notes 空 → 不写 notes 字段
+    // last_modified:Some(非 0) 才写;None / 0 视为无
+    if let Some(chars) = &book.characters {
+        let filtered: Vec<&Character> = chars.iter().filter(|c| !c.name.is_empty()).collect();
+        if !filtered.is_empty() {
+            let arr: Vec<serde_json::Value> = filtered
+                .into_iter()
+                .map(|c| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("id".into(), serde_json::Value::String(c.id.clone()));
+                    obj.insert("name".into(), serde_json::Value::String(c.name.clone()));
+                    // notes: 空串不写(保留 character 实体)
+                    if let Some(notes) = &c.notes {
+                        if !notes.is_empty() {
+                            obj.insert("notes".into(), serde_json::Value::String(notes.clone()));
+                        }
+                    }
+                    // last_modified:Some(非 0) 才写
+                    if let Some(ts) = c.last_modified {
+                        if ts > 0 {
+                            obj.insert("lastModified".into(), serde_json::Value::Number(ts.into()));
+                        }
+                    }
+                    serde_json::Value::Object(obj)
+                })
+                .collect();
+            fm.insert("characters".into(), serde_json::Value::Array(arr));
         }
     }
 
@@ -908,7 +994,7 @@ mod tests {
         // 1) 写入带 stamps 的 book → 读回顺序按 start 升序
         let mut input = sample_input();
         input.kind = WorkKind::Tv;
-        input.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 3, notes: None }]);
+        input.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 3, notes: None, last_modified: None }]);
         let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
         // 走 episode_bump 路径把第 1 集标 watched(用 patch 直接构造更直接)
         let mut eps = EpisodeNotes::new();
@@ -938,6 +1024,7 @@ mod tests {
                         note: "高潮".to_string(),
                     },
                 ]),
+                last_modified: None,
             },
         );
         let patch = BookPatch { episodes: Some(eps), ..Default::default() };
@@ -975,12 +1062,12 @@ mod tests {
         // 3) stamps 空数组 → 不写盘,读回 None
         let mut input2 = sample_input();
         input2.kind = WorkKind::Tv;
-        input2.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 2, notes: None }]);
+        input2.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 2, notes: None, last_modified: None }]);
         let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
         let mut eps2 = EpisodeNotes::new();
         eps2.insert(
             "1-1".to_string(),
-            EpisodeRecord { watched: false, note: String::new(), title: None, stamps: Some(vec![]) },
+            EpisodeRecord { watched: false, note: String::new(), title: None, stamps: Some(vec![]), last_modified: None },
         );
         let patch = BookPatch { episodes: Some(eps2), ..Default::default() };
         update_book(&books_dir, &book2.id, &patch).unwrap();
@@ -1003,7 +1090,7 @@ mod tests {
         // 5) 缺 id / start 字段的 stamp → 跳过(整本仍可读)
         let mut input3 = sample_input();
         input3.kind = WorkKind::Tv;
-        input3.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None }]);
+        input3.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None, last_modified: None }]);
         let book3 = write_book(&books_dir, &input3, &HashSet::new()).unwrap();
         // 直接写 frontmatter 含坏 stamp
         std::fs::write(
@@ -1028,7 +1115,7 @@ mod tests {
         // 6) 稳定排序:同 start 按 id 字典序(防止持久化后两次读不一致)
         let mut input4 = sample_input();
         input4.kind = WorkKind::Tv;
-        input4.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None }]);
+        input4.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None, last_modified: None }]);
         let book4 = write_book(&books_dir, &input4, &HashSet::new()).unwrap();
         let mut eps4 = EpisodeNotes::new();
         eps4.insert(
@@ -1042,6 +1129,7 @@ mod tests {
                     TimeStamp { id: "a-id".to_string(), start: 100, end: None, note: "A".to_string() },
                     TimeStamp { id: "m-id".to_string(), start: 100, end: None, note: "M".to_string() },
                 ]),
+                last_modified: None,
             },
         );
         let patch = BookPatch { episodes: Some(eps4), ..Default::default() };
@@ -1052,5 +1140,147 @@ mod tests {
         assert_eq!(stamps_sorted[0].id, "a-id");
         assert_eq!(stamps_sorted[1].id, "m-id");
         assert_eq!(stamps_sorted[2].id, "z-id");
+    }
+
+    /// v1.5 角色笔记 + lastModified 字段的回归测试。
+    /// 不变量:
+    /// - Character 数组非空 → 写盘;读回顺序保持(用户主动 add 顺序)
+    /// - 空数组 / 全 name 空 → 不写 characters 字段
+    /// - 单条 character name 空 → 写盘时跳过该条(兜底过滤)
+    /// - 单条 character notes 空 → 不写 notes 字段(保留 character)
+    /// - lastModified:Some(非 0) 写盘;None / 0 不写
+    /// - 老文件缺 characters 字段 → 读回 None(向后兼容)
+    /// - 老文件缺 EpisodeRecord.lastModified 字段 → 读回 None
+    #[test]
+    fn characters_round_trip_and_sparse() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 写两条 character(带 notes + lastModified),读回顺序保持
+        let book = write_book(&books_dir, &sample_input(), &HashSet::new()).unwrap();
+        let chars = vec![
+            Character {
+                id: "c-001".to_string(),
+                name: "高育良".to_string(),
+                notes: Some("汉东省委副书记".to_string()),
+                last_modified: Some(1_700_000_000_000),
+            },
+            Character {
+                id: "c-002".to_string(),
+                name: "侯亮平".to_string(),
+                notes: None, // notes 空 → 不写
+                last_modified: Some(1_700_000_500_000),
+            },
+        ];
+        let patch = BookPatch { characters: Some(chars.clone()), ..Default::default() };
+        update_book(&books_dir, &book.id, &patch).unwrap();
+
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"characters\""), "characters 应写盘");
+        assert!(raw.contains("\"高育良\""), "第一条 name 应写盘");
+        assert!(raw.contains("\"汉东省委副书记\""), "第一条 notes 应写盘");
+        assert!(raw.contains("\"lastModified\": 1700000000000"), "lastModified 应写盘(毫秒整数)");
+        assert!(!raw.contains("\"notes\":\"\""), "空 notes 不应写盘");
+        // 顺序:add 顺序
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        let read_chars = read_back.characters.as_ref().unwrap();
+        assert_eq!(read_chars.len(), 2);
+        assert_eq!(read_chars[0].id, "c-001");
+        assert_eq!(read_chars[0].name, "高育良");
+        assert_eq!(read_chars[0].notes.as_deref(), Some("汉东省委副书记"));
+        assert_eq!(read_chars[0].last_modified, Some(1_700_000_000_000));
+        assert_eq!(read_chars[1].id, "c-002");
+        assert_eq!(read_chars[1].name, "侯亮平");
+        assert!(read_chars[1].notes.is_none());
+        assert_eq!(read_chars[1].last_modified, Some(1_700_000_500_000));
+
+        // 2) 全空数组 → 不写盘
+        let book2 = write_book(&books_dir, &sample_input(), &HashSet::new()).unwrap();
+        let patch_empty = BookPatch { characters: Some(vec![]), ..Default::default() };
+        update_book(&books_dir, &book2.id, &patch_empty).unwrap();
+        let raw_empty = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw_empty.contains("characters"), "空数组不应写 characters 字段");
+        let read_empty = read_book(&books_dir, &book2.id).unwrap().unwrap();
+        assert!(read_empty.characters.is_none());
+
+        // 3) 含 name 空的 character → 写盘时跳过该条(兜底)
+        let book3 = write_book(&books_dir, &sample_input(), &HashSet::new()).unwrap();
+        let bad_chars = vec![
+            Character { id: "c-bad".to_string(), name: String::new(), notes: None, last_modified: None },
+            Character { id: "c-good".to_string(), name: "沙瑞金".to_string(), notes: Some("汉东省委书记".to_string()), last_modified: Some(1_700_000_000_000) },
+        ];
+        let patch = BookPatch { characters: Some(bad_chars), ..Default::default() };
+        update_book(&books_dir, &book3.id, &patch).unwrap();
+        let read3 = read_book(&books_dir, &book3.id).unwrap().unwrap();
+        let read3_chars = read3.characters.as_ref().unwrap();
+        // name 空的被过滤掉,只剩 1 条
+        assert_eq!(read3_chars.len(), 1);
+        assert_eq!(read3_chars[0].id, "c-good");
+        assert_eq!(read3_chars[0].name, "沙瑞金");
+
+        // 4) 老文件缺 characters 字段 → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy\",\"title\":\"老剧\",\"status\":\"finished\"}\n---\n# 老剧\n",
+        ).unwrap();
+        let legacy_book = read_book(&books_dir, "legacy").unwrap().unwrap();
+        assert!(legacy_book.characters.is_none());
+    }
+
+    /// v1.5 EpisodeRecord.lastModified 字段的回归测试。
+    /// 不变量:
+    /// - Some(非 0) → 写盘;None / 0 → 不写
+    /// - 老文件缺 lastModified 字段 → 读回 None(向后兼容)
+    /// - 配合 set_episode_note 路径:note 非空 + last_modified 透传 → 该集 lastModified 被刷
+    #[test]
+    fn episode_last_modified_round_trip_and_omit() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) Some(非 0) → 写盘
+        let mut input = sample_input();
+        input.kind = WorkKind::Tv;
+        input.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None, last_modified: None }]);
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let mut eps = EpisodeNotes::new();
+        eps.insert(
+            "1-1".to_string(),
+            EpisodeRecord {
+                watched: true,
+                note: "笔记内容".to_string(),
+                title: None,
+                stamps: None,
+                last_modified: Some(1_700_000_000_000),
+            },
+        );
+        let patch = BookPatch { episodes: Some(eps), ..Default::default() };
+        update_book(&books_dir, &book.id, &patch).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"lastModified\": 1700000000000"), "非 0 lastModified 应写盘");
+
+        // 2) None → 不写盘
+        let mut input2 = sample_input();
+        input2.kind = WorkKind::Tv;
+        input2.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None, last_modified: None }]);
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let mut eps2 = EpisodeNotes::new();
+        eps2.insert(
+            "1-1".to_string(),
+            EpisodeRecord { watched: true, note: "x".to_string(), title: None, stamps: None, last_modified: None },
+        );
+        let patch = BookPatch { episodes: Some(eps2), ..Default::default() };
+        update_book(&books_dir, &book2.id, &patch).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw2.contains("\"lastModified\""), "None lastModified 不应写盘");
+
+        // 3) 老文件缺 lastModified 字段 → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy-ep.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy-ep\",\"title\":\"老剧\",\"status\":\"finished\",\"kind\":\"tv\",\"episodes\":{\"1-1\":{\"watched\":true,\"note\":\"x\"}}}\n---\n# 老剧\n",
+        ).unwrap();
+        let legacy_ep = read_book(&books_dir, "legacy-ep").unwrap().unwrap();
+        assert!(legacy_ep.episodes.as_ref().unwrap().get("1-1").unwrap().last_modified.is_none());
     }
 }

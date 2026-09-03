@@ -34,6 +34,7 @@ export const WORK_KIND_ORDER: WorkKind[] = ['book', 'anime', 'tv', 'movie', 'oth
  * 单季元信息 —— 仅在 `kind === 'tv' | 'anime'` 时有意义。
  * 用 `number` 区分季号（1-based），`episodeCount` 记录该季总集数。
  * 季笔记（`notes`）是 v1.2 新增：用于"这一季整体评价 / 节奏总结"，与单集 `EpisodeRecord.note` 不同。
+ * `lastModified` 是 v1.5 新增：仅在 `notes` 字段被改时刷新（季号 / 集数变化不刷）。
  */
 export interface SeasonInfo {
   /** 季号（1-based；S01 = 1, S02 = 2 ...） */
@@ -42,6 +43,8 @@ export interface SeasonInfo {
   episodeCount: number
   /** 该季整体笔记（可选；空串不写盘） */
   notes?: string
+  /** 该季笔记最后修改时间（毫秒；undefined 不写盘；v1.5 起） */
+  lastModified?: number
 }
 
 /**
@@ -142,6 +145,8 @@ export function sortStamps(stamps: ReadonlyArray<TimeStamp>): TimeStamp[] {
  * 网格里只显示集号 + 状态图标（不显示标题），与现状"格子极简、详情深入"一致。
  * `stamps`（时间戳笔记数组）是 v1.3 新增：用户在详情页展开该集时可逐条加 stamp；
  * 写盘策略同 `note`：空数组 → 不写字段。
+ * `lastModified` 是 v1.5 新增：仅在 note / title / stamps 任一被改时刷新（v1.5 决策）;
+ * 单纯 watched toggle 不刷 —— 用户期望"点进去但什么都没改,老时间不变"。
  */
 export interface EpisodeRecord {
   /** 是否已看 —— 默认 false;允许乱序(跳过 / 重看) */
@@ -155,6 +160,12 @@ export interface EpisodeRecord {
    * 不写盘。展示时由 selector / 组件按 `start` 升序自动排序。
    */
   stamps?: TimeStamp[]
+  /**
+   * 该集笔记内容最后修改时间（毫秒;undefined 不写盘）;
+   * 仅在 note / title / stamps 任一被用户改写时刷新;watched toggle 不刷新。
+   * 字段缺损 → undefined（向后兼容;老数据无此字段）。
+   */
+  lastModified?: number
 }
 
 /** 单集稀疏 map —— key = `${season}-${episode}` 字符串
@@ -177,6 +188,55 @@ export function parseEpisodeKey(key: string): { season: number; episode: number 
 }
 
 /**
+ * 角色笔记条目 —— 出现在 `Book.characters` 数组里（v1.5 新增）。
+ *
+ * 用途：用户对一部作品里的"角色"（人物 / 主角 / 配角 / 阵营 / 组织……）做独立笔记。
+ * 例：电视剧里的"高育良"、书里的"贾宝玉"、电影里的"Neo"——都可以一条一条列出来单独写。
+ *
+ * 字段语义：
+ * - `name` 必填；空字符串视为"脏数据",由 service 层在 IPC 时过滤掉(整条删除)
+ * - `notes` 可选;空串不写 frontmatter(保留 character 实体,只是这一时刻没笔记)
+ * - `lastModified` 仅在 `name` 或 `notes` 被用户改写时刷新(前端构造新数组时主动填);
+ *   删除 character 时不需要带 lastModified
+ *
+ * 写盘策略(整体跟 EpisodeRecord 对齐):
+ * - `characters` 数组为空 → 不写 frontmatter
+ * - 单条 character 的 `name` 空 → 整条删除(由前端 IPC 前过滤)
+ * - 单条 character 的 `notes` 空 → notes 字段不写,但保留 character 条目
+ * - 单条 character 的 `lastModified` undefined → 不写字段
+ * - 老数据缺 `characters` 字段 → undefined(向后兼容;`parse_characters` 容错)
+ */
+export interface Character {
+  /** 稳定 UUID —— 用于编辑 / 删除定位(与 stamp 同款) */
+  id: string
+  /** 角色名（必填;空字符串视为待删除,IPC 前过滤掉） */
+  name: string
+  /** 角色笔记（可选;空串不写盘） */
+  notes?: string
+  /** 最后修改时间（毫秒;undefined 不写盘） */
+  lastModified?: number
+}
+
+/** 角色笔记数组 —— 出现在 `Book.characters` */
+export type CharacterNotes = Character[]
+
+/** 把毫秒时间戳格式化成 `YYYY-MM-DD HH:MM`（本地时区）。UI 展示"上次修改"用。 */
+export function formatLastModified(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return ''
+  const d = new Date(ms)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** 生成稳定 UUID;优先 `crypto.randomUUID()`(浏览器原生),降级到时间戳 + 随机数。 */
+export function makeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `id-${Date.now()}-${Math.floor(Math.random() * 0x10000).toString(16)}`
+}
+
+/**
  * 作品的阅读/观看状态
  * - `want` 想看 / `shelved` 搁置 / `finished` 已看完 / `abandoned` 弃看
  * - `reading` 在读（默认;适用全部类型）
@@ -193,8 +253,9 @@ export type BookStatus =
 
 /** 创建/编辑输入：用户填的字段，不含 id/created/updated/read_count/tags 默认值；
  *  `episodes` 也不在 BookInput 里 —— 单集笔记是详情页独占编辑的，不在加作品表单出现。
- *  `seasons` 保留在 BookInput（季结构是创建作品时确定的）。 */
-export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'> & {
+ *  `seasons` 保留在 BookInput（季结构是创建作品时确定的）。
+ *  `characters` 也不在 BookInput 里 —— 角色笔记是详情页独占编辑的（v1.5 起）。 */
+export type BookInput = Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes' | 'characters'> & {
   tags?: string[]
 }
 
@@ -262,6 +323,13 @@ export interface Book {
    * 与 `progress.current` 解耦:progress 仍是"线性最高已看",但单集 watched 允许乱序。
    */
   episodes?: EpisodeNotes
+  /**
+   * 角色笔记数组（v1.5 新增）—— 所有类型都能用,不只是 tv/anime。
+   * 例:书里的人物、电视剧角色、动画声优角色、电影主角、组织 / 阵营——都可以列出来单独写。
+   * 写盘策略:空数组 / 全空 character 不写 frontmatter;老文件缺字段 → undefined。
+   * 单条 character 内部:见 Character 的稀疏语义（notes 空 → 保留条目;name 空 → 删除条目）。
+   */
+  characters?: CharacterNotes
 }
 
 /** 主题预设（视觉风格）：classic = 当前样式（保留）；library = 深森林绿书架风 */

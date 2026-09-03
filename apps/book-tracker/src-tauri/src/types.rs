@@ -64,6 +64,8 @@ pub enum BookStatus {
 /// - `number`: 季号(1-based)
 /// - `episode_count`: 该季总集数
 /// - `notes`: 该季整体笔记(可选;空串 → 不写盘)
+/// - `last_modified`: 该季笔记最后修改时间(毫秒;v1.5 起,仅 notes 被改时刷新;
+///   number / episode_count 变化不刷 —— 季结构变更 ≠ 笔记内容变更)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeasonInfo {
     pub number: u32,
@@ -71,6 +73,10 @@ pub struct SeasonInfo {
     /// 季笔记 —— `serde(default)` 让老数据缺字段也能反序列化成 `None`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// 该季笔记最后修改时间 —— `serde(default)` 老数据缺字段 → `None`;
+    /// 写盘时由 data 层判定:Some(非 0)才写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<u64>,
 }
 
 /// 单集时间戳笔记 —— 出现在 `EpisodeRecord.stamps` 数组里（v1.3 新增）。
@@ -107,6 +113,8 @@ pub struct TimeStamp {
 /// - `note`: 该集笔记(空串也允许,语义 = "清空笔记")
 /// - `title`: 该集标题(可选;空串 → 不写盘)
 /// - `stamps`: 该集时间戳笔记数组(v1.3 新增;空数组 → 不写盘)
+/// - `last_modified`: 该集笔记内容最后修改时间(毫秒;v1.5 起,
+///   仅 note / title / stamps 任一被改时刷新;watched toggle 不刷)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpisodeRecord {
     pub watched: bool,
@@ -119,6 +127,12 @@ pub struct EpisodeRecord {
     /// 写盘时由 `data/books.rs::persist` 判断"非空才写"（最稀疏策略）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stamps: Option<Vec<TimeStamp>>,
+    /// 该集笔记内容最后修改时间 —— `serde(default)` 老数据缺字段 → `None`;
+    /// 写盘时由 data 层判定:Some(非 0)才写。
+    /// 决策:仅 note / title / stamps 任一被用户改写时刷新;
+    /// watched toggle 是状态而非笔记内容,不刷。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<u64>,
 }
 
 /// 单集稀疏 map —— key = `"${season}-${episode}"`,如 "1-3" = S01E03。
@@ -144,6 +158,33 @@ pub fn parse_episode_key(key: &str) -> Option<(u32, u32)> {
     }
     Some((s, e))
 }
+
+/// 角色笔记条目 —— 出现在 `Book.characters` 数组里（v1.5 新增）。
+///
+/// 用途：用户对一部作品里的"角色"（人物 / 主角 / 配角 / 阵营 / 组织……）做独立笔记。
+/// 与 `EpisodeRecord` 对齐:稀疏写盘、lastModified 语义相同。
+/// - `id`: 稳定 UUID —— 由前端生成,用于编辑 / 删除定位
+/// - `name`: 角色名(必填;空字符串视为脏数据,IPC 前由前端过滤)
+/// - `notes`: 角色笔记(可选;空串 → 不写盘,但保留 character 条目)
+/// - `last_modified`: 该 character 最后修改时间(毫秒;仅 name / notes 任一被改时刷新)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Character {
+    pub id: String,
+    pub name: String,
+    /// 角色笔记 —— `serde(default)` 让老数据缺字段也能反序列化成 `None`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// 最后修改时间 —— `serde(default)` 老数据缺字段 → `None`;
+    /// 写盘时由 data 层判定:Some(非 0)才写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<u64>,
+}
+
+/// 角色笔记数组 —— 出现在 `Book.characters`(v1.5 新增)。
+///
+/// 与 `EpisodeNotes` 不同:用 `Vec<Character>` 而不是 BTreeMap —— 角色顺序由用户决定
+/// (添加顺序),不需要按 id 字典序排序。但 `Character` 内部仍携带稳定 id 用于编辑定位。
+pub type CharacterNotes = Vec<Character>;
 
 /// 一部作品的完整结构(后端 ↔ 前端通信载体)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +232,12 @@ pub struct Book {
     /// `serde(default)` 让老数据缺字段 → `None`(向后兼容);写盘策略由 data 层判定(空 map 不写)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub episodes: Option<EpisodeNotes>,
+    /// 角色笔记数组 —— 所有类型都能用(v1.5 新增,不只是 tv/anime)。
+    /// 例:书里的人物、电视剧角色、电影主角、组织 / 阵营——都可以列出来单独写。
+    /// `serde(default)` 让老数据缺字段 → `None`(向后兼容);
+    /// 写盘策略由 data 层判定:空数组 / 全是 name 空的 character 不写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub characters: Option<CharacterNotes>,
 }
 
 /// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'>`
@@ -224,6 +271,8 @@ pub struct BookInput {
     /// 季信息数组(可选;tv/anime 用)—— 创建时由表单传入;改 kind 后允许后续 patch 补
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seasons: Option<Vec<SeasonInfo>>,
+    // 角色笔记数组(v1.5 起)—— 不在 BookInput 里;BookPatch.characters 由 set_characters 走专用 IPC。
+    // 这里保留空缺:创建作品时不需要填角色笔记(详情页独占编辑)。
 }
 
 /// 更新书的 patch(全字段可选)。
@@ -277,6 +326,10 @@ pub struct BookPatch {
     /// 单集稀疏 map —— `None` 不改,`Some(empty_map)` 清空（语义 = "清空所有集笔记"）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub episodes: Option<EpisodeNotes>,
+    /// 角色笔记数组(v1.5 新增)—— `None` 不改,`Some(empty_vec)` 清空
+    /// (语义 = "清空所有角色笔记";空数组 / 全是 name 空的 character 由 data 层兜底不写 frontmatter)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub characters: Option<CharacterNotes>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

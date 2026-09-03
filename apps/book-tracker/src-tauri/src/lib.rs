@@ -73,6 +73,7 @@ mod tauri_app {
                 commands::books_episode_bump,
                 commands::books_episode_set_stamps,
                 commands::books_episodes_set,
+                commands::books_characters_set,
                 commands::relations_get,
                 commands::relations_set,
                 commands::config_get,

@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
 use crate::service::{books, config as cfg_svc, data_dir, ranking, relations};
-use crate::types::{Book, BookInput, BookPatch, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, TimeStamp};
+use crate::types::{Book, BookInput, BookPatch, CharacterNotes, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, TimeStamp};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -103,27 +103,35 @@ pub fn books_episode_set_watched(
 }
 
 /// 设置单集笔记。空串 → 删 key(最稀疏)。
+///
+/// v1.5 起:`last_modified`(毫秒;Option<u64>)为 Some(非 0)且 note 非空时刷该集时间戳;
+/// 空串"删笔记"不刷。watched toggle 不走此 command(走 set_episode_watched)。
 #[tauri::command]
 pub fn books_episode_set_note(
     id: String,
     season: u32,
     episode: u32,
     note: String,
+    last_modified: Option<u64>,
 ) -> Result<Book, String> {
     let dir = books_dir()?;
-    books::set_episode_note(&dir, &id, season, episode, note).map_err(|e| e.to_string())
+    books::set_episode_note(&dir, &id, season, episode, note, last_modified).map_err(|e| e.to_string())
 }
 
 /// 设置单集标题。空串 → 删 title 字段(若该集无任何字段,key 也删)。
+///
+/// v1.5 起:`last_modified`(毫秒;Option<u64>)为 Some(非 0)且 title 非空时刷该集时间戳;
+/// 空串"删 title"不刷。
 #[tauri::command]
 pub fn books_episode_set_title(
     id: String,
     season: u32,
     episode: u32,
     title: String,
+    last_modified: Option<u64>,
 ) -> Result<Book, String> {
     let dir = books_dir()?;
-    books::set_episode_title(&dir, &id, season, episode, title).map_err(|e| e.to_string())
+    books::set_episode_title(&dir, &id, season, episode, title, last_modified).map_err(|e| e.to_string())
 }
 
 /// 清空整部剧的所有 episodes。
@@ -152,18 +160,33 @@ pub fn books_episodes_set(id: String, episodes: EpisodeNotes) -> Result<Book, St
     books::update_book(&dir, &id, &patch).map_err(|e| e.to_string())
 }
 
-/// 整体替换单集的时间戳笔记数组(v1.3 新增)。
-/// - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key)
-/// - `stamps: [...]` → 整体替换 + 服务端按 start 升序重新排序
+/// 整体替换单集的时间戳笔记数组(v1.3 新增,v1.5 加 last_modified)。
+/// - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key);不刷 last_modified
+/// - `stamps: [...]` → 整体替换 + 服务端按 start 升序重新排序;
+///   `last_modified`(毫秒;Option<u64>)为 Some(非 0)时刷该集时间戳
 #[tauri::command]
 pub fn books_episode_set_stamps(
     id: String,
     season: u32,
     episode: u32,
     stamps: Vec<TimeStamp>,
+    last_modified: Option<u64>,
 ) -> Result<Book, String> {
     let dir = books_dir()?;
-    books::set_episode_stamps(&dir, &id, season, episode, stamps).map_err(|e| e.to_string())
+    books::set_episode_stamps(&dir, &id, season, episode, stamps, last_modified).map_err(|e| e.to_string())
+}
+
+// ==================== v1.5 角色笔记 commands ====================
+
+/// 整段替换角色笔记数组(v1.5 新增)。
+/// `characters: []` 等同"清空";稀疏写盘策略见 `data::books::persist` + `service::books::set_characters`。
+#[tauri::command]
+pub fn books_characters_set(
+    id: String,
+    characters: CharacterNotes,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_characters(&dir, &id, characters).map_err(|e| e.to_string())
 }
 
 // ==================== relations commands ====================
