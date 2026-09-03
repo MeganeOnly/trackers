@@ -6,6 +6,107 @@
 
 ---
 
+## 2026-09：[book-tracker] 「下一季」picker 候选 `.slice(0, 12)` 截断 → 同前缀后续作品搜不到
+
+### 现象
+
+用户在「鉴证实录」（id=31, kind=tv）详情页打开「设置下一季」picker，搜索框输入
+「鉴证实录II」（id=32）回车 / 失焦，列表显示「无匹配」。但「鉴证实录II」确实存在，
+作品库 90 本里另有 22 本 tv/anime；只是没排进前 12。
+
+兄弟选择器 PrereqEditor（前置依赖 picker）走的是「search 在前、slice 在后」，
+没踩到这个 bug——同样的搜索逻辑，PrereqEditor 工作正常。
+
+### 根因
+
+`apps/book-tracker/src/renderer/components/BookDetail.tsx:155-167`
+的 `nextSeasonCandidates`：
+
+```ts
+const nextSeasonCandidates = useMemo(() => {
+  if (!book) return []
+  return books
+    .filter((b) => b.id !== book.id)
+    .sort((a, b) => {
+      // tv / anime 优先
+      const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
+      const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
+      if (aTv !== bTv) return aTv - bTv
+      return a.title.localeCompare(b.title, 'zh')
+    })
+    .slice(0, 12)   // ← ★ 截断在 search 之前
+}, [books, book?.id])
+```
+
+候选传给 `NextSeasonPicker`（props `candidates: Book[]`），picker 自己
+**再做**一次 `title.toLowerCase().includes(query)` 过滤——但这个过滤
+只在那 12 个候选里跑。所以 picker 的搜索框对"没进 top-12"的书完全没用。
+
+而 PrereqEditor.tsx:55-62 的 candidates 是「filter 包含 search 在前、
+slice 在后」，所以搜索框正常过滤全量 → 找到目标。
+
+对比：
+
+| 组件 | filter 顺序 | 搜索能跨前 12 吗 |
+|---|---|---|
+| `PrereqEditor`（前置依赖 picker） | filter → slice | 能 |
+| `BookDetail` → `NextSeasonPicker`（v1.6 下一季） | slice → filter（filter 在 picker 内部） | **不能** |
+
+### 修复
+
+`apps/book-tracker/src/renderer/components/BookDetail.tsx`：删掉
+`.slice(0, 12)`，传全量候选给 `NextSeasonPicker`。picker 已经有
+`max-height: 240px` + `overflow-y: auto` 处理长列表滚动，搜索框按
+title / author 过滤全量候选。
+
+```ts
+// picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;
+// **不截断** —— 之前 .slice(0, 12) 会让排在第 13+ 的同前缀书名
+// (如「鉴证实录II」在「鉴证实录」之后)进不到 picker,
+// 用户在 picker 里搜索时(NextSeasonPicker 内部 filter)只能在这 12 个里
+// 找,自然搜不到。picker 已经有 max-height + overflow-y 滚动,
+// 搜索框按 title / author 过滤,全量候选对 UX 无害。
+const nextSeasonCandidates = useMemo(() => {
+  if (!book) return []
+  return books
+    .filter((b) => b.id !== book.id)
+    .sort((a, b) => {
+      const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
+      const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
+      if (aTv !== bTv) return aTv - bTv
+      return a.title.localeCompare(b.title, 'zh')
+    })
+}, [books, book?.id])
+```
+
+`apps/book-tracker/src/renderer/components/NextSeasonPicker.tsx`：
+同步更新 `candidates` prop 的文档注释，从「最多 12 个」→「全量」。
+
+### 回归验证
+
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 全绿
+- `npm run test` —— tracker-core 143 + book-tracker 156 + life-tracker 223 = 522 个 vitest 全过
+- 手动（待你重启 app 验证）：打开「鉴证实录」详情页 → 「设置下一季」→ 搜索
+  「鉴证实录II」→ 应能在列表里看到并选中
+
+### 教训（共享）
+
+- **「子组件 filter 在前 / 父组件 slice 在前」是同一个 picker 跨组件的不对称实现**。两个看起来类似的组件（PrereqEditor、NextSeasonPicker）实际行为差一档——加新 picker 时**先看兄弟组件怎么 filter + slice**，不要直接抄一个就完事。
+- **「截断在前」型 picker bug 极容易通过单测**（写 13 本书的 fixture，断言 slice 后只有 12 本，断言 search 后能筛到第 13 本——搜不到就暴露）。本仓库没有 React 组件测试基础设施（`@testing-library` / `happy-dom` 都没装），所以这一步跳过了；下次加 picker / autocomplete 候选类组件时，建议先把 picker 抽成受控的纯函数（输入 → 候选 → filter 结果），加单测覆盖「filter 在前」语义，再接到 React。
+- **预扫描命令**（任何「filter + slice」型列表组件都跑一遍）：
+
+```bash
+# 找所有 .slice(.+,.+) 截断：定位候选类组件，看是否在 filter 之前
+grep -rnE '\.slice\(\s*0\s*,\s*[0-9]+\s*\)' apps/*/src/renderer/components
+# 配套看子组件内是否有 query + includes 过滤，确认 filter 顺序
+grep -rnE 'query\.trim|searchQuery|toLowerCase\(\)\.includes' apps/*/src/renderer/components
+```
+
+如果「父组件 slice + 子组件 query filter」配对出现，且子组件没有兜底「query 为空
+时不分页」逻辑，就很可能是同一个 bug。
+
+---
+
 ## 2026-09：[共享/book-tracker] 集数 / 时间戳 / 「下一季」三处静默失效——Tauri 2 嵌套 struct 字段不会自动 snake ↔ camel 转换
 
 ### 现象
