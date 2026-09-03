@@ -297,6 +297,11 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 16. **空串字段的写盘策略**：可选字符串字段（如 `notes`）写盘前判断 `is_empty()` 不写 frontmatter,避免污染;`tags` 这种数组类型相反 —— 空数组 `[]` 写盘（保留"用户清空了所有 tag"的语义）。两种语义不能混;新加可选字段前先想清楚
 17. **Canvas 绘制状态污染**：react-force-graph 的 `nodeCanvasObject` 在 d3-force 模拟里频繁调用,所有 `ctx.fillStyle` / `strokeStyle` 改完必须还原（或在函数开头重置）,否则下一个节点用错颜色。`drawTagChips` 用 chip 间 fillStyle 重置 + 局部变量规避了这个问题
 18. **类型感知的字段标签**：同一份表单套 5 种作品类型时,作者 / 年份 / 国家的语义不同（书→出版年份,影视→首播/上映年份,书→原产国,影视→制片国家）。实现方式：纯函数 `authorLabelFor(kind)` / `yearLabelFor(kind)` / `countryLabelFor(kind)` 集中维护 label 文案 —— 比 inline 三元 / switch 散在各处好维护
+19. **v1.2 集笔记稀疏策略 + 季变保留旧 key**：单集 `episodes` map key = `"${season}-${episode}"`,watched=true / 有 note / 有 title 才占 key(最稀疏);季数中途变化(原 3 季改 4 季)保留旧 key 不清理,避免"用户有 S03E05 笔记但新季结构只剩 3 季时被静默删"。决策点：决策 B = 保留旧 key;后续若需"自动清理"再加 confirm 提示
+20. **EpisodeNotes 用 BTreeMap 而非 HashMap**：Rust 端用 BTreeMap 让序列化时 key 字典序稳定,git diff / frontmatter 跨平台 diff 友好;TS 端 `Record<string, EpisodeRecord>` 实际遍历顺序由 JS 引擎决定,无此问题但保持镜像一致
+21. **rankId 扩展语义**：v1 RANK 的 PairwiseResult.a/b 是 book.id(字符串),v1.2 扩展为 `book.id` 或 `"${book.id}#${seasonNumber}"` —— Rust 端只改 `string` 语义,不动 PairwiseResult 结构;已有的 rankings.json 数据继续可用(老 rankId = book.id 不会变),UI 端按 `#` 存在与否区分候选
+22. **`books_episode_bump` vs `books_progress_bump` 区分**：前者 progress + 联动 watched,后者只动 progress。`-1` 走 episode_bump 但不动 episodes(允许用户保留笔记);如果复用 progress_bump 再单独调 setEpisodeWatched 会需要两次 IPC,且若用户连续点 `-1 +1` 会出现 race。最终:单一原子 command 解决
+23. **`Omit<Book, ...>` 加新字段时记得同步 3 个地方**:`Book` 加 `seasons` / `episodes` 后,(1) `BookInput` 要 `Omit` 掉 `episodes`(单集不进表单);(2) `BookPatch` 加对应 Option 字段;(3) 写盘逻辑判定稀疏策略(空数组 / 空 map 不写盘)。漏一处 typecheck / 行为必错
 
 ## 十一、已实现功能清单
 
@@ -322,6 +327,14 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] **笔记**（`Book.notes: string`）—— `<textarea>` 直编辑,不渲染 Markdown(v1 取舍);空串不写盘
 - [x] **主演**（`Book.starring: string`,仅 movie/tv 暴露）—— 与"译者"位置对称;空串不写盘
 - [x] **编剧**（`Book.screenwriter: string`,仅 movie/tv 暴露）—— 与"主演"同属影视主创字段,但各自独立 input 行(避免"主演/编剧"标签二义);空串不写盘,与 starring 共享同一策略
+- [x] **季信息**（`Book.seasons: SeasonInfo[]`,仅 tv/anime）—— 在加作品表单的「季设置」区块定义,总集数自动 = seasons 求和;空数组不写盘
+- [x] **单集稀疏 map**（`Book.episodes: Record<"${season}-${episode}", EpisodeRecord>`,仅 tv/anime）—— 详情页「集笔记」面板按季分组展示;支持乱序看 / 单集笔记 / 单集标题 / watched toggle;空 map 不写盘
+  - 决策 4(稀疏): 单集清空笔记 → 删 key;最稀疏形态 `{ "1-3": { "watched": true } }`
+  - 决策 B(季变): 季数中途变化保留旧 episodes key,不自动清理超出范围
+- [x] **进度 +1/-1 联动集笔记**（`books_episode_bump` command）—— `+1` 时线性遍历 seasons,把接下来 N 个未看集标 watched;`-1` 不动 episodes(允许用户保留笔记 / 标记状态)
+- [x] **季选择器**(「上一季 / 下一季」+ tab) —— 用户要求放在集笔记区上方,默认选中第一个未完全看完的季
+- [x] **RANK 按季拆分**（v1.2 排名细化）—— tv/anime 按季独立排名,rankId = `${bookId}#${seasonNumber}`;其他 kind 保持原 rankId;对比卡片 / 排名列表都加「S0X」徽标
+  - 解决:大明王朝(46 集单季) 跟 绝命毒师(7+13+13+13+16 五季) 放一起比不合理
 - [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
 - [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
   - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标

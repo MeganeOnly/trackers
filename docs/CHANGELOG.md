@@ -105,3 +105,89 @@
 - `life-tracker-v1.1`
 
 两 tag 同 commit hash，按 release workflow 分派构建。
+
+---
+
+## v1.2（2026-08）：剧集笔记 + RANK 按季拆分
+
+**剧集笔记 + 季结构 + 按季独立排名**。把单本书的「章节进度」模型升级成 tv/anime 的「季 + 单集笔记」模型；同时把 RANK 的候选粒度从 book 拆到 book × season，让不同季之间能独立排名。
+
+### 数据模型
+
+- **`SeasonInfo`**：单季元信息（`number` / `episodeCount` / 可选 `notes` 季笔记）
+- **`EpisodeRecord`**：单集记录（`watched` / `note` / 可选 `title` 集标题）
+- **`EpisodeNotes`**：单集稀疏 map，key = `${season}-${episode}` 字符串（如 `"1-3"` = S01E03）
+- **`Book.seasons?: SeasonInfo[]`**：仅 tv/anime；空数组不写盘，老文件缺字段 → `undefined`
+- **`Book.episodes?: EpisodeNotes`**：仅 tv/anime；最稀疏策略（watched=true / 有 note / 有 title 才占 key）
+- **`BookInput`**：保留 `seasons`（创建时填），剔除 `episodes`（详情页独占）
+- **`BookPatch`**：`seasons` / `episodes` 都是 `Option<Vec<_>>` / `Option<EpisodeNotes>`，`None` = 不改，`Some(empty)` = 清空
+
+### 写盘策略（一致的最稀疏）
+
+- `seasons`：空数组 / 全部字段缺 → 不写盘
+- `episodes`：空 map → 不写盘；单集 key 存在但 `note=""` 且 `title=None` → 不写 `note` / `title` 字段
+- 季数中途变化保留旧 episodes key（决策 B；不自动清理超出范围的 key）
+
+### 加作品表单
+
+- 仅 `kind === 'tv' | 'anime'` 时显示「季设置」区块
+- 每行：`S0X` + 集数 input + 「集」单位 + 删除按钮
+- 「+ 新增一季」自动推下一个季号
+- 至少保留 1 季（只有 1 季时点删 = 把该季集数改 0，不是删除）
+- 顶部实时显示总集数 = seasons 求和
+- 提交时 `progress.total` 跟 seasons 总和自动同步（避免错位）
+
+### 详情页「集笔记」面板
+
+- 顶部统计：`已看 X / Y · N 条笔记` + `+1 集` / `-1 集` / `清空` 按钮
+- 季选择器（用户要求放在底部上方）：
+  - `◀ 上一季 / [S01][S02][S03] / 下一季 ▶`
+  - 默认选中第一个未完全看完的季；全看完 = 最后一季
+- 当前季信息条：`S0X · N 集 · 已看 a/b`
+- 集网格：`auto-fill minmax(48px, 1fr)`，每格显示集号 + ✓（已看）+ 右下点（有笔记）
+  - 单击 → 展开内联编辑器（单格互斥）
+  - 双击 → 快速 toggle watched
+- 展开区：
+  - 标题 input（可选，debounce 500ms 写盘）
+  - 「已看」checkbox
+  - 笔记 textarea（debounce 500ms；空串 → 删 key）
+  - 「删除此集记录」一键清零（watched=false → 空 note → 空 title）
+
+### IPC 命令（7 个新增 + lib.rs 注册）
+
+- `books_seasons_set(id, seasons)` —— 整段替换季信息
+- `books_episode_set_watched(id, season, episode, watched)` —— 切换单集 watched
+- `books_episode_set_note(id, season, episode, note)` —— 写单集笔记（空串 → 删 key）
+- `books_episode_set_title(id, season, episode, title)` —— 写单集标题（空串 → 删 title 字段）
+- `books_episodes_clear(id)` —— 清空整部剧
+- `books_episode_bump(id, delta)` —— progress +1/-1 联动集笔记（+1 标记下一个未看；-1 不动 episodes）
+- `books_episodes_set(id, episodes)` —— 整体替换（v1.2 UI 不直接调用，留作 batch）
+
+### RANK 按季拆分
+
+- 新增 `expandRankingPool(books, kind)`：tv/anime 按季拆为 rank candidate；其他 kind 一本书一项
+- rank ID 扩展：`book.id` 或 `"${book.id}#${seasonNumber}"`
+- PairwiseResult.a/b 字段语义扩展（不动结构）；已有 rankings.json 数据继续可用
+- 对比卡片 / 排名列表加「S0X」徽标
+- 解决：大明王朝（46 集单季）跟绝命毒师（7+13+13+13+16 五季）放一起比不合理的问题
+
+### 工程化
+
+- **EpisodeNotes 用 BTreeMap 而非 HashMap**：序列化 key 字典序稳定，git diff 友好
+- **store 加 `upsertBook` 工具函数**：6 个新 action 共享一份 list 更新逻辑
+- **selector 加 4 个新 hook**：`useSeasonsForBook` / `useEpisodesForBook` / `useEpisodeFor` / `useEpisodeStats`
+- **kind 切换时表单兜底**：tv/anime 自动给单季 0 集；其他清空 season state
+- **老数据零迁移**：`serde(default)` 让所有老字段反序列化成 `None` / 空值；前端的「单季剧兜底」逻辑对老书也能正常展示
+
+### 数据兼容性
+
+- 老 book 文件无 `seasons` / `episodes` → undefined → UI 跳过该区块，零迁移
+- 老 `progress.current` / `progress.total` 语义不变，仍是"线性最高已看"
+- 单集 `watched` 允许乱序（跳看 / 重看），与 `progress.current` 解耦
+- 老 rankings.json 数据继续可用（rank ID 解析兼容旧字符串）
+
+### 标签
+
+- `book-tracker-v1.2`
+
+两 tag 同 commit hash，按 release workflow 分派构建。
