@@ -3,6 +3,7 @@ import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
+import { CharactersPanel } from './CharactersPanel'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
@@ -418,6 +419,9 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
       {/* 集笔记 —— 仅 tv/anime 显示,放在前置依赖之前(用户最关心的进度信息) */}
       {(kind === 'tv' || kind === 'anime') && <EpisodesPanel book={cur} />}
+
+      {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
+      <CharactersPanel book={cur} />
 
       <PrereqEditor bookId={book.id} />
 

@@ -566,9 +566,142 @@ button:focus-visible {
 }
 
 .season-summary {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 8px;
+}
+.season-summary-main { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.season-count-input {
+  width: 56px;
+  padding: 2px 6px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  color: var(--fg, inherit);
+  text-align: center;
+}
+.season-count-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.season-count-unit { margin-right: 4px; }
+.season-count-sep { color: var(--muted); }
+.season-nav-add {
+  margin-left: 4px;
+  border-style: dashed;
+}
+.season-delete-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.season-delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ============ Characters Panel (BookDetail: 所有类型) ============ */
+.characters-panel {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.characters-panel-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.characters-count {
+  font-size: 12px;
+  font-weight: 400;
+}
+.characters-empty {
+  margin: 4px 0 12px;
+  font-size: 12px;
+}
+.characters-list {
+  display: flex; flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.character-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  overflow: hidden;
+}
+.character-row.has-note {
+  border-color: var(--accent);
+}
+.character-row.expanded {
+  border-color: var(--accent);
+}
+.character-row-head {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.character-row-head:hover {
+  background: var(--bg);
+}
+.character-row-name {
+  flex: 1; min-width: 0;
+  font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.character-row-note-mark {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.character-row-mod {
+  font-size: 11px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.character-row-toggle {
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.character-editor {
+  padding: 12px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.character-editor-foot {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.character-editor-foot .muted { font-size: 11px; }
+.character-delete { flex-shrink: 0; }
+.character-add {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: white;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.character-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .episodes-grid {

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import type { Book, BookInput, SeasonInfo, TimeStamp } from '@shared/types'
+import type { Book, BookInput, Character, SeasonInfo, TimeStamp } from '@shared/types'
 
 interface BooksState {
   books: Book[]
@@ -16,12 +16,19 @@ interface BooksState {
   // -------- v1.2 集笔记 actions --------
   /** 整段替换季信息。`seasons: []` 等同清空 */
   setSeasons: (id: string, seasons: SeasonInfo[]) => Promise<Book>
-  /** 切换单集 watched */
+  /** 切换单集 watched —— v1.5 不刷 lastModified(用户期望"什么都没改,老时间不变") */
   setEpisodeWatched: (id: string, season: number, episode: number, watched: boolean) => Promise<Book>
-  /** 设置单集笔记;空串 → 删 key */
-  setEpisodeNote: (id: string, season: number, episode: number, note: string) => Promise<Book>
-  /** 设置单集标题;空串 → 删 title 字段 */
-  setEpisodeTitle: (id: string, season: number, episode: number, title: string) => Promise<Book>
+  /**
+   * 设置单集笔记;空串 → 删 key。
+   * `lastModified`(毫秒;可选)为 Some(非 0)且 note 非空时刷该集 lastModified;
+   * 走"前端主动填 Date.now()"模式 —— store 层不主动 inject,组件自己决定。
+   */
+  setEpisodeNote: (id: string, season: number, episode: number, note: string, lastModified?: number) => Promise<Book>
+  /**
+   * 设置单集标题;空串 → 删 title 字段。
+   * `lastModified`(毫秒;可选)为 Some(非 0)且 title 非空时刷。
+   */
+  setEpisodeTitle: (id: string, season: number, episode: number, title: string, lastModified?: number) => Promise<Book>
   /** 清空整部剧所有 episodes */
   clearEpisodes: (id: string) => Promise<Book>
   /** 进度 +1/-1 联动集笔记 */
@@ -29,10 +36,18 @@ interface BooksState {
   // -------- v1.3 时间戳笔记 actions --------
   /**
    * 整体替换单集的时间戳笔记数组。
-   * - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key)
-   * - `stamps: [...]` → 整体替换;前端可按需先合并 + 排序,服务端会再次排序兜底
+   * - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key);不刷 lastModified
+   * - `stamps: [...]` → 整体替换;前端可按需先合并 + 排序,服务端会再次排序兜底;
+   *   `lastModified`(毫秒;可选)为 Some(非 0)时刷该集 lastModified
    */
-  setEpisodeStamps: (id: string, season: number, episode: number, stamps: TimeStamp[]) => Promise<Book>
+  setEpisodeStamps: (id: string, season: number, episode: number, stamps: TimeStamp[], lastModified?: number) => Promise<Book>
+  // -------- v1.5 角色笔记 actions --------
+  /**
+   * 整段替换角色笔记数组。`characters: []` 等同清空。
+   * 组件在 add/edit/remove character 时构造新数组(只对"用户主动改的"那条刷 lastModified),
+   * store 层不主动 inject 时间戳 —— 见 CharactersPanel 的处理。
+   */
+  setCharacters: (id: string, characters: Character[]) => Promise<Book>
 }
 
 /**
@@ -96,13 +111,13 @@ export const useBooksStore = create<BooksState>((set) => ({
     upsertBook(set, book)
     return book
   },
-  setEpisodeNote: async (id, season, episode, note) => {
-    const book = await api.books.episodeSetNote(id, season, episode, note)
+  setEpisodeNote: async (id, season, episode, note, lastModified) => {
+    const book = await api.books.episodeSetNote(id, season, episode, note, lastModified)
     upsertBook(set, book)
     return book
   },
-  setEpisodeTitle: async (id, season, episode, title) => {
-    const book = await api.books.episodeSetTitle(id, season, episode, title)
+  setEpisodeTitle: async (id, season, episode, title, lastModified) => {
+    const book = await api.books.episodeSetTitle(id, season, episode, title, lastModified)
     upsertBook(set, book)
     return book
   },
@@ -117,8 +132,14 @@ export const useBooksStore = create<BooksState>((set) => ({
     return book
   },
   // -------- v1.3 时间戳笔记 actions 实现 --------
-  setEpisodeStamps: async (id, season, episode, stamps) => {
-    const book = await api.books.episodeSetStamps(id, season, episode, stamps)
+  setEpisodeStamps: async (id, season, episode, stamps, lastModified) => {
+    const book = await api.books.episodeSetStamps(id, season, episode, stamps, lastModified)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v1.5 角色笔记 actions 实现 --------
+  setCharacters: async (id, characters) => {
+    const book = await api.books.charactersSet(id, characters)
     upsertBook(set, book)
     return book
   }

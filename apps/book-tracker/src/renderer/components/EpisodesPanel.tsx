@@ -2,25 +2,33 @@
 //
 // 仅当 book.kind === 'tv' | 'anime' 时渲染(由 BookDetail 决定是否引入)。
 // 职责:
-// - 季选择器(tab 式 + 「上一季 / 下一季」按钮)
+// - 季选择器(tab 式 + 「上一季 / 下一季」按钮 + 「+ 季」追加 + 「删除此季」移除)
 // - 当前季的集网格(点击格子展开 / 双击切换 watched)
 // - 展开区:标题输入 / watched toggle / 笔记 textarea / 时间戳笔记 stamps / 删除按钮
 // - 顶部操作栏:已看统计 / +1 / -1 / 清空
+// - 季标题里"X 集"是 inline 可编辑 input:用户就地改单季集数,失焦写盘
 //
 // 状态:
 // - selectedSeason: 当前选中的季号(默认 = 第一个未完全看完的季;全看完则最后一个季)
 // - expandedEpisode: 当前展开的集号(单选,互斥)
 // - 笔记/标题本地 draft:失焦 / debounce 500ms 写盘
 // - 时间戳笔记:本地即时态(无 debounce),按 start 升序自动排列,逐条 add/edit/delete 都整体回写
+// - 季集数本地 draft:失焦 / Enter 写盘,避免每输入一位就触发 IPC
 //
 // 数据:
 // - 季信息 / 集笔记通过 selectors 取(useSeasonsForBook / useEpisodesForBook / useEpisodeStats)
 // - 所有变更走 store action(setEpisode* / episodeBump / clearEpisodes / setSeasons / setEpisodeStamps)
+//
+// 季结构编辑(v1.4 新增):
+// - 「+ 季」按钮:number = max+1, episodeCount = 0;走 setSeasons 整段替换
+// - 「X 集」inline input:仅改当前季的 episodeCount,其他季不动
+// - 「删除此季」按钮:整段 setSeasons 过滤掉当前季;保留旧 episodes key 不清理(决策 B)
+// - 同步策略:**不**联动改 book.progress.total / progress.current;理由见 AGENTS.md §十.24
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useEpisodeStats, useEpisodesForBook, useSeasonsForBook } from '../store/selectors'
-import { episodeKey, formatStamp, parseEpisodeKey, parseStamp, sortStamps } from '@shared/types'
+import { episodeKey, formatLastModified, formatStamp, parseEpisodeKey, parseStamp, sortStamps } from '@shared/types'
 import type { Book, TimeStamp } from '@shared/types'
 
 interface EpisodesPanelProps {
@@ -39,6 +47,8 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
   const setEpisodeStamps = useBooksStore((s) => s.setEpisodeStamps)
   const episodeBump = useBooksStore((s) => s.episodeBump)
   const clearEpisodes = useBooksStore((s) => s.clearEpisodes)
+  // v1.4 季结构就地编辑 —— 整段替换 seasons
+  const setSeasons = useBooksStore((s) => s.setSeasons)
 
   // 选中的季号:默认 = 第一个未完全看完的季;全看完则最后一个季;无季时 = 1
   const [selectedSeason, setSelectedSeason] = useState<number>(() => initialSeason(seasons, episodes))
@@ -69,6 +79,64 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     if (!confirm(`清空《${book.title}》所有集笔记?进度数字会保留,但所有 watched / 笔记 / 标题都会删除。`)) return
     await clearEpisodes(book.id)
     setExpandedEpisode(null)
+  }
+
+  // v1.4 季结构就地编辑 ——「+ 季」/「删除此季」/「改单季集数」
+  // ---- 单季集数 draft state + flush ----
+  const [countDraft, setCountDraft] = useState<string>(() => String(currentSeason?.episodeCount ?? 0))
+  // currentSeason 切换 / seasons 数组变化 → 同步本地 draft(避免覆盖用户正在敲的内容)
+  useEffect(() => {
+    setCountDraft(String(currentSeason?.episodeCount ?? 0))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSeason?.number, currentSeason?.episodeCount])
+  const countTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function flushSeasonCount(): void {
+    if (countTimerRef.current) clearTimeout(countTimerRef.current)
+    if (!currentSeason) return
+    const raw = countDraft.trim()
+    if (raw === '') {
+      // 空串 → 还原显示,不写盘(避免误清零)
+      setCountDraft(String(currentSeason.episodeCount))
+      return
+    }
+    const n = Math.floor(Number(raw))
+    if (!Number.isFinite(n) || n < 0) {
+      setCountDraft(String(currentSeason.episodeCount))
+      return
+    }
+    if (n === currentSeason.episodeCount) return
+    // 整段替换 seasons(只改当前季的 episodeCount,其他季不动)
+    const next = seasons.map((s) =>
+      s.number === currentSeason.number ? { ...s, episodeCount: n } : s
+    )
+    void setSeasons(book.id, next).then(() => {
+      // 写盘成功后同步 draft(避免 store 更新触发 useEffect 时拿到旧值)
+      setCountDraft(String(n))
+    })
+  }
+  function scheduleCountFlush(): void {
+    if (countTimerRef.current) clearTimeout(countTimerRef.current)
+    countTimerRef.current = setTimeout(flushSeasonCount, DEBOUNCE_MS)
+  }
+
+  async function handleAddSeason(): Promise<void> {
+    const nextNumber = seasons.length === 0 ? 1 : Math.max(...seasons.map((s) => s.number)) + 1
+    await setSeasons(book.id, [...seasons, { number: nextNumber, episodeCount: 0 }])
+    setSelectedSeason(nextNumber)
+  }
+
+  async function handleDeleteSeason(): Promise<void> {
+    if (!currentSeason) return
+    const msg =
+      seasons.length <= 1
+        ? `这是最后只剩的一季(S${pad2(currentSeason.number)})。删除后这部作品就没有季结构了(已有集笔记保留)。继续?`
+        : `删除 S${pad2(currentSeason.number)}?这一季的集笔记会保留在文件里但不再显示。`
+    if (!confirm(msg)) return
+    const next = seasons.filter((s) => s.number !== currentSeason.number)
+    await setSeasons(book.id, next)
+    // 选中上一季;若删完则回到 1(此时 seasons 已空,selectedSeason 不会被读到)
+    const fallback = currentSeason.number > 1 ? currentSeason.number - 1 : 1
+    setSelectedSeason(next.length > 0 ? fallback : 1)
   }
 
   if (!currentSeason) {
@@ -108,7 +176,7 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
         </div>
       </div>
 
-      {/* 季选择器:tab + 上一季/下一季 按钮(用户要求) */}
+      {/* 季选择器:tab + 上一季/下一季 + 「+ 季」追加(用户要求) */}
       <div className="seasons-tabs">
         <button
           className="season-nav"
@@ -142,13 +210,47 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
         >
           ▶
         </button>
+        {/* v1.4 新增一季 —— number = max+1, episodeCount = 0 */}
+        <button
+          className="season-nav season-nav-add"
+          onClick={() => void handleAddSeason()}
+          title="新增一季"
+        >
+          +
+        </button>
       </div>
 
-      {/* 当前季标题 + 进度 */}
+      {/* 当前季标题 + 集数就地编辑 + 删除季 —— v1.4 季结构下沉到 EpisodesPanel */}
       <div className="season-summary">
-        <span>
-          S{pad2(currentSeason.number)} · {currentSeason.episodeCount} 集 · 已看 {watchedThisSeason}/{currentSeason.episodeCount}
+        <span className="season-summary-main">
+          S{pad2(currentSeason.number)} ·{' '}
+          <input
+            className="season-count-input"
+            type="number"
+            min="0"
+            value={countDraft}
+            onChange={(e) => setCountDraft(e.target.value)}
+            onBlur={flushSeasonCount}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+            title="修改本季集数(失焦或回车保存)"
+            aria-label={`S${pad2(currentSeason.number)} 集数`}
+          />
+          <span className="season-count-unit">集</span>
+          <span className="season-count-sep">· 已看 {watchedThisSeason}/{currentSeason.episodeCount}</span>
         </span>
+        <button
+          type="button"
+          className="season-delete-btn"
+          onClick={() => void handleDeleteSeason()}
+          title={`删除 S${pad2(currentSeason.number)}`}
+        >
+          删除此季
+        </button>
       </div>
 
       {/* 集网格 */}
@@ -177,9 +279,21 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
           record={episodes[episodeKey(currentSeason.number, expandedEpisode)]}
           onClose={() => setExpandedEpisode(null)}
           onSetWatched={(w) => void setEpisodeWatched(book.id, currentSeason.number, expandedEpisode, w)}
-          onSetNote={(note) => void setEpisodeNote(book.id, currentSeason.number, expandedEpisode, note)}
-          onSetTitle={(title) => void setEpisodeTitle(book.id, currentSeason.number, expandedEpisode, title)}
-          onSetStamps={(stamps) => void setEpisodeStamps(book.id, currentSeason.number, expandedEpisode, stamps)}
+          onSetNote={(note) => {
+            // v1.5:笔记内容被改时刷该集 lastModified
+            // 后端:空 note 不刷;非空 note 才刷。这里只在 note 非空时传时间戳,
+            // 避免"空串 = 删笔记"被错误地刷时间戳。
+            const lm = note.trim() === '' ? undefined : Date.now()
+            void setEpisodeNote(book.id, currentSeason.number, expandedEpisode, note, lm)
+          }}
+          onSetTitle={(title) => {
+            const lm = title.trim() === '' ? undefined : Date.now()
+            void setEpisodeTitle(book.id, currentSeason.number, expandedEpisode, title, lm)
+          }}
+          onSetStamps={(stamps) => {
+            const lm = stamps.length === 0 ? undefined : Date.now()
+            void setEpisodeStamps(book.id, currentSeason.number, expandedEpisode, stamps, lm)
+          }}
         />
       )}
     </section>
@@ -350,6 +464,12 @@ function EpisodeEditor({
         >
           删除此集记录
         </button>
+        {/* v1.5:显示该集笔记内容最后修改时间(仅 note / title / stamps 变更时刷新;watched 不刷) */}
+        {record?.lastModified !== undefined && (
+          <span className="muted">
+            最后修改：{formatLastModified(record.lastModified)}
+          </span>
+        )}
         <span className="muted">
           提示:单击格子展开 / 双击格子快速切换 watched
         </span>
