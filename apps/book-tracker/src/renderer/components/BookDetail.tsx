@@ -151,7 +151,13 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     () => (book?.nextSeasonId ? books.find((b) => b.id === book.nextSeasonId) : undefined),
     [books, book?.nextSeasonId]
   )
-  // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;最多 12 个
+  // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;
+  // **不截断** —— 之前 `.slice(0, 12)` 会让排在第 13+ 的同前缀书名
+  // (如「鉴证实录II」在「鉴证实录」之后)进不到 picker,
+  // 用户在 picker 里搜索时(NextSeasonPicker 内部 filter)只能在这 12 个里
+  // 找,自然搜不到。picker 已经有 max-height + overflow-y 滚动,
+  // 搜索框按 title / author 过滤,全量候选对 UX 无害。
+  // 关联决策见 apps/book-tracker/AGENTS.md §十.28 / docs/dev-notes.md 2026-09。
   const nextSeasonCandidates = useMemo(() => {
     if (!book) return []
     return books
@@ -163,7 +169,6 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         if (aTv !== bTv) return aTv - bTv
         return a.title.localeCompare(b.title, 'zh')
       })
-      .slice(0, 12)
   }, [books, book?.id])
 
   if (!book) {

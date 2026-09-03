@@ -20,7 +20,9 @@ interface NextSeasonPickerProps {
   open: boolean
   /** 关闭 picker(选中 / 取消 / 点外部 都调) */
   onClose: () => void
-  /** 候选作品列表(已排除自己;按 title 升序排好;最多 12 个) */
+  /** 候选作品列表(已排除自己;按 kind 优先级 + title 升序排好;**全量**,
+   *  不在父组件截断 —— picker 自带搜索框负责按 title / author 过滤,
+   *  列表 max-height + overflow-y 处理滚动) */
   candidates: Book[]
   /** 选中候选 → 触发持久化(BookDetail 父组件 setNextSeason);空串视为取消 */
   onPick: (id: string) => void
