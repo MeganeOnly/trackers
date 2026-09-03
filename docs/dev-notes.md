@@ -6,6 +6,124 @@
 
 ---
 
+## 2026-09：[共享] React Hooks 调用顺序违规——`useMemo` 放在 early return 之后，切换「未选条目 → 选了条目」直接崩
+
+### 1. 现象
+
+启动 `book-tracker`，打开任意一个 `BookDetail` 详情面板，控制台立刻抛：
+
+```
+Warning: React has detected a change in the order of Hooks called by BookDetail.
+   Previous render            Next render
+   ------------------------------------------------------
+1. useCallback                useCallback
+2. useCallback                useCallback
+...
+57. useEffect                 useEffect
+58. undefined                 useMemo
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Uncaught Error: Rendered more hooks than during the previous render.
+    at useMemo (BookDetail.tsx:160:26)
+```
+
+整个 `<BookDetail>` 节点直接报红，UI 进入 error boundary fallback。
+
+### 2. 根因
+
+`BookDetail` 的结构（修复前）：
+
+```tsx
+export function BookDetail({ bookId }: BookDetailProps) {
+  // ...useBooksStore / useUnlocked / ~18 个 useState / 一个 useEffect（无条件调用）
+
+  if (!book) {                              // ← early return
+    return <div className="detail-empty">...</div>
+  }
+  const cur = book
+
+  // ...几个 const 派生值...
+
+  // v1.6 「下一季」—— 当前 book.nextSeasonId 引用的目标 book
+  const nextSeasonBook = useMemo(           // ← ★ hook 放在 early return 之后
+    () => (cur.nextSeasonId ? books.find((b) => b.id === cur.nextSeasonId) : undefined),
+    [books, cur.nextSeasonId]
+  )
+  // picker 候选:排除自己;tv/anime 优先;按 title 升序;最多 12 个
+  const nextSeasonCandidates = useMemo(() => {   // ← ★ 同上
+    return books.filter((b) => b.id !== cur.id).sort(...).slice(0, 12)
+  }, [books, cur.id])
+```
+
+`book` 在 store 里没匹配到时（典型场景：刚加载 books 数组但 `selectedId` 还指向一个被删的 id）是 `undefined`，**前一次渲染**走 early return → hook 计数停在 57。**下一次渲染** book 找到 → 走到 useMemo → hook 计数变成 58 + 59。React 内部用 hook index 维护状态数组，前后两次计数对不上 → 抛 "Rendered more hooks than during the previous render"。
+
+这是 **Rules of Hooks** 的标准违规：**hooks 必须无条件、相同顺序、在组件顶层调用**。
+
+### 3. 修复
+
+**所有 hook 上移到 early return 之前**，内部用 optional chaining 兜底 `book === undefined` 的分支：
+
+```tsx
+  // ...前面所有 hook 不变
+
+  // ★ hooks 必须无条件调用 —— useMemo 必须在 early return 之前。
+  // 否则切换「未选条目 → 选了条目」时 React 看到 hook 数量变化,直接抛
+  // "Rendered more hooks than during the previous render"。
+  // book 可能 undefined(从集合里找不到),内部用 optional chaining 兜底。
+  const nextSeasonBook = useMemo(
+    () => (book?.nextSeasonId ? books.find((b) => b.id === book.nextSeasonId) : undefined),
+    [books, book?.nextSeasonId]
+  )
+  const nextSeasonCandidates = useMemo(() => {
+    if (!book) return []
+    return books
+      .filter((b) => b.id !== book.id)
+      .sort((a, b) => {
+        const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
+        const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
+        if (aTv !== bTv) return aTv - bTv
+        return a.title.localeCompare(b.title, 'zh')
+      })
+      .slice(0, 12)
+  }, [books, book?.id])
+
+  if (!book) {
+    return <div className="detail-empty">...</div>
+  }
+  const cur = book                          // cur 在 narrowing 之后才有意义,放这里
+  // ...cur.id / cur.progress 等后续使用
+```
+
+`useMemo` 依赖数组里的 `cur.id` / `cur.nextSeasonId` 改成 `book?.id` / `book?.nextSeasonId`（optional chaining 在 deps 里也是合法的，且 `undefined → string` 的切换会触发正常重算）。`cur` 本身留在 early return **之后**，因为它只在 narrowing 后才有意义。
+
+### 4. 回归验证
+
+- `npm run typecheck` 三端（book + life + tracker-core）全过；optional chaining + 类型 narrowing 无 TS 报错
+- `npm test` 12 文件 / 223 个 vitest 全绿（BookDetail 是 renderer 组件，没有专门测试，但相关 store / 共享 pure 函数全套都跑过）
+- 控制台不再出现 Hooks order warning，error boundary 不再被触发
+
+### 5. 教训（共享）
+
+**a) Rules of Hooks 是硬规则，不是优化建议**。React 用 hook index 对应 fiber.memoizedState 数组，前两次渲染 hook 数量 / 顺序不一致 → 后续 hook 拿到的 state 全错位。本质上跟数组越界一样，差异只在 React 用 try-catch 把它兜成了"组件级红屏"而不是程序崩溃。
+
+**b) 代码审查快速判定法**：在每个 React 函数组件里扫一遍 hook 调用（`useState` / `useEffect` / `useMemo` / `useCallback` / `useRef` / `useContext` / `useSyncExternalStore` / 自定义 hook），确认**所有 hook 都在所有 early return 之前**。一行命令：
+
+```bash
+grep -nE 'use(State|Effect|Memo|Callback|Ref|Context|SyncExternalStore)' \
+  apps/book-tracker/src/renderer/components/*.tsx \
+  apps/life-tracker/src/renderer/components/*.tsx
+```
+
+**然后人工检查每个 early return 之后有没有 hook**。本次就是漏了这一步 —— 加 v1.6「下一季」字段时新加了两个 `useMemo`，直接放到了「if (!book) return」下面，没注意。
+
+**c) 「if (!something) return 之后再用 hook」是常见诱因**：常常出现于"先判空再算 derived"的模式。正确写法是**先做所有 derived（含 hook），再 early return**，derived 里用 optional chaining 处理 undefined。TS 的 `if (!x) return` narrowing 在 closure 里也是传播的，所以 early return **之后**使用 `x` 仍然是 narrowing 后的类型，不用 `cur` 这种 alias 也行（这次为了最小改动保留了 `cur`，但本质上是冗余）。
+
+**d) ESLint 规则 `react-hooks/rules-of-hooks`** 是兜底，**`react-hooks/exhaustive-deps`** 不管顺序。如果项目里装的是 `eslint-plugin-react-hooks`，这次错误应该是能在 lint 阶段抓到的。但 monorepo 目前没开 ESLint（看 `package.json`），所以只能靠人工审查 + typecheck + 运行时控制台。
+
+**e) 这条 bug 是 v1.6 加 NextSeasonPicker 时引入的**（commit `apps/book-tracker` v1.6）。教训：加 v1.6.2 类似"新功能 + 派生值"时，**lint diff 里 `useMemo` 出现的位置**就是审查重点 —— 任何「先 early return 再 useMemo」都是反模式。
+
+---
+
 ## 2026-08：[共享] 关系图默认初始 zoom 太小——新加 `useInitialZoom`，v11→v12 拉到 ~2.5
 
 ### 1. 现象（v11）
