@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::data::books as data;
-use crate::types::{Book, BookInput, BookPatch};
+use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, EpisodeNotes, EpisodeRecord, SeasonInfo};
 
 /// 列出所有书 + 损坏列表。
 pub fn list_books(books_dir: impl AsRef<Path>) -> std::io::Result<data::BookListResult> {
@@ -35,4 +35,191 @@ pub fn bump_progress(books_dir: impl AsRef<Path>, id: &str, delta: i32) -> std::
 /// 删除一本书。
 pub fn delete_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<()> {
     data::delete_book(books_dir, id)
+}
+
+// ==================== v1.2 集笔记业务方法 ====================
+
+/// 整段替换季信息。`seasons` 为空 Vec → 清空（等同 patch 语义）。
+pub fn set_seasons(books_dir: impl AsRef<Path>, id: &str, seasons: Vec<SeasonInfo>) -> std::io::Result<Book> {
+    let patch = BookPatch {
+        seasons: Some(seasons),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+/// 切换单集 `watched` 标记。
+/// - 标记 watched=true 的集若原本不存在 → 新建(key 持久存在,note/title 留空)
+/// - 标记 watched=false 的集若 note/title 均为空 → 删 key(最稀疏)
+/// - 若只剩 watched=false 一项 → 删 key
+pub fn set_episode_watched(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    season: u32,
+    episode: u32,
+    watched: bool,
+) -> std::io::Result<Book> {
+    let existing = data::read_book(&books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let key = episode_key(season, episode);
+    let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
+    if watched {
+        // watched=true: 写 key(可能新建),保留旧 note/title
+        let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
+            watched: false,
+            note: String::new(),
+            title: None,
+        });
+        entry.watched = true;
+    } else {
+        // watched=false: 仅在该集没有 note/title 时删 key(否则保留条目,watched=false)
+        if let Some(entry) = episodes.get_mut(&key) {
+            entry.watched = false;
+            if entry.note.is_empty() && entry.title.as_deref().unwrap_or("").is_empty() {
+                episodes.remove(&key);
+            }
+        }
+    }
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+/// 设置单集笔记。空串 → 删 key(决策 4 = 最稀疏)。
+/// 已存 watched/title 时也照样删 key(因为该集没有任何有意义的字段了)。
+pub fn set_episode_note(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    season: u32,
+    episode: u32,
+    note: String,
+) -> std::io::Result<Book> {
+    let existing = data::read_book(&books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let key = episode_key(season, episode);
+    let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
+    if note.is_empty() {
+        episodes.remove(&key);
+    } else {
+        let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
+            watched: false,
+            note: String::new(),
+            title: None,
+        });
+        entry.note = note;
+    }
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+/// 设置单集标题。空串 → 删 title 字段(保留 key 当 watched/note 还有数据时)。
+/// 若 watched=false 且 note 空且 title 被删 → 整个 key 删(最稀疏)。
+pub fn set_episode_title(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    season: u32,
+    episode: u32,
+    title: String,
+) -> std::io::Result<Book> {
+    let existing = data::read_book(&books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let key = episode_key(season, episode);
+    let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
+    if title.is_empty() {
+        // 仅删 title 字段,不动 key
+        if let Some(entry) = episodes.get_mut(&key) {
+            entry.title = None;
+            if !entry.watched && entry.note.is_empty() {
+                episodes.remove(&key);
+            }
+        }
+    } else {
+        let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
+            watched: false,
+            note: String::new(),
+            title: None,
+        });
+        entry.title = Some(title);
+    }
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+/// 清空整部剧的所有 episodes(map 整体置 None → 稀疏不写盘)。
+pub fn clear_episodes(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<Book> {
+    let patch = BookPatch {
+        episodes: Some(EpisodeNotes::new()),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
+}
+
+/// 进度 +1/-1 联动集笔记。
+/// - `delta > 0`: progress.current += delta;线性遍历 seasons 找下一个 unwatched,标 watched=true;
+///   标记数 = min(delta, 剩余未看数)
+/// - `delta < 0`: progress.current -= |delta|;不动 episodes(允许用户保留笔记)
+/// - 当 book 没有 seasons / 进度信息时,只动 progress.current(老路径)
+pub fn episode_bump(books_dir: impl AsRef<Path>, id: &str, delta: i32) -> std::io::Result<Book> {
+    let mut book = data::bump_progress(&books_dir, id, delta)?;
+    if delta <= 0 {
+        return Ok(book);
+    }
+    // delta > 0: 联动标记 watched
+    let seasons = match book.seasons.as_ref() {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => return Ok(book),
+    };
+    let mut episodes: EpisodeNotes = book.episodes.clone().unwrap_or_default();
+    let mut remaining = delta as u32;
+    // 线性遍历:季按 number 升序,集按 episode 升序
+    let mut sorted_seasons: Vec<&SeasonInfo> = seasons.iter().collect();
+    sorted_seasons.sort_by_key(|s| s.number);
+    for s in sorted_seasons {
+        if remaining == 0 {
+            break;
+        }
+        for ep in 1..=s.episode_count {
+            if remaining == 0 {
+                break;
+            }
+            let key = episode_key(s.number, ep);
+            let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
+                watched: false,
+                note: String::new(),
+                title: None,
+            });
+            if !entry.watched {
+                entry.watched = true;
+                remaining -= 1;
+            }
+        }
+    }
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    book = data::update_book(books_dir, id, &patch)?;
+    Ok(book)
+}
+
+/// 列出所有已 watched 的集(key 列表,按字典序)。供前端工具函数用。
+#[allow(dead_code)]
+pub fn watched_episodes(book: &Book) -> Vec<(u32, u32)> {
+    book.episodes
+        .as_ref()
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| v.watched)
+                .filter_map(|(k, _)| parse_episode_key(k))
+                .collect()
+        })
+        .unwrap_or_default()
 }

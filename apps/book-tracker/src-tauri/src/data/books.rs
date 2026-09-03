@@ -14,7 +14,7 @@ use tracker_core::files::{atomic_write_file, ensure_dir};
 use tracker_core::frontmatter::{now_iso, split_frontmatter};
 use tracker_core::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
 use tracker_core::slug::make_base_id;
-use crate::types::{Book, BookInput, BookPatch, BookStatus, WorkKind};
+use crate::types::{Book, BookInput, BookPatch, BookStatus, EpisodeNotes, EpisodeRecord, SeasonInfo, WorkKind};
 
 fn is_valid_status(s: &str) -> bool {
     matches!(
@@ -84,7 +84,42 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
         notes: data.get("notes").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         starring: data.get("starring").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         screenwriter: data.get("screenwriter").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        seasons: parse_seasons(data.get("seasons")),
+        episodes: parse_episodes(data.get("episodes")),
     }
+}
+
+/// 解析 frontmatter `seasons` 数组。`None` / 空数组 / 元素字段缺失 → None（最稀疏策略）。
+fn parse_seasons(v: Option<&serde_json::Value>) -> Option<Vec<SeasonInfo>> {
+    let arr = v?.as_array()?;
+    let mut seasons = Vec::with_capacity(arr.len());
+    for item in arr {
+        let Some(obj) = item.as_object() else { continue };
+        let Some(number) = obj.get("number").and_then(|x| x.as_u64()) else { continue };
+        let Some(episode_count) = obj.get("episodeCount").and_then(|x| x.as_u64()) else { continue };
+        let notes = obj.get("notes").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
+        seasons.push(SeasonInfo {
+            number: number as u32,
+            episode_count: episode_count as u32,
+            notes,
+        });
+    }
+    if seasons.is_empty() { None } else { Some(seasons) }
+}
+
+/// 解析 frontmatter `episodes` 对象。`None` / 空对象 / 子对象字段缺失 → None（最稀疏策略）。
+/// 任一非对象 value 容错跳过（不抛错,避免坏数据整本不可读）。
+fn parse_episodes(v: Option<&serde_json::Value>) -> Option<EpisodeNotes> {
+    let obj = v?.as_object()?;
+    let mut map = EpisodeNotes::new();
+    for (k, val) in obj {
+        let Some(rec_obj) = val.as_object() else { continue };
+        let watched = rec_obj.get("watched").and_then(|x| x.as_bool()).unwrap_or(false);
+        let note = rec_obj.get("note").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let title = rec_obj.get("title").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
+        map.insert(k.clone(), EpisodeRecord { watched, note, title });
+    }
+    if map.is_empty() { None } else { Some(map) }
 }
 
 fn parse_status(v: Option<&serde_json::Value>) -> BookStatus {
@@ -153,6 +188,8 @@ pub fn write_book(
         notes: input.notes.clone(),
         starring: input.starring.clone(),
         screenwriter: input.screenwriter.clone(),
+        seasons: input.seasons.clone().filter(|v| !v.is_empty()),
+        episodes: None,
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -193,6 +230,14 @@ pub fn update_book(
             None => None,
             Some(p) => normalize_progress_input(Some(p)),
         };
+    }
+    // seasons: None = 不改;Some(empty) = 清空(等同 None);Some(non_empty) = 替换
+    if let Some(v) = &patch.seasons {
+        merged.seasons = if v.is_empty() { None } else { Some(v.clone()) };
+    }
+    // episodes 同 seasons 语义
+    if let Some(v) = &patch.episodes {
+        merged.episodes = if v.is_empty() { None } else { Some(v.clone()) };
     }
     merged.updated = now_iso();
 
@@ -281,6 +326,52 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
         }
         fm.insert("progress".into(), serde_json::Value::Object(prog_map));
     }
+    // seasons: 仅在 Some(non_empty) 时写盘;空数组视为 None,稀疏策略
+    if let Some(seasons) = &book.seasons {
+        if !seasons.is_empty() {
+            let arr: Vec<serde_json::Value> = seasons
+                .iter()
+                .map(|s| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("number".into(), serde_json::Value::Number(s.number.into()));
+                    obj.insert(
+                        "episodeCount".into(),
+                        serde_json::Value::Number(s.episode_count.into()),
+                    );
+                    // 季笔记:空串不写(同 notes 策略)
+                    if let Some(notes) = &s.notes {
+                        if !notes.is_empty() {
+                            obj.insert("notes".into(), serde_json::Value::String(notes.clone()));
+                        }
+                    }
+                    serde_json::Value::Object(obj)
+                })
+                .collect();
+            fm.insert("seasons".into(), serde_json::Value::Array(arr));
+        }
+    }
+    // episodes: 仅在 Some(non_empty) 时写盘;key 是 'season-episode' 字符串,内嵌 watched/note/title
+    if let Some(episodes) = &book.episodes {
+        if !episodes.is_empty() {
+            let mut obj = serde_json::Map::new();
+            for (k, rec) in episodes {
+                let mut rec_obj = serde_json::Map::new();
+                rec_obj.insert("watched".into(), serde_json::Value::Bool(rec.watched));
+                // note:空串不写(决策 4 = 最稀疏,等同删 key —— 但此处保留 watched 时仍需写 key)
+                if !rec.note.is_empty() {
+                    rec_obj.insert("note".into(), serde_json::Value::String(rec.note.clone()));
+                }
+                // title:空串 / None 不写
+                if let Some(title) = &rec.title {
+                    if !title.is_empty() {
+                        rec_obj.insert("title".into(), serde_json::Value::String(title.clone()));
+                    }
+                }
+                obj.insert(k.clone(), serde_json::Value::Object(rec_obj));
+            }
+            fm.insert("episodes".into(), serde_json::Value::Object(obj));
+        }
+    }
 
     let front = serde_json::to_string_pretty(&serde_json::Value::Object(fm))
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -333,6 +424,7 @@ mod tests {
             notes: String::new(),
             starring: String::new(),
             screenwriter: String::new(),
+            seasons: None,
         }
     }
 

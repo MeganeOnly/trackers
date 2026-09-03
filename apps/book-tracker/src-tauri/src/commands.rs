@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
 use crate::service::{books, config as cfg_svc, data_dir, ranking, relations};
-use crate::types::{Book, BookInput, BookPatch, Config, Edge, PairwiseResult, RankingFile};
+use crate::types::{Book, BookInput, BookPatch, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -79,6 +79,77 @@ pub fn books_progress_bump(id: String, delta: i32) -> Result<Book, String> {
 pub fn books_delete(id: String) -> Result<(), String> {
     let dir = books_dir()?;
     books::delete_book(&dir, &id).map_err(|e| e.to_string())
+}
+
+// ==================== v1.2 集笔记 commands ====================
+
+/// 整段替换季信息。`seasons: []` 等同"清空"。
+#[tauri::command]
+pub fn books_seasons_set(id: String, seasons: Vec<SeasonInfo>) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_seasons(&dir, &id, seasons).map_err(|e| e.to_string())
+}
+
+/// 切换单集 watched。
+#[tauri::command]
+pub fn books_episode_set_watched(
+    id: String,
+    season: u32,
+    episode: u32,
+    watched: bool,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_episode_watched(&dir, &id, season, episode, watched).map_err(|e| e.to_string())
+}
+
+/// 设置单集笔记。空串 → 删 key(最稀疏)。
+#[tauri::command]
+pub fn books_episode_set_note(
+    id: String,
+    season: u32,
+    episode: u32,
+    note: String,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_episode_note(&dir, &id, season, episode, note).map_err(|e| e.to_string())
+}
+
+/// 设置单集标题。空串 → 删 title 字段(若该集无任何字段,key 也删)。
+#[tauri::command]
+pub fn books_episode_set_title(
+    id: String,
+    season: u32,
+    episode: u32,
+    title: String,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_episode_title(&dir, &id, season, episode, title).map_err(|e| e.to_string())
+}
+
+/// 清空整部剧的所有 episodes。
+#[tauri::command]
+pub fn books_episodes_clear(id: String) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::clear_episodes(&dir, &id).map_err(|e| e.to_string())
+}
+
+/// 进度 +1/-1 联动集笔记。`delta > 0` 时同时把接下来的集标 watched。
+#[tauri::command]
+pub fn books_episode_bump(id: String, delta: i32) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::episode_bump(&dir, &id, delta).map_err(|e| e.to_string())
+}
+
+/// 整体替换 episodes(留给未来 batch 操作 / 导入;v1.2 UI 不直接调用)。
+#[allow(dead_code)]
+#[tauri::command]
+pub fn books_episodes_set(id: String, episodes: EpisodeNotes) -> Result<Book, String> {
+    let dir = books_dir()?;
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    books::update_book(&dir, &id, &patch).map_err(|e| e.to_string())
 }
 
 // ==================== relations commands ====================
