@@ -48,7 +48,7 @@ function AnalyzeBody({ analysis, titleById }: AnalyzeBodyProps): JSX.Element {
 
   return (
     <div className="analyze-body">
-      {/* 健康度 + 拆解 */}
+      {/* 健康度 + 拆解（v2: 4 维度） */}
       <section className="analyze-section">
         <h4>健康度</h4>
         <div className="analyze-score-row">
@@ -61,21 +61,36 @@ function AnalyzeBody({ analysis, titleById }: AnalyzeBodyProps): JSX.Element {
           <li>
             完成率
             <span className="muted">
-              {(stats.completionRate * 100).toFixed(0)}% → +{healthBreakdown.completionRateScore}
+              {stats.activeTotal > 0
+                ? `${stats.done}/${stats.activeTotal} · ${(stats.completionRate * 100).toFixed(0)}% → +${healthBreakdown.completionRateScore}`
+                : '无活跃目标 → +40'}
             </span>
           </li>
           <li>
             孤立节点
             <span className="muted">
-              {orphans.length} 个 → +{healthBreakdown.orphanScore}
+              {orphans.length} 个{stats.activeTotal > 0 && ` (${((orphans.length / stats.activeTotal) * 100).toFixed(0)}%)`} → +
+              {healthBreakdown.orphanScore}
             </span>
           </li>
           <li>
             瓶颈节点
             <span className="muted">
-              {bottlenecks.length} 个 → +{healthBreakdown.bottleneckScore}
+              {bottlenecks.length} 个{stats.activeTotal > 0 && ` (${((bottlenecks.length / stats.activeTotal) * 100).toFixed(0)}%)`} → +
+              {healthBreakdown.bottleneckScore}
             </span>
           </li>
+          <li>
+            关键路径
+            <span className="muted">
+              {stats.maxDepth} 步{stats.maxDepth > 5 && ` (>5 步开始扣)`} → +{healthBreakdown.depthScore}
+            </span>
+          </li>
+          {healthBreakdown.inactiveCount > 0 && (
+            <li className="muted analyze-breakdown-note">
+              含 {healthBreakdown.inactiveCount} 个搁置/放弃目标（不计入分母）
+            </li>
+          )}
         </ul>
       </section>
 

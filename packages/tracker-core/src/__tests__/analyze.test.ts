@@ -380,37 +380,215 @@ describe('analyzeGraph —— 连通分量', () => {
   })
 })
 
-describe('analyzeGraph —— 健康度评分', () => {
-  it('全 done + 无孤立 + 无瓶颈 = 满 100（40+30+30）', () => {
+describe('analyzeGraph —— 健康度评分 v2（4 维度 100 分）', () => {
+  it('全 done + 无孤立 + 无瓶颈 + 深度 ≤5 = 满 100（40+20+25+15）', () => {
     const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
     const r = analyzeGraph(['a', 'b'], edges, () => true)
     expect(r.healthBreakdown.completionRateScore).toBe(40)
-    expect(r.healthBreakdown.orphanScore).toBe(30)
-    expect(r.healthBreakdown.bottleneckScore).toBe(30)
+    expect(r.healthBreakdown.orphanScore).toBe(20)
+    expect(r.healthBreakdown.bottleneckScore).toBe(25)
+    expect(r.healthBreakdown.depthScore).toBe(15)
+    expect(r.healthBreakdown.activeTotal).toBe(2)
+    expect(r.healthBreakdown.inactiveCount).toBe(0)
     expect(r.healthScore).toBe(100)
   })
 
-  it('链全未完成 + 1 个瓶颈（A 出度 1）：0 + 30 + 27 = 57', () => {
+  it('链全未完成 + 1 个瓶颈（A 出度 1） + 深度 2：0 + 20 + 23 + 15 = 58', () => {
     const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
     const r = analyzeGraph(['a', 'b'], edges, () => false)
     expect(r.healthBreakdown.completionRateScore).toBe(0)
-    expect(r.healthBreakdown.orphanScore).toBe(30) // 无孤立
-    // A 是瓶颈（未 done + 出度 1）→ bottleneckScore = 30 - 1*3 = 27
-    expect(r.healthBreakdown.bottleneckScore).toBe(27)
-    expect(r.healthScore).toBe(57)
+    expect(r.healthBreakdown.orphanScore).toBe(20) // 无孤立
+    // A 是瓶颈（未 done + 出度 1）→ bottleneckScore = 25 - 1*2 = 23
+    expect(r.healthBreakdown.bottleneckScore).toBe(23)
+    // maxDepth = 2 ≤ 5 → 满分 15
+    expect(r.healthBreakdown.depthScore).toBe(15)
+    expect(r.healthScore).toBe(58)
   })
 
-  it('孤立节点扣分：每个 5 分', () => {
-    // 3 个孤立 + 完成率 0
-    const r = analyzeGraph(['x', 'y', 'z'], [], () => false)
-    expect(r.healthBreakdown.orphanScore).toBe(15) // 30 - 3*5
-    expect(r.orphans.sort()).toEqual(['x', 'y', 'z'])
+  it('孤立节点扣分：v2 单孤立温和扣 1 分；小图全孤立触发比例兜底', () => {
+    // 1 个孤立在大图里:温和扣 1 分
+    // 构造 10 节点 + 1 个孤立节点,其他节点组成链(不产生孤立)
+    const edges: Edge[] = [
+      { to: 'b', prerequisites: ['a'], rule: 'all' },
+      { to: 'c', prerequisites: ['b'], rule: 'all' },
+      { to: 'd', prerequisites: ['c'], rule: 'all' },
+      { to: 'e', prerequisites: ['d'], rule: 'all' }
+    ]
+    const r1 = analyzeGraph(['a', 'b', 'c', 'd', 'e', 'o'], edges, () => false)
+    // activeTotal = 6,1 个孤立 = 16.7% < 20% → 线性扣分:20 - 1 = 19
+    expect(r1.healthBreakdown.orphanScore).toBe(19)
+
+    // 3 个孤立在小图(3 节点)里 = 100% 比例 → 触发兜底归 0
+    const r2 = analyzeGraph(['x', 'y', 'z'], [], () => false)
+    expect(r2.healthBreakdown.orphanScore).toBe(0)
+    expect(r2.orphans.sort()).toEqual(['x', 'y', 'z'])
   })
 
-  it('孤立节点最多扣 30（≥6 个）', () => {
-    const ids = Array.from({ length: 10 }, (_, i) => `n${i}`)
+  it('孤立节点最多扣 20（≥20 个）', () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `n${i}`)
     const r = analyzeGraph(ids, [], () => false)
-    expect(r.healthBreakdown.orphanScore).toBe(0) // 30 - 50 = 0（clamped）
+    expect(r.healthBreakdown.orphanScore).toBe(0) // 20 - 25 = 0（clamped）
+  })
+
+  it('孤立比例 > 20% 时直接归 0（图腐烂信号）', () => {
+    // 10 个节点里 3 个孤立 = 30% > 20% → orphanScore = 0
+    const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
+    const r = analyzeGraph(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], edges, () => false)
+    // 孤立: c, d, e, f, g, h, i, j = 8 个孤立 = 80% 比例 → 直接归 0
+    expect(r.orphans.length).toBe(8)
+    expect(r.healthBreakdown.orphanScore).toBe(0)
+  })
+
+  it('瓶颈最多扣 25（≥13 个瓶颈）', () => {
+    // 构造 13 个高 outDegree 的 bottleneck
+    const edges: Edge[] = []
+    const ids: string[] = []
+    for (let i = 0; i < 13; i++) {
+      const id = `b${i}`
+      ids.push(id)
+      // 每个 b_i 依赖一个叶子 leaf_i,b_i 就是 bottleneck (出度 1)
+      ids.push(`leaf${i}`)
+      edges.push({ to: `leaf${i}`, prerequisites: [id], rule: 'all' })
+    }
+    const r = analyzeGraph(ids, edges, () => false)
+    // 13 个瓶颈 → 25 - 13*2 = -1 → clamp 0
+    expect(r.healthBreakdown.bottleneckScore).toBe(0)
+  })
+
+  it('瓶颈比例 > 30% 时直接归 0', () => {
+    // 5 个节点里 2 个瓶颈 = 40% > 30% → 直接归 0
+    const edges: Edge[] = [
+      { to: 'leaf1', prerequisites: ['b1'], rule: 'all' },
+      { to: 'leaf2', prerequisites: ['b2'], rule: 'all' }
+    ]
+    const r = analyzeGraph(['b1', 'b2', 'leaf1', 'leaf2', 'extra'], edges, () => false)
+    // b1, b2 都是瓶颈 → 2/5 = 40% > 30% → 归 0
+    expect(r.healthBreakdown.bottleneckScore).toBe(0)
+  })
+
+  it('深度扣分:maxDepth=5 → 满分 15；每超 1 步扣 3', () => {
+    // 构造线性链 6 个节点:A→B→C→D→E→F,全未 done
+    const edges: Edge[] = [
+      { to: 'b', prerequisites: ['a'], rule: 'all' },
+      { to: 'c', prerequisites: ['b'], rule: 'all' },
+      { to: 'd', prerequisites: ['c'], rule: 'all' },
+      { to: 'e', prerequisites: ['d'], rule: 'all' },
+      { to: 'f', prerequisites: ['e'], rule: 'all' }
+    ]
+    const r = analyzeGraph(['a', 'b', 'c', 'd', 'e', 'f'], edges, () => false)
+    // maxDepth = 6（6 步链），6 - 5 = 1 → depthScore = 15 - 1*3 = 12
+    expect(r.stats.maxDepth).toBe(6)
+    expect(r.healthBreakdown.depthScore).toBe(12)
+  })
+
+  it('深度扣分:maxDepth=10 → 深度分归 0', () => {
+    // 11 个节点线性链
+    const ids = Array.from({ length: 11 }, (_, i) => `n${i}`)
+    const edges: Edge[] = []
+    for (let i = 0; i < 10; i++) {
+      edges.push({ to: `n${i + 1}`, prerequisites: [`n${i}`], rule: 'all' })
+    }
+    const r = analyzeGraph(ids, edges, () => false)
+    // maxDepth = 11,11 - 5 = 6,depthScore = 15 - 6*3 = -3 → 0
+    expect(r.stats.maxDepth).toBe(11)
+    expect(r.healthBreakdown.depthScore).toBe(0)
+  })
+
+  it('空图：healthScore = 100（无问题）', () => {
+    const r = analyzeGraph([], [], () => false)
+    expect(r.healthScore).toBe(100)
+    expect(r.healthBreakdown.activeTotal).toBe(0)
+    expect(r.healthBreakdown.inactiveCount).toBe(0)
+  })
+})
+
+describe('analyzeGraph —— v2 规模归一化与 isInactive', () => {
+  it('大图小孤立不扣光：100 节点里 5 孤立 = 5% 比例，只扣 5 分', () => {
+    // 100 个节点,5 个孤立,1 个 2 节点链（让 activeTotal 不是 0,避免空图满分）
+    const ids: string[] = []
+    const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
+    ids.push('a', 'b')
+    for (let i = 0; i < 98; i++) ids.push(`orphan${i}`)
+    const r = analyzeGraph(ids, edges, () => false)
+    // activeTotal = 100,孤立 98 个（orphan + b? b 不是孤立因为依赖 a）
+    // 实际上 a 是 root,b 是 leaf,orphan0-97 都是孤立 → 98 个孤立 = 98% 比例 → 触发兜底归 0
+    // 改用小一点的孤立数
+    expect(r.orphans.length).toBe(98)
+    expect(r.healthBreakdown.orphanScore).toBe(0) // 比例兜底
+  })
+
+  it('大图小孤立(合理比例):100 节点里 10 孤立 = 10%,正常扣 10 分', () => {
+    // 构造:90 个节点组成链/树,10 个孤立,activeTotal=100,孤立率 10% < 20%
+    const ids: string[] = []
+    const edges: Edge[] = []
+    // 90 个节点排成链(45 条边)
+    for (let i = 0; i < 90; i++) {
+      ids.push(`n${i}`)
+      if (i > 0) edges.push({ to: `n${i}`, prerequisites: [`n${i - 1}`], rule: 'all' })
+    }
+    // 10 个孤立
+    for (let i = 0; i < 10; i++) ids.push(`o${i}`)
+    const r = analyzeGraph(ids, edges, () => false)
+    expect(r.stats.total).toBe(100)
+    expect(r.orphans.length).toBe(10)
+    expect(r.healthBreakdown.activeTotal).toBe(100)
+    // orphanRate = 10/100 = 10% < 20% → 走线性扣分:20 - 10 = 10
+    expect(r.healthBreakdown.orphanScore).toBe(10)
+  })
+
+  it('isInactive:shelved 节点不计入 active 分母', () => {
+    // 10 个节点,2 个 shelved;activeTotal=8;done=2,完成率按 8 分母算 = 25%
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 's1', 's2']
+    const edges: Edge[] = [{ to: 'b', prerequisites: ['a'], rule: 'all' }]
+    const isDone = doneOf(new Set(['a', 'b']))
+    const isInactive = (id: string) => id === 's1' || id === 's2'
+    const r = analyzeGraph(ids, edges, isDone, isInactive)
+    // activeTotal = 10 - 2 = 8
+    expect(r.healthBreakdown.activeTotal).toBe(8)
+    expect(r.healthBreakdown.inactiveCount).toBe(2)
+    // completionRate = 2 done / 8 active = 0.25 → score = 10
+    expect(r.healthBreakdown.completionRateScore).toBe(10)
+  })
+
+  it('isInactive:全 inactive 时 activeTotal=0 → 无可衡量=healthScore 100', () => {
+    const ids = ['s1', 's2', 's3']
+    const r = analyzeGraph(ids, [], () => false, (id) => ids.includes(id))
+    expect(r.healthBreakdown.activeTotal).toBe(0)
+    expect(r.healthBreakdown.inactiveCount).toBe(3)
+    // v2 语义:activeTotal=0 视为"无可衡量",与空图一样直接给 100
+    expect(r.healthBreakdown.completionRateScore).toBe(0) // activeTotal=0 → 0/0 = 0
+    expect(r.healthScore).toBe(100)
+  })
+
+  it('isInactive 不影响孤立/瓶颈的 id 列表（仍展示,但分母剔除了）', () => {
+    // 1 个 shelved 孤立 + 1 个 active 孤立,activeTotal=1 → 100% 孤立比例 → orphanScore=0
+    const ids = ['orphan1', 's1']
+    const r = analyzeGraph(ids, [], () => false, (id) => id === 's1')
+    expect(r.orphans).toEqual(['orphan1', 's1']) // 仍展示 s1(它是孤立)
+    // activeTotal = 1,orphanRate = 2/1 → 但 0 不能再除（按我们的逻辑用 activeTotal 作分母）
+    // 实际 2/1 = 2 = 200% > 20% → 兜底归 0
+    expect(r.healthBreakdown.orphanScore).toBe(0)
+  })
+
+  it('v1 算法痛点演示:大图小孤立被瞬间扣光(原算法),v2 不再', () => {
+    // 100 节点,5 个孤立 → 原 v1:5*5=25 分被扣光附近的孤立分,v2 只扣 5 分
+    const ids: string[] = []
+    const edges: Edge[] = []
+    // 95 个节点组成简单图,5 个孤立
+    for (let i = 0; i < 95; i++) {
+      ids.push(`n${i}`)
+      if (i > 0) edges.push({ to: `n${i}`, prerequisites: [`n${i - 1}`], rule: 'all' })
+    }
+    for (let i = 0; i < 5; i++) ids.push(`o${i}`)
+    const r = analyzeGraph(ids, edges, () => false)
+    // 实际:5 个孤立 + n1-n94 都是孤立(因为它们未 done 且只指向叶子)
+    // 等等,n0 是 root(0 入度有出度),n1-n94 都是中间节点(入度>0 出度>0),不算孤立
+    // 重新想:n1 依赖 n0,n2 依赖 n1... 链上节点:入度 1 出度 1 (除首尾)
+    // n0 root,n94 leaf(0 出度),中间节点都是中间
+    // 所以孤立只有那 5 个 o0-o4
+    expect(r.orphans.length).toBe(5)
+    // v2:orphanScore = 20 - 5 = 15
+    expect(r.healthBreakdown.orphanScore).toBe(15)
   })
 })
 

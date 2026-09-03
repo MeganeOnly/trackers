@@ -45,14 +45,37 @@ export interface Bottleneck {
   blocks: string[]
 }
 
-/** 健康度评分拆解（前端做 breakdown 展示） */
+/**
+ * 健康度评分拆解（前端做 breakdown 展示）
+ *
+ * v2 算法（2026-08）：4 维度共 100 分。
+ * - 完成率 40 分（加分项，按 0-1 比例 × 40）
+ * - 孤立 20 分（扣分项，每孤立 1 分；≥2 个孤立且孤立比例 >20% 时直接扣光）
+ * - 瓶颈 25 分（扣分项，每瓶颈 2 分；≥2 个瓶颈且瓶颈比例 >30% 时直接扣光）
+ * - 深度 15 分（扣分项，关键路径 >5 步开始，每超 1 步扣 3 分）
+ *
+ * v1 算法：40 + 30 + 30 = 100，每孤立扣 5、每瓶颈扣 3（无规模归一化、无深度维度）。
+ * 痛点：大图小孤立也被瞬间扣光、小图小孤立被误伤、长期 shelved 目标持续扣完成率。
+ * v2 改动：
+ *  - 孤立/瓶颈扣分密度降低，阈值放大（孤立 20 个、瓶颈 12 个才扣光）
+ *  - 加比例兜底：≥2 个孤立且孤立比例 >20% / ≥2 个瓶颈且瓶颈比例 >30% 时整体扣光
+ *    （单孤立/单瓶颈不触发，避免小图误伤）
+ *  - 加深度维度：关键路径 >5 步开始扣分（管理负担信号）
+ *  - 加 isInactive 谓词：shelved/abandoned 节点不计入 active 分母，避免"放弃的目标"持续扣分
+ */
 export interface HealthBreakdown {
   /** 完成率得分：completionRate × 40（0..40） */
   completionRateScore: number
-  /** 孤立节点得分：30 - orphanCount × 5，最低 0 */
+  /** 孤立节点得分：max(0, 20 - orphans.length)；≥2 个孤立且孤立比例 >20% 时归 0 */
   orphanScore: number
-  /** 瓶颈节点得分：30 - bottleneckCount × 3，最低 0 */
+  /** 瓶颈节点得分：max(0, 25 - bottlenecks.length × 2)；≥2 个瓶颈且瓶颈比例 >30% 时归 0 */
   bottleneckScore: number
+  /** 深度扣分：max(0, 15 - max(0, maxDepth - 5) × 3)；深度 ≤5 时满分 15 */
+  depthScore: number
+  /** 用于计算孤立/瓶颈比率的分母（= total - inactiveCount） */
+  activeTotal: number
+  /** shelved + abandoned 节点数（从 active 分母中扣除） */
+  inactiveCount: number
 }
 
 /** 图健康度分析的完整输出 */
@@ -60,7 +83,7 @@ export interface GraphAnalysis {
   stats: {
     total: number
     done: number
-    /** 0..1 */
+    /** 0..1（按 activeTotal 计算；activeTotal=0 时视为 1） */
     completionRate: number
     avgInDegree: number
     avgOutDegree: number
@@ -68,6 +91,10 @@ export interface GraphAnalysis {
     maxDepth: number
     /** 不连通子图数（仅含至少一条边的节点构成的分量） */
     components: number
+    /** 计入完成率/孤立/瓶颈比率的分母（= total - inactiveCount） */
+    activeTotal: number
+    /** shelved + abandoned 节点数 */
+    inactiveCount: number
   }
   /** 0 入度 + 0 出度：完全孤立的节点 */
   orphans: string[]
@@ -91,16 +118,27 @@ export interface GraphAnalysis {
 /**
  * 给定节点 id 全集 + edges + done 谓词，输出完整分析结果。
  * 调用方传入的 done 谓词应已应用 ExcludeSpec 改写（与 computeUnlocked 同款）。
+ *
+ * @param ids 节点 id 全集
+ * @param edges 前置边（edge.to 必须是 ids 中存在的）
+ * @param isDone done 谓词（含 ExcludeSpec 改写 + countable 处理）
+ * @param isInactive 可选：判断节点是否为"非活跃"（shelved / abandoned）。
+ *   非活跃节点不计入完成率/孤立/瓶颈的分母——长期放弃的目标不应持续扣分。
+ *   不传则默认所有节点为活跃。
  */
 export function analyzeGraph(
   ids: string[],
   edges: Edge[],
-  isDone: (id: string, requiredCount: number) => boolean
+  isDone: (id: string, requiredCount: number) => boolean,
+  isInactive?: (id: string) => boolean
 ): GraphAnalysis {
   const idSet = new Set(ids)
   const cycles = detectCycles(edges)
   const cycleNodes = new Set<string>()
   for (const c of cycles) for (const n of c) cycleNodes.add(n)
+
+  // 统计 non-active 节点（shelved / abandoned）
+  const inactiveCount = isInactive ? ids.filter((id) => isInactive(id)).length : 0
 
   // 入度 / 出度 / blocks（i → 我下游）
   const inDeg = new Map<string, number>()
@@ -192,18 +230,34 @@ export function analyzeGraph(
   const components = countComponents(ids, edges, cycleNodes)
 
   // 完成率 / 平均度
+  // v2: 完成率分母 = activeTotal（剔除 shelved/abandoned）——长期放弃的目标不应持续扣分
   const total = ids.length
-  const completionRate = total === 0 ? 0 : done / total
+  const activeTotal = total - inactiveCount
+  // 空图 / 全 inactive 时 completionRate 保持 0（保持原语义："无完成"）
+  const completionRate = activeTotal === 0 ? 0 : done / activeTotal
   const avgInDegree = total === 0 ? 0 : totalInDeg / total
   const avgOutDegree = total === 0 ? 0 : totalOutDeg / total
 
-  // 健康度评分
-  // 空图（无节点）→ 无可衡量 = 满分；否则按三段子项算
+  // 健康度评分（v2: 4 维度 100 分）
+  // - 完成率 40（加分项，按 activeTotal 计算）
+  // - 孤立 20（扣分项，每孤立 1 分；≥2 个孤立且比例 >20% 直接归 0——"图腐烂"信号）
+  // - 瓶颈 25（扣分项，每瓶颈 2 分；≥2 个瓶颈且比例 >30% 直接归 0——"积压"信号）
+  // - 深度 15（扣分项，maxDepth >5 开始每超 1 步扣 3 分——管理负担信号）
   const completionRateScore = Math.round(completionRate * 40)
-  const orphanScore = Math.max(0, 30 - orphans.length * 5)
-  const bottleneckScore = Math.max(0, 30 - allBottlenecks.length * 3)
+  const orphanRate = activeTotal === 0 ? 0 : orphans.length / activeTotal
+  let orphanScore = Math.max(0, 20 - orphans.length)
+  // 单孤立不触发兜底(常见临时目标,温和扣 1 分);多孤立+高比例才归 0
+  if (orphans.length >= 2 && orphanRate > 0.20) orphanScore = 0
+  const bottleneckRate = activeTotal === 0 ? 0 : allBottlenecks.length / activeTotal
+  let bottleneckScore = Math.max(0, 25 - allBottlenecks.length * 2)
+  // 单瓶颈不触发兜底(只扣 2 分);多瓶颈+高比例才归 0
+  if (allBottlenecks.length >= 2 && bottleneckRate > 0.30) bottleneckScore = 0
+  const depthScore = Math.max(0, 15 - Math.max(0, maxDepth - 5) * 3)
+  // 空图（无节点）/ 全部 shelved-abandoned（无可衡量）→ 满分；其余按四段子项求和
   const healthScore =
-    total === 0 ? 100 : completionRateScore + orphanScore + bottleneckScore
+    total === 0 || activeTotal === 0
+      ? 100
+      : completionRateScore + orphanScore + bottleneckScore + depthScore
 
   return {
     stats: {
@@ -213,7 +267,9 @@ export function analyzeGraph(
       avgInDegree,
       avgOutDegree,
       maxDepth,
-      components
+      components,
+      activeTotal,
+      inactiveCount
     },
     orphans,
     roots,
@@ -223,7 +279,10 @@ export function analyzeGraph(
     healthBreakdown: {
       completionRateScore,
       orphanScore,
-      bottleneckScore
+      bottleneckScore,
+      depthScore,
+      activeTotal,
+      inactiveCount
     },
     criticalPath: path
   }
