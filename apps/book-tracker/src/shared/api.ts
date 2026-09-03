@@ -1,4 +1,5 @@
-import type { Book, BookInput, Config, Edge, PairwiseResult, RankingFile } from './types'
+import type { Book, BookInput, Config, Edge, PairwiseResult, RankingFile, SeasonInfo } from './types'
+import type { EpisodeNotes } from './types'
 
 export interface BrokenEntry {
   id: string
@@ -9,13 +10,26 @@ export interface BookAPI {
   list(): Promise<{ books: Book[]; broken: BrokenEntry[] }>
   get(id: string): Promise<Book | null>
   create(input: BookInput): Promise<Book>
-  update(id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string; starring?: string; screenwriter?: string }): Promise<Book>
+  update(id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string; starring?: string; screenwriter?: string; seasons?: SeasonInfo[] }): Promise<Book>
   /**
    * 快速调整进度：`delta` 为 +1/+5 时递增 current；为 -1/-5 时递减（不低于 0）；
    * 当前没有 progress 时初始化为 { current: max(delta,1), total: null }。
    */
   progressBump(id: string, delta: number): Promise<Book>
   delete(id: string): Promise<void>
+  // -------- v1.2 集笔记 --------
+  /** 整段替换季信息。`seasons: []` 等同清空 */
+  seasonsSet(id: string, seasons: SeasonInfo[]): Promise<Book>
+  /** 切换单集 watched;watched=true 时若 key 不存在则新建;false 时无字段则删 key */
+  episodeSetWatched(id: string, season: number, episode: number, watched: boolean): Promise<Book>
+  /** 设置单集笔记;空串 → 删 key(最稀疏) */
+  episodeSetNote(id: string, season: number, episode: number, note: string): Promise<Book>
+  /** 设置单集标题;空串 → 删 title 字段(若该集无字段则删 key) */
+  episodeSetTitle(id: string, season: number, episode: number, title: string): Promise<Book>
+  /** 清空整部剧的所有 episodes */
+  episodesClear(id: string): Promise<Book>
+  /** 进度 +1/-1 联动集笔记;`delta > 0` 时把接下来的集标 watched */
+  episodeBump(id: string, delta: number): Promise<Book>
 }
 
 export interface RelationsAPI {

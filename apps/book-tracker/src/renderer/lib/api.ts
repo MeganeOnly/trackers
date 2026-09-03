@@ -26,7 +26,17 @@ export const api: ElectronAPI & {
     create: (input) => invoke<Book>('books_create', { input }),
     update: (id, patch) => invoke<Book>('books_update', { id, patch }),
     progressBump: (id, delta) => invoke<Book>('books_progress_bump', { id, delta }),
-    delete: (id) => invoke<void>('books_delete', { id })
+    delete: (id) => invoke<void>('books_delete', { id }),
+    // v1.2 集笔记
+    seasonsSet: (id, seasons) => invoke<Book>('books_seasons_set', { id, seasons }),
+    episodeSetWatched: (id, season, episode, watched) =>
+      invoke<Book>('books_episode_set_watched', { id, season, episode, watched }),
+    episodeSetNote: (id, season, episode, note) =>
+      invoke<Book>('books_episode_set_note', { id, season, episode, note }),
+    episodeSetTitle: (id, season, episode, title) =>
+      invoke<Book>('books_episode_set_title', { id, season, episode, title }),
+    episodesClear: (id) => invoke<Book>('books_episodes_clear', { id }),
+    episodeBump: (id, delta) => invoke<Book>('books_episode_bump', { id, delta })
   },
   relations: {
     get: () => invoke<Edge[]>('relations_get'),
