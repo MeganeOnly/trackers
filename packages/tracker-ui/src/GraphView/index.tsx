@@ -41,6 +41,7 @@ import {
   DEFAULT_TREE_DIMS
 } from './useTreeLayout'
 import { useAutoCenter } from './useAutoCenter'
+import { useInitialZoom } from './useInitialZoom'
 import { drawTagChips } from './drawTagChips'
 import { ForceParamsPanel } from './ForceParamsPanel'
 import { SearchBox } from './SearchBox'
@@ -267,7 +268,7 @@ export function GraphView<
   useEffect(() => {
     searchActiveRef.current = isSearchActive
   }, [isSearchActive])
-  const { motionRef, pointerOverRef, setPointerOver, forceTickRef, setCollideRadius } = useGraphPhysics(
+  const { motionRef, pointerOverRef, setPointerOver, forceTickRef, setCollideRadius, setLinkDistance } = useGraphPhysics(
     fgRef,
     visibleData.nodes,
     layoutModeRef,
@@ -288,6 +289,8 @@ export function GraphView<
 
   // 高亮 + 自动居中
   useAutoCenter(fgRef, visibleData.nodes, dims, highlightId)
+  // 默认初始 zoom 放大(2026-08 v11)—— 见 useInitialZoom.ts 文件头注释
+  useInitialZoom(fgRef, visibleData.nodes)
 
   // layoutMode 同步到 ref（pointerOver effect 会读它）
   useEffect(() => {
@@ -557,6 +560,7 @@ export function GraphView<
           forceTickRef={forceTickRef}
           layoutMode={layoutModeProp}
           setCollideRadius={setCollideRadius}
+          setLinkDistance={setLinkDistance}
           onClose={onForceParamsClose ?? ((): void => {})}
         />
       )}
@@ -615,6 +619,7 @@ export {
 } from './useTreeLayout'
 export type { TreeLayoutDims } from './useTreeLayout'
 export { useAutoCenter, SETTLE_DELAY_MS, IMMEDIATE_CENTER_MS, SETTLE_CENTER_MS } from './useAutoCenter'
+export { useInitialZoom, computeInitialZoom, INITIAL_ZOOM_FACTOR, INITIAL_ZOOM_CAP, INITIAL_ZOOM_FLOOR } from './useInitialZoom'
 export { drawTagChips } from './drawTagChips'
 export { ForceParamsPanel } from './ForceParamsPanel'
 export { SearchBox } from './SearchBox'
