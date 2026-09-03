@@ -2362,5 +2362,20 @@ UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert �
 - `cargo test -p book-tracker --lib` 35 → 36(新增 nextSeasonId round-trip 测试)。
 - 手动流程验证:① BookForm 季设置失焦立即写盘 + 顶部"已保存"提示;② BookDetail 下一季关联 + 跳转;③ CleanMode 点击 + 按钮区 stopPropagation。
 
+### 5. 后续 v1.6.1:「改了没失焦就保存」的兜底修复
+
+**现象(本轮 commit 9f87475)**:v1.6 commit d2415f2 让 BookForm 季设置 input 走 onBlur 实时写盘,故意在 handleSubmit 编辑模式下 `delete patch.seasons` 防双写。但用户实测「鉴证实录 修改了集数 也还是没有用」—— **改了 input 没失焦就点保存的场景**,onBlur 没触发,handleSubmit 又把 patch.seasons 删掉,修改丢失。
+
+同样问题出现在 EpisodesPanel 的 "X 集" input:v1.4 写了 `scheduleCountFlush` debounce 函数,但**从未在 onChange 中调用** —— input 仅靠 onBlur 写盘,用户切换作品 / 关闭 app 时丢失。
+
+**修复**:
+
+- **BookForm handleSubmit 编辑模式**:tv/anime 保留 input.seasons(以本地 React state 为准),不再总是 delete。非 tv/anime 仍 delete(保持 v1.5 前的"清掉老 seasons 字段"语义)。
+- **EpisodesPanel "X 集" input**:onChange 调 scheduleCountFlush(),500ms debounce 实时写盘;onBlur / Enter 立即写盘。三种写盘时机(失焦 / 回车 / 停 500ms)统一心智。
+
+**判断"实时写盘 vs form 提交"**:v1.6 我以为「实时写盘 + 删除 patch.seasons 防双写」是正确做法,但忽略了**用户不一定会失焦**。"双写同一个值"在 IPC 层面只是浪费一次调用,**不丢数据**——所以 patch.seasons 兜底是安全的。"删除 patch.seasons 防竞态"是过度防御,真正的修复是:**onBlur 实时写盘 + handleSubmit 兜底带 patch.seasons + debounce 实时写盘**三条防线一起上,而不是"删掉 patch.seasons 一了百了"。
+
+**回归**:新增 `legacy_tv_set_seasons_round_trip`(模拟老 tv 文件无 seasons → 写 → 读);book-tracker cargo 36 → 37 + vitest 156 全绿;typecheck 3 端全过。
+
 ---
 
