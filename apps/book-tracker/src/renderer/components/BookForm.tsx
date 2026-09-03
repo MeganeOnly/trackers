@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Modal } from './Modal'
 import { useBooksStore } from '../store/books'
 import { useSettingsStore } from '../store/settings'
@@ -87,6 +87,7 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const create = useBooksStore((s) => s.create)
   const update = useBooksStore((s) => s.update)
   const remove = useBooksStore((s) => s.remove)
+  const seasonsSet = useBooksStore((s) => s.setSeasons)
   const defaultWorkKind = useSettingsStore((s) => s.defaultWorkKind)
 
   const isEdit = book !== null
@@ -115,6 +116,9 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 「已保存」短提示(失焦实时写盘的反馈);与 BookDetail 同款 1.5s 自动消失
+  const [seasonsSaved, setSeasonsSaved] = useState(false)
+  const seasonsSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 季设置 —— 仅 tv/anime 用;book?.seasons 为空时兜底用 progress.total 推一个单季
   const [seasons, setSeasons] = useState<SeasonInfo[]>(
     book?.seasons && book.seasons.length > 0
@@ -137,22 +141,65 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   function addSeason(): void {
     const nextNumber =
       seasons.length === 0 ? 1 : Math.max(...seasons.map((s) => s.number)) + 1
-    setSeasons([...seasons, { number: nextNumber, episodeCount: 0 }])
+    const next = [...seasons, { number: nextNumber, episodeCount: 0 }]
+    setSeasons(next)
+    // 编辑模式下实时写盘(与 onBlur 同款);新建模式下不写(create 时一并提交)
+    if (book) {
+      void seasonsSet(book.id, next).then(() => flashSeasonsSaved())
+    }
   }
   function removeSeason(idx: number): void {
+    let next: SeasonInfo[]
     if (seasons.length <= 1) {
       // 至少留一季(用户主动删完就只剩空季也允许,但 UI 上空季没意义 —— 强制删季时若只有 1 季,改其集数为 0)
-      const next = [...seasons]
+      next = [...seasons]
       next[idx] = { ...next[idx], episodeCount: 0 }
-      setSeasons(next)
-      return
+    } else {
+      next = seasons.filter((_, i) => i !== idx)
     }
-    setSeasons(seasons.filter((_, i) => i !== idx))
+    setSeasons(next)
+    // 编辑模式下实时写盘
+    if (book) {
+      void seasonsSet(book.id, next).then(() => flashSeasonsSaved())
+    }
   }
   function updateSeasonCount(idx: number, count: number): void {
     const next = [...seasons]
     next[idx] = { ...next[idx], episodeCount: Math.max(0, Math.floor(count) || 0) }
     setSeasons(next)
+  }
+
+  /**
+   * 「季设置已保存」短提示触发器 —— 1.5s 自动消失(同 BookDetail 的 `saved` 反馈)。
+   * 抽出来共享给 flushSeason / addSeason / removeSeason 三处,避免重复 timer 清理逻辑。
+   */
+  function flashSeasonsSaved(): void {
+    setSeasonsSaved(true)
+    if (seasonsSavedTimerRef.current) clearTimeout(seasonsSavedTimerRef.current)
+    seasonsSavedTimerRef.current = setTimeout(() => setSeasonsSaved(false), 1500)
+  }
+
+  /**
+   * 季设置失焦实时写盘(v1.6 起)—— 与 EpisodesPanel 的"X 集"input 同款语义:
+   * 改完失焦 / 回车就调 setSeasons IPC,不等底部"保存"按钮,避免用户在改数字的中间
+   * (清空 / 临时值)被切走 / 关闭弹窗时丢失修改。
+   *
+   * 只有"实际值有变化"才发(避免冗余 IPC);只有编辑已有 book 时才有 book prop,
+   * 新建作品(this.book === null)不调 IPC,等 handleSubmit 走 create 时一并提交。
+   */
+  function flushSeason(idx: number): void {
+    if (!book) return
+    const target = seasons[idx]
+    if (!target) return
+    // 与已持久化的 seasons 对比,无变化不写
+    const persisted = book.seasons && book.seasons.length > 0 ? book.seasons : []
+    const persistedEpisodeCount = persisted.find((s) => s.number === target.number)?.episodeCount
+    if (persistedEpisodeCount === target.episodeCount) return
+    // 整段替换 seasons(只改当前季的 episodeCount,其他季不动)
+    const next = seasons.map((s) =>
+      s.number === target.number ? { ...s, episodeCount: target.episodeCount } : s
+    )
+    void seasonsSet(book.id, next).then(() => flashSeasonsSaved())
   }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
@@ -194,16 +241,18 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           }
         }
       }
-      // 季设置:仅 tv/anime 写入;空数组 / 全 0 集 → 不写
-      if (kind === 'tv' || kind === 'anime') {
-        const nonEmpty = seasons.filter((s) => s.episodeCount > 0)
-        if (nonEmpty.length > 0) {
-          input.seasons = nonEmpty
+      // 季设置:仅 tv/anime 写入。
+      // **编辑模式**下季设置已通过 input onBlur 实时写盘(setSeasons IPC),
+      // handleSubmit 不再覆盖,避免"用户改完失焦→保存按钮触发再次写盘"的双写竞态。
+      // **新建模式**下(book === null)需要把 seasons 写进 input 走 create。
+      if (!isEdit && (kind === 'tv' || kind === 'anime')) {
+        if (seasons.length > 0) {
+          input.seasons = seasons
           // tv/anime 时 progress.total 跟 seasons 总和保持同步(避免出现 5 季但 total 还是 10 的错位)
           if (input.progress) {
             input.progress = {
               ...input.progress,
-              total: nonEmpty.reduce((sum, s) => sum + s.episodeCount, 0)
+              total: seasons.reduce((sum, s) => sum + s.episodeCount, 0)
             }
           }
         }
@@ -212,12 +261,10 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         const patch: Parameters<typeof update>[1] = { ...input, read_count: readCount }
         // 编辑模式下,如果 status 不是「进行中」,主动清空 progress（用户主动清除意图）
         if (status !== 'reading' && status !== 'watching') patch.progress = null
-        // 编辑模式下若 tv/anime 且用户没动 seasons,就不带 seasons 字段(避免 patch 覆盖为 None)
-        // —— 但因为 input.seasons 已经过滤过(空就不传),patch 走的是 spread input,
-        // 所以这里需要主动判断:只在 input.seasons 真的有值时才带
-        if (!(kind === 'tv' || kind === 'anime') || !input.seasons) {
-          delete (patch as { seasons?: unknown }).seasons
-        }
+        // 编辑模式下不传 seasons（v1.6 起由季设置 input onBlur 实时写盘走 setSeasons IPC,
+        // 避免「实时写盘 + 保存按钮 patch」双写造成竞态或覆盖）。
+        // kind 不是 tv/anime 时主动 delete（保持现状,清掉老 seasons 字段）。
+        delete (patch as { seasons?: unknown }).seasons
         await update(book.id, patch)
       } else {
         await create(input)
@@ -382,6 +429,11 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
               <span>季设置</span>
               <span className="muted">
                 总集数 = {seasons.reduce((sum, s) => sum + s.episodeCount, 0)}
+                {seasonsSaved && book && (
+                  <span className="seasons-saved-tag" style={{ marginLeft: '8px' }}>
+                    · 季设置已保存
+                  </span>
+                )}
               </span>
             </div>
             {seasons.map((s, idx) => (
@@ -391,8 +443,16 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
                   type="number"
                   value={s.episodeCount}
                   onChange={(e) => updateSeasonCount(idx, Number(e.target.value))}
+                  onBlur={() => flushSeason(idx)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      e.currentTarget.blur()
+                    }
+                  }}
                   min="0"
                   placeholder="集数"
+                  title={book ? '失焦或回车自动保存' : '保存作品时一并提交'}
                 />
                 <span className="season-unit">集</span>
                 <button
@@ -411,6 +471,9 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
             </button>
             <p className="muted seasons-hint">
               单集笔记 / 标题在详情页编辑;季数中途变化时旧的集笔记保留(用户手填即可)。
+              {book
+                ? '编辑模式下改完失焦或回车自动保存,不需要点底部"保存"按钮。'
+                : '新建作品时季设置随作品一起保存。'}
             </p>
           </div>
         )}
