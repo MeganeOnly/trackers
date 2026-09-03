@@ -7,7 +7,7 @@ import { resolve } from 'node:path'
 // - dev 端口固定 1420(tauri.conf.json devUrl 对应)
 // - build 输出到 <project>/dist/(frontendDist ../dist 对应)
 // - 不监听 src-tauri/(Rust 改动由 cargo 自己处理)
-// - @core 指向 monorepo 共享内核 packages/tracker-core(fs.allow 放开到 repo 根)
+// - @core / @ui 指向 monorepo 共享内核 packages/*(@shared 在 vite root 外),fs.allow 只放开这俩父目录
 
 export default defineConfig({
   root: 'src/renderer',
@@ -17,9 +17,13 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: '127.0.0.1',
-    // root 在 src/renderer,但 @core 引用 repo 根的 packages/ → 必须放开 fs.allow
+    // root 在 src/renderer,但 @core / @ui / @shared 都指向 vite root 之外 → 必须显式 allow
+    // 只允许 alias 实际解析到的目录,避免 Vite 启动时扫整个 repo 根(node_modules / target / 其它 apps)
     fs: {
-      allow: [resolve(__dirname, '../..')]
+      allow: [
+        resolve(__dirname, '..'),                          // apps/book-tracker/(含 src/shared)
+        resolve(__dirname, '../../packages'),              // packages/(含 tracker-core / tracker-ui)
+      ]
     },
     watch: {
       ignored: ['**/src-tauri/**']
