@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::data::books as data;
-use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, EpisodeNotes, EpisodeRecord, SeasonInfo};
+use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp};
 
 /// 列出所有书 + 损坏列表。
 pub fn list_books(books_dir: impl AsRef<Path>) -> std::io::Result<data::BookListResult> {
@@ -64,18 +64,22 @@ pub fn set_episode_watched(
     let key = episode_key(season, episode);
     let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
     if watched {
-        // watched=true: 写 key(可能新建),保留旧 note/title
+        // watched=true: 写 key(可能新建),保留旧 note/title/stamps
         let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
             watched: false,
             note: String::new(),
             title: None,
+            stamps: None,
         });
         entry.watched = true;
     } else {
-        // watched=false: 仅在该集没有 note/title 时删 key(否则保留条目,watched=false)
+        // watched=false: 仅在该集没有 note/title/stamps 时删 key(否则保留条目,watched=false)
         if let Some(entry) = episodes.get_mut(&key) {
             entry.watched = false;
-            if entry.note.is_empty() && entry.title.as_deref().unwrap_or("").is_empty() {
+            let has_note = !entry.note.is_empty();
+            let has_title = entry.title.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+            let has_stamps = entry.stamps.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            if !has_note && !has_title && !has_stamps {
                 episodes.remove(&key);
             }
         }
@@ -101,12 +105,25 @@ pub fn set_episode_note(
     let key = episode_key(season, episode);
     let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
     if note.is_empty() {
-        episodes.remove(&key);
+        // 仅在该集没有 title / stamps 时才删 key;否则保留 key(note 字段由后续 set 触发写盘时省略)
+        if let Some(entry) = episodes.get(&key) {
+            let has_title = entry.title.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+            let has_stamps = entry.stamps.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            let has_watched = entry.watched;
+            if !has_watched && !has_title && !has_stamps {
+                episodes.remove(&key);
+            } else {
+                if let Some(e) = episodes.get_mut(&key) {
+                    e.note = String::new();
+                }
+            }
+        }
     } else {
         let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
             watched: false,
             note: String::new(),
             title: None,
+            stamps: None,
         });
         entry.note = note;
     }
@@ -134,7 +151,8 @@ pub fn set_episode_title(
         // 仅删 title 字段,不动 key
         if let Some(entry) = episodes.get_mut(&key) {
             entry.title = None;
-            if !entry.watched && entry.note.is_empty() {
+            let has_stamps = entry.stamps.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            if !entry.watched && entry.note.is_empty() && !has_stamps {
                 episodes.remove(&key);
             }
         }
@@ -143,6 +161,7 @@ pub fn set_episode_title(
             watched: false,
             note: String::new(),
             title: None,
+            stamps: None,
         });
         entry.title = Some(title);
     }
@@ -195,6 +214,7 @@ pub fn episode_bump(books_dir: impl AsRef<Path>, id: &str, delta: i32) -> std::i
                 watched: false,
                 note: String::new(),
                 title: None,
+                stamps: None,
             });
             if !entry.watched {
                 entry.watched = true;
@@ -222,4 +242,60 @@ pub fn watched_episodes(book: &Book) -> Vec<(u32, u32)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// 整体替换单集的时间戳笔记数组(v1.3 新增)。
+///
+/// 语义:
+/// - `stamps = vec![]` → 等同"清空该集所有 stamp";若该集也没 watched / note / title → 删 key
+/// - `stamps = non_empty` → 整体替换(不是 append),由前端先合并再传过来;
+///   服务端按 `start` 升序重新排序(同 start 按 id 字典序),与前端 `sortStamps` 同步
+///
+/// 服务端只做"读 → 改 → 写"三步,不做单条 stamp 级别的"add / update / delete"
+/// (那都是前端组合:list → 改 → 整体传过来)。
+pub fn set_episode_stamps(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    season: u32,
+    episode: u32,
+    mut stamps: Vec<TimeStamp>,
+) -> std::io::Result<Book> {
+    let existing = data::read_book(&books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let key = episode_key(season, episode);
+    let mut episodes: EpisodeNotes = existing.episodes.clone().unwrap_or_default();
+
+    if stamps.is_empty() {
+        // 空数组 = 清空 stamp;若该集没有任何字段了 → 删 key(最稀疏)
+        if let Some(entry) = episodes.get_mut(&key) {
+            entry.stamps = None;
+            let has_note = !entry.note.is_empty();
+            let has_title = entry.title.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+            if !entry.watched && !has_note && !has_title {
+                episodes.remove(&key);
+            }
+        }
+        // 该集原本就不存在 → 不创建空条目(空 stamps 不应创建 key)
+    } else {
+        // 非空 → 整体替换 + 排序(同 start 按 id 字典序)
+        stamps.sort_by(|a, b| {
+            if a.start != b.start {
+                return a.start.cmp(&b.start);
+            }
+            a.id.cmp(&b.id)
+        });
+        let entry = episodes.entry(key).or_insert_with(|| EpisodeRecord {
+            watched: false,
+            note: String::new(),
+            title: None,
+            stamps: None,
+        });
+        entry.stamps = Some(stamps);
+    }
+
+    let patch = BookPatch {
+        episodes: Some(episodes),
+        ..Default::default()
+    };
+    data::update_book(books_dir, id, &patch)
 }

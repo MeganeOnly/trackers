@@ -331,6 +331,13 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - [x] **单集稀疏 map**（`Book.episodes: Record<"${season}-${episode}", EpisodeRecord>`,仅 tv/anime）—— 详情页「集笔记」面板按季分组展示;支持乱序看 / 单集笔记 / 单集标题 / watched toggle;空 map 不写盘
   - 决策 4(稀疏): 单集清空笔记 → 删 key;最稀疏形态 `{ "1-3": { "watched": true } }`
   - 决策 B(季变): 季数中途变化保留旧 episodes key,不自动清理超出范围
+  - 决策 v1.3:EpisodeRecord 加 `stamps?: TimeStamp[]` 字段 —— 单集时间戳笔记,见下方
+- [x] **单集时间戳笔记**（`EpisodeRecord.stamps: TimeStamp[]`,v1.3 新增,仅 tv/anime）—— 详情页「集笔记」展开区底部加 stamp 区块
+  - `TimeStamp = { id: UUID, start: 秒, end?: 秒, note: 文本 }` —— 手动输入开始/结束时间 + 笔记,标记"这一刻"或"这段场景"
+  - 时间格式支持 `ss` / `mm:ss` / `hh:mm:ss` 三种人类格式,存储统一用秒(避免跨平台格式不一致)
+  - 自动按 `start` 升序排序(同 start 按 id 字典序);服务端读回时再排序一次兜底
+  - 写盘策略:stamp 数组为空 → 不写字段;单条 stamp 的 `end`/`note` 允许空串/null
+  - 设计选择:**整体替换式回写**(不再做单条 IPC),add/edit/delete 都构造新数组 + sortStamps;简单 / 可恢复 / 避免并发冲突
 - [x] **进度 +1/-1 联动集笔记**（`books_episode_bump` command）—— `+1` 时线性遍历 seasons,把接下来 N 个未看集标 watched;`-1` 不动 episodes(允许用户保留笔记 / 标记状态)
 - [x] **季选择器**(「上一季 / 下一季」+ tab) —— 用户要求放在集笔记区上方,默认选中第一个未完全看完的季
 - [x] **RANK 按季拆分**（v1.2 排名细化）—— tv/anime 按季独立排名,rankId = `${bookId}#${seasonNumber}`;其他 kind 保持原 rankId;对比卡片 / 排名列表都加「S0X」徽标
@@ -362,9 +369,11 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 
 ## 十三、测试规范
 
-- **TS 纯函数测试**放 monorepo `packages/tracker-core/src/__tests__/*.test.ts`（app 内不再有纯函数测试）
+- **共享 TS 纯函数测试**放 monorepo `packages/tracker-core/src/__tests__/*.test.ts`（tracker-core 测试）
+- **Book 领域专属 TS 纯函数测试**放 `apps/book-tracker/src/shared/__tests__/*.test.ts`（v1.3 起;`episodeKey` / `parseEpisodeKey` / stamp 工具函数等 —— 这些函数绑定 Book 领域语义,tracker-core 不应包含)
+  - `vitest.config.ts` 的 `include` 同时扫 `packages/tracker-core/src/__tests__` + `src/shared/__tests__`,跑 `npm test` 时一起跑
 - **Rust 纯函数测试**放 `crates/tracker-core`（共享部分）或本目录 `src-tauri/src/*` 内联 `#[cfg(test)] mod tests`
-- 跑：TS `npm test`（本目录，指向 tracker-core 测试）；Rust 在 repo 根 `cargo test`
+- 跑：TS `npm test`（本目录,扫两边）;Rust 在 repo 根 `cargo test`
 
 ## 十四、数据目录约定
 

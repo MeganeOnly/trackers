@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
 use crate::service::{books, config as cfg_svc, data_dir, ranking, relations};
-use crate::types::{Book, BookInput, BookPatch, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo};
+use crate::types::{Book, BookInput, BookPatch, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, TimeStamp};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -150,6 +150,20 @@ pub fn books_episodes_set(id: String, episodes: EpisodeNotes) -> Result<Book, St
         ..Default::default()
     };
     books::update_book(&dir, &id, &patch).map_err(|e| e.to_string())
+}
+
+/// 整体替换单集的时间戳笔记数组(v1.3 新增)。
+/// - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key)
+/// - `stamps: [...]` → 整体替换 + 服务端按 start 升序重新排序
+#[tauri::command]
+pub fn books_episode_set_stamps(
+    id: String,
+    season: u32,
+    episode: u32,
+    stamps: Vec<TimeStamp>,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_episode_stamps(&dir, &id, season, episode, stamps).map_err(|e| e.to_string())
 }
 
 // ==================== relations commands ====================

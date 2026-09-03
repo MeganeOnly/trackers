@@ -1,4 +1,4 @@
-import type { Book, BookInput, Config, Edge, PairwiseResult, RankingFile, SeasonInfo } from './types'
+import type { Book, BookInput, Config, Edge, PairwiseResult, RankingFile, SeasonInfo, TimeStamp } from './types'
 import type { EpisodeNotes } from './types'
 
 export interface BrokenEntry {
@@ -30,6 +30,16 @@ export interface BookAPI {
   episodesClear(id: string): Promise<Book>
   /** 进度 +1/-1 联动集笔记;`delta > 0` 时把接下来的集标 watched */
   episodeBump(id: string, delta: number): Promise<Book>
+  // -------- v1.3 时间戳笔记 --------
+  /**
+   * 整体替换单集的时间戳笔记数组。
+   * - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key)
+   * - `stamps: [...]` → 整体替换;服务端按 start 升序重新排序
+   *
+   * 设计：单条 stamp 的 add / edit / delete 由前端组合(读 list → 改 → 整体传过来),
+   * 服务端只做"读 → 改 → 写"三步。简单、可证、可恢复(整段替换 + 服务端兜底排序)。
+   */
+  episodeSetStamps(id: string, season: number, episode: number, stamps: TimeStamp[]): Promise<Book>
 }
 
 export interface RelationsAPI {

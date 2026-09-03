@@ -11,7 +11,13 @@ import { resolve } from 'node:path'
 // resolver,不绕 npm scope 判定。alias 与 vite.config.ts 保持一致。
 export default defineConfig({
   test: {
-    include: ['../../packages/tracker-core/src/__tests__/**/*.test.ts']
+    include: [
+      // 共享内核(纯函数 + 测试全在 monorepo 根)
+      '../../packages/tracker-core/src/__tests__/**/*.test.ts',
+      // Book 领域专属纯函数测试(stamp 工具函数等 v1.3+ —— EpisodeRecord.stamps 是 Book 字段,
+      // tracker-core 不应包含领域逻辑;留 book-tracker 内,与 v1.2 episodeKey 思路一致)
+      'src/shared/__tests__/**/*.test.ts'
+    ]
   },
   resolve: {
     alias: [

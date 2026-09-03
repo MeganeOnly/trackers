@@ -12,7 +12,7 @@
 // invoke 参数约定(Tauri 2 默认):单个对象,key 用 snake_case,匹配 Rust 函数形参名.
 
 import { invoke } from '@tauri-apps/api/core'
-import type { Book, BookInput, Config, Edge, RankingFile } from '@shared/types'
+import type { Book, BookInput, Config, Edge, RankingFile, TimeStamp } from '@shared/types'
 import type { BrokenEntry, ElectronAPI } from '@shared/api'
 
 export const api: ElectronAPI & {
@@ -36,7 +36,10 @@ export const api: ElectronAPI & {
     episodeSetTitle: (id, season, episode, title) =>
       invoke<Book>('books_episode_set_title', { id, season, episode, title }),
     episodesClear: (id) => invoke<Book>('books_episodes_clear', { id }),
-    episodeBump: (id, delta) => invoke<Book>('books_episode_bump', { id, delta })
+    episodeBump: (id, delta) => invoke<Book>('books_episode_bump', { id, delta }),
+    // v1.3 时间戳笔记
+    episodeSetStamps: (id, season, episode, stamps) =>
+      invoke<Book>('books_episode_set_stamps', { id, season, episode, stamps })
   },
   relations: {
     get: () => invoke<Edge[]>('relations_get'),

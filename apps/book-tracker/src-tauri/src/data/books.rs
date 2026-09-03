@@ -14,7 +14,7 @@ use tracker_core::files::{atomic_write_file, ensure_dir};
 use tracker_core::frontmatter::{now_iso, split_frontmatter};
 use tracker_core::progress::{bump_progress as bump_progress_helper, normalize_progress_input};
 use tracker_core::slug::make_base_id;
-use crate::types::{Book, BookInput, BookPatch, BookStatus, EpisodeNotes, EpisodeRecord, SeasonInfo, WorkKind};
+use crate::types::{Book, BookInput, BookPatch, BookStatus, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp, WorkKind};
 
 fn is_valid_status(s: &str) -> bool {
     matches!(
@@ -117,9 +117,44 @@ fn parse_episodes(v: Option<&serde_json::Value>) -> Option<EpisodeNotes> {
         let watched = rec_obj.get("watched").and_then(|x| x.as_bool()).unwrap_or(false);
         let note = rec_obj.get("note").and_then(|x| x.as_str()).unwrap_or("").to_string();
         let title = rec_obj.get("title").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
-        map.insert(k.clone(), EpisodeRecord { watched, note, title });
+        let stamps = parse_stamps(rec_obj.get("stamps"));
+        map.insert(k.clone(), EpisodeRecord { watched, note, title, stamps });
     }
     if map.is_empty() { None } else { Some(map) }
+}
+
+/// 解析单集 `stamps` 数组。`None` / 空数组 / 任一非对象元素 → None（最稀疏）。
+/// 时间戳按 `start` 升序排序（同 start 按 id 字典序），与前端 `sortStamps` 一致。
+fn parse_stamps(v: Option<&serde_json::Value>) -> Option<Vec<TimeStamp>> {
+    let arr = v?.as_array()?;
+    let mut stamps = Vec::with_capacity(arr.len());
+    for item in arr {
+        let Some(obj) = item.as_object() else { continue };
+        // 必填字段:id / start / note 缺一不可 —— 缺失就跳过(避免坏数据整本不可读)
+        let Some(id) = obj.get("id").and_then(|x| x.as_str()) else { continue };
+        let Some(start) = obj.get("start").and_then(|x| x.as_u64()) else { continue };
+        // note 字段缺损 / 非字符串 → 当空串(等同"无笔记"语义)
+        let note = obj.get("note").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        // end 字段缺损 / 非数字 → None(单时间点 vs 时间段)
+        let end = obj.get("end").and_then(|x| x.as_u64()).map(|n| n as u32);
+        stamps.push(TimeStamp {
+            id: id.to_string(),
+            start: start as u32,
+            end,
+            note,
+        });
+    }
+    if stamps.is_empty() {
+        return None;
+    }
+    // 按 start 升序排序;同 start 按 id 字典序(保证稳定排序)
+    stamps.sort_by(|a, b| {
+        if a.start != b.start {
+            return a.start.cmp(&b.start);
+        }
+        a.id.cmp(&b.id)
+    });
+    Some(stamps)
 }
 
 fn parse_status(v: Option<&serde_json::Value>) -> BookStatus {
@@ -350,7 +385,7 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
             fm.insert("seasons".into(), serde_json::Value::Array(arr));
         }
     }
-    // episodes: 仅在 Some(non_empty) 时写盘;key 是 'season-episode' 字符串,内嵌 watched/note/title
+    // episodes: 仅在 Some(non_empty) 时写盘;key 是 'season-episode' 字符串,内嵌 watched/note/title/stamps
     if let Some(episodes) = &book.episodes {
         if !episodes.is_empty() {
             let mut obj = serde_json::Map::new();
@@ -365,6 +400,27 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
                 if let Some(title) = &rec.title {
                     if !title.is_empty() {
                         rec_obj.insert("title".into(), serde_json::Value::String(title.clone()));
+                    }
+                }
+                // stamps: 仅在 Some(non_empty) 时写盘;每个 stamp 序列化 id/start/end/note
+                // (end 和 空 note 也写 —— note 允许"这一帧的吐槽",end 允许 null 单时间点)
+                if let Some(stamps) = &rec.stamps {
+                    if !stamps.is_empty() {
+                        let arr: Vec<serde_json::Value> = stamps
+                            .iter()
+                            .map(|s| {
+                                let mut s_obj = serde_json::Map::new();
+                                s_obj.insert("id".into(), serde_json::Value::String(s.id.clone()));
+                                s_obj.insert("start".into(), serde_json::Value::Number(s.start.into()));
+                                if let Some(end) = s.end {
+                                    s_obj.insert("end".into(), serde_json::Value::Number(end.into()));
+                                }
+                                // note 允许空串(保留字段,语义 = "有时间戳无笔记")
+                                s_obj.insert("note".into(), serde_json::Value::String(s.note.clone()));
+                                serde_json::Value::Object(s_obj)
+                            })
+                            .collect();
+                        rec_obj.insert("stamps".into(), serde_json::Value::Array(arr));
                     }
                 }
                 obj.insert(k.clone(), serde_json::Value::Object(rec_obj));
@@ -834,5 +890,167 @@ mod tests {
         let b3 = write_book(&books_dir, &input3, &HashSet::new()).unwrap();
         assert_eq!(b3.status, BookStatus::Finished);
         assert!(b3.collapsed);
+    }
+
+    /// EpisodeRecord.stamps 字段(v1.3 时间戳笔记)的回归测试。
+    /// 不变量:
+    /// - stamps 非空 → 写盘;读回时按 start 升序排序(同 start 按 id 字典序)
+    /// - stamps 为空数组 / None → 不写字段;读回 None(最稀疏策略)
+    /// - 老文件缺 stamps 字段 → 读回 None(向后兼容,容错)
+    /// - stamps 内单条字段缺损(id / start / note) → 跳过该条(避免坏数据整本不可读)
+    /// - end 字段缺损 / null → 读回 None(单时间点);end 非 null → 读回 Some(时间段)
+    /// - persist 期间保证稳定排序(同一 id 写两次顺序不变)
+    #[test]
+    fn episode_stamps_round_trip_and_omit_when_empty() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 写入带 stamps 的 book → 读回顺序按 start 升序
+        let mut input = sample_input();
+        input.kind = WorkKind::Tv;
+        input.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 3, notes: None }]);
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        // 走 episode_bump 路径把第 1 集标 watched(用 patch 直接构造更直接)
+        let mut eps = EpisodeNotes::new();
+        eps.insert(
+            "1-1".to_string(),
+            EpisodeRecord {
+                watched: true,
+                note: String::new(),
+                title: None,
+                stamps: Some(vec![
+                    TimeStamp {
+                        id: "id-002".to_string(),
+                        start: 1945,
+                        end: Some(2200),
+                        note: "追车".to_string(),
+                    },
+                    TimeStamp {
+                        id: "id-001".to_string(),
+                        start: 100,
+                        end: None,
+                        note: "开场".to_string(),
+                    },
+                    TimeStamp {
+                        id: "id-003".to_string(),
+                        start: 5000,
+                        end: Some(5500),
+                        note: "高潮".to_string(),
+                    },
+                ]),
+            },
+        );
+        let patch = BookPatch { episodes: Some(eps), ..Default::default() };
+        update_book(&books_dir, &book.id, &patch).unwrap();
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        let stamps = read_back
+            .episodes
+            .as_ref()
+            .unwrap()
+            .get("1-1")
+            .unwrap()
+            .stamps
+            .as_ref()
+            .unwrap();
+        assert_eq!(stamps.len(), 3);
+        // 顺序应是 start 升序:100 / 1945 / 5000
+        assert_eq!(stamps[0].id, "id-001");
+        assert_eq!(stamps[0].start, 100);
+        assert_eq!(stamps[0].end, None);
+        assert_eq!(stamps[0].note, "开场");
+        assert_eq!(stamps[1].id, "id-002");
+        assert_eq!(stamps[1].start, 1945);
+        assert_eq!(stamps[1].end, Some(2200));
+        assert_eq!(stamps[2].id, "id-003");
+        assert_eq!(stamps[2].start, 5000);
+        assert_eq!(stamps[2].end, Some(5500));
+
+        // 2) raw 文件确实写入了 stamps(数组形态)
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"stamps\""), "stamps 应写盘");
+        assert!(raw.contains("\"id\": \"id-001\""), "stamp id 应写盘");
+        assert!(raw.contains("\"start\": 100"), "stamp start 应写盘");
+        assert!(raw.contains("\"end\": 2200"), "stamp end 应写盘");
+
+        // 3) stamps 空数组 → 不写盘,读回 None
+        let mut input2 = sample_input();
+        input2.kind = WorkKind::Tv;
+        input2.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 2, notes: None }]);
+        let book2 = write_book(&books_dir, &input2, &HashSet::new()).unwrap();
+        let mut eps2 = EpisodeNotes::new();
+        eps2.insert(
+            "1-1".to_string(),
+            EpisodeRecord { watched: false, note: String::new(), title: None, stamps: Some(vec![]) },
+        );
+        let patch = BookPatch { episodes: Some(eps2), ..Default::default() };
+        update_book(&books_dir, &book2.id, &patch).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book2.id))).unwrap();
+        assert!(!raw2.contains("stamps"), "空 stamps 数组不应写盘");
+        let read2 = read_book(&books_dir, &book2.id).unwrap().unwrap();
+        assert!(read2.episodes.as_ref().unwrap().get("1-1").unwrap().stamps.is_none());
+
+        // 4) 老文件缺 stamps 字段 → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy-tv.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy-tv\",\"title\":\"老剧\",\"status\":\"finished\",\"kind\":\"tv\",\"episodes\":{\"1-1\":{\"watched\":true,\"note\":\"老笔记\"}}}\n---\n# 老剧\n",
+        )
+        .unwrap();
+        let legacy_book = read_book(&books_dir, "legacy-tv").unwrap().unwrap();
+        let legacy_ep = legacy_book.episodes.as_ref().unwrap().get("1-1").unwrap();
+        assert!(legacy_ep.stamps.is_none(), "老文件缺 stamps 字段应读回 None");
+
+        // 5) 缺 id / start 字段的 stamp → 跳过(整本仍可读)
+        let mut input3 = sample_input();
+        input3.kind = WorkKind::Tv;
+        input3.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None }]);
+        let book3 = write_book(&books_dir, &input3, &HashSet::new()).unwrap();
+        // 直接写 frontmatter 含坏 stamp
+        std::fs::write(
+            books_dir.join(format!("{}.md", book3.id)),
+            "---\n{\"id\":\"100\",\"title\":\"测试\",\"status\":\"finished\",\"kind\":\"tv\",\"episodes\":{\"1-1\":{\"watched\":true,\"note\":\"x\",\"stamps\":[{\"start\":10,\"note\":\"缺id\"},{\"id\":\"ok\",\"start\":5,\"note\":\"完整\"}]}}}\n---\n# 测试\n",
+        ).unwrap();
+        let broken_read = read_book(&books_dir, &book3.id).unwrap().unwrap();
+        let broken_stamps = broken_read
+            .episodes
+            .as_ref()
+            .unwrap()
+            .get("1-1")
+            .unwrap()
+            .stamps
+            .as_ref()
+            .unwrap();
+        // 只剩完整那条
+        assert_eq!(broken_stamps.len(), 1);
+        assert_eq!(broken_stamps[0].id, "ok");
+        assert_eq!(broken_stamps[0].start, 5);
+
+        // 6) 稳定排序:同 start 按 id 字典序(防止持久化后两次读不一致)
+        let mut input4 = sample_input();
+        input4.kind = WorkKind::Tv;
+        input4.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None }]);
+        let book4 = write_book(&books_dir, &input4, &HashSet::new()).unwrap();
+        let mut eps4 = EpisodeNotes::new();
+        eps4.insert(
+            "1-1".to_string(),
+            EpisodeRecord {
+                watched: true,
+                note: String::new(),
+                title: None,
+                stamps: Some(vec![
+                    TimeStamp { id: "z-id".to_string(), start: 100, end: None, note: "Z".to_string() },
+                    TimeStamp { id: "a-id".to_string(), start: 100, end: None, note: "A".to_string() },
+                    TimeStamp { id: "m-id".to_string(), start: 100, end: None, note: "M".to_string() },
+                ]),
+            },
+        );
+        let patch = BookPatch { episodes: Some(eps4), ..Default::default() };
+        update_book(&books_dir, &book4.id, &patch).unwrap();
+        let sorted = read_book(&books_dir, &book4.id).unwrap().unwrap();
+        let stamps_sorted = sorted.episodes.as_ref().unwrap().get("1-1").unwrap().stamps.as_ref().unwrap();
+        // 同 start → 按 id 字典序:a-id / m-id / z-id
+        assert_eq!(stamps_sorted[0].id, "a-id");
+        assert_eq!(stamps_sorted[1].id, "m-id");
+        assert_eq!(stamps_sorted[2].id, "z-id");
     }
 }

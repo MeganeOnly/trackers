@@ -45,10 +45,103 @@ export interface SeasonInfo {
 }
 
 /**
+ * 单集时间戳笔记 —— 出现在 `EpisodeRecord.stamps` 数组里（v1.3 新增）。
+ *
+ * 用途：用户看剧时手动标"开始时间 [→ 结束时间] 描述"的片段笔记，
+ * 例如 `00:32:15 - 00:35:40 高潮追车`。`end` 可选 —— 单时间点 = "这一刻"，
+ * 时间段 = "这段场景"。
+ *
+ * 时间统一用**秒**存（避免 mm:ss/hh:mm:ss 在 UI 切换时反复解析、跨平台格式不一致）。
+ * UI 输入框解析 `mm:ss` / `hh:mm:ss` / `ss` 三种人类格式，写入前转成秒；
+ * 展示时再格式化为 `mm:ss` / `hh:mm:ss`，保证 Rust 端只面对纯数字。
+ *
+ * `id` 是稳定 UUID（`crypto.randomUUID()`），用于编辑 / 删除单条时定位；
+ * 跟同条目的 sort 顺序无关 —— 后端读时按 `start` 升序排序后返回。
+ *
+ * 写盘策略：stamps 数组为空 → 不写字段（继承 EpisodeRecord 的"最稀疏"语义）。
+ * 老数据缺字段 → undefined（向后兼容，`parse_episodes` 容错）。
+ */
+export interface TimeStamp {
+  /** 稳定 UUID —— 用于编辑 / 删除定位 */
+  id: string
+  /** 开始时间（秒;非负整数;0 允许表示"开场"） */
+  start: number
+  /** 结束时间（秒;可选 —— 单时间点 vs 时间段） */
+  end?: number
+  /** 笔记内容 */
+  note: string
+}
+
+/**
+ * 把秒格式化成 `hh:mm:ss` 或 `mm:ss`（自动选短的）。
+ * 用途：UI 列表里渲染 stamp 的开始/结束时间。
+ */
+export function formatStamp(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  }
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+/**
+ * 把人类格式时间字符串解析为秒。
+ * 接受三种格式（首尾空白自动 trim）：
+ * - `ss`         （秒;如 `45`）
+ * - `mm:ss`      （分:秒;如 `12:34`）
+ * - `hh:mm:ss`   （时:分:秒;如 `1:02:03`）
+ *
+ * 返回 `null` 表示解析失败（空串 / 非数字 / 非法范围如 60 秒位 / 负数）。
+ * UI 用例：用户输入框失焦时校验 + 提示重输。
+ */
+export function parseStamp(input: string): number | null {
+  const trimmed = input.trim()
+  if (trimmed === '') return null
+  const parts = trimmed.split(':')
+  if (parts.length < 1 || parts.length > 3) return null
+  const nums: number[] = []
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return null
+    const n = Number(p)
+    nums.push(n)
+  }
+  // 各段范围校验:最右段(秒)必须 < 60;中间段(分) < 60(只要 parts 长度 ≥ 2)
+  // 最左段(时)无上限
+  if (nums.length === 1) {
+    // ss
+    return nums[0]
+  } else if (nums.length === 2) {
+    // mm:ss
+    if (nums[1] >= 60) return null
+    return nums[0] * 60 + nums[1]
+  } else {
+    // hh:mm:ss
+    if (nums[1] >= 60 || nums[2] >= 60) return null
+    return nums[0] * 3600 + nums[1] * 60 + nums[2]
+  }
+}
+
+/**
+ * 把 stamps 数组按 start 升序排序(同 start 按 id 字典序,保证稳定排序)。
+ * 纯函数 —— 前端展示 / 后端读回都调一次,渲染顺序稳定。
+ */
+export function sortStamps(stamps: ReadonlyArray<TimeStamp>): TimeStamp[] {
+  return [...stamps].sort((a, b) => {
+    if (a.start !== b.start) return a.start - b.start
+    return a.id.localeCompare(b.id)
+  })
+}
+
+/**
  * 单集记录 —— 出现在 `Book.episodes` 稀疏 map 里。
  * 字段均为可选 + 稀疏：watched=true 的集 / 有 note 的集 / 有 title 的集才占 key。
  * `title`（集标题，如"改稻为桑"）是 v1.2 新增：用户在详情页展开该集时可填，
  * 网格里只显示集号 + 状态图标（不显示标题），与现状"格子极简、详情深入"一致。
+ * `stamps`（时间戳笔记数组）是 v1.3 新增：用户在详情页展开该集时可逐条加 stamp；
+ * 写盘策略同 `note`：空数组 → 不写字段。
  */
 export interface EpisodeRecord {
   /** 是否已看 —— 默认 false;允许乱序(跳过 / 重看) */
@@ -57,6 +150,11 @@ export interface EpisodeRecord {
   note: string
   /** 该集标题（可选；空串 → 不写字段） */
   title?: string
+  /**
+   * 该集时间戳笔记数组（v1.3 新增）。空数组 / 全空 stamp 视为无 stamp，
+   * 不写盘。展示时由 selector / 组件按 `start` 升序自动排序。
+   */
+  stamps?: TimeStamp[]
 }
 
 /** 单集稀疏 map —— key = `${season}-${episode}` 字符串

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import type { Book, BookInput, SeasonInfo } from '@shared/types'
+import type { Book, BookInput, SeasonInfo, TimeStamp } from '@shared/types'
 
 interface BooksState {
   books: Book[]
@@ -26,6 +26,13 @@ interface BooksState {
   clearEpisodes: (id: string) => Promise<Book>
   /** 进度 +1/-1 联动集笔记 */
   episodeBump: (id: string, delta: number) => Promise<Book>
+  // -------- v1.3 时间戳笔记 actions --------
+  /**
+   * 整体替换单集的时间戳笔记数组。
+   * - `stamps: []` → 清空该集所有 stamp(若该集也没其他字段则删 key)
+   * - `stamps: [...]` → 整体替换;前端可按需先合并 + 排序,服务端会再次排序兜底
+   */
+  setEpisodeStamps: (id: string, season: number, episode: number, stamps: TimeStamp[]) => Promise<Book>
 }
 
 /**
@@ -106,6 +113,12 @@ export const useBooksStore = create<BooksState>((set) => ({
   },
   episodeBump: async (id, delta) => {
     const book = await api.books.episodeBump(id, delta)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v1.3 时间戳笔记 actions 实现 --------
+  setEpisodeStamps: async (id, season, episode, stamps) => {
+    const book = await api.books.episodeSetStamps(id, season, episode, stamps)
     upsertBook(set, book)
     return book
   }

@@ -2204,3 +2204,89 @@ useState 在 React 渲染周期更新，d3-force 的 force 函数每 tick 在 d3
 
 ---
 
+## 2026-08：[book-tracker] 集笔记时间戳（v1.3 stamp）—— 整体替换式回写 + 时间用秒
+
+### 1. 背景
+
+v1.2 集笔记支持单集 watched / note / title，用户反馈"想给单集里的关键片段做时间戳笔记"。手输开始/结束 + 描述即可。
+
+### 2. 决策：单条 IPC vs 整体替换式回写
+
+候选两种 IPC 模式：
+
+- **单条 IPC**：4 个 command（addStamp / updateStamp / deleteStamp / clearStamps），每条 stamp 一次 IPC
+- **整体替换式**：1 个 command `books_episode_set_stamps(id, season, episode, stamps: TimeStamp[])`，前端 add/edit/delete 都构造新数组 + sortStamps 再整体回写
+
+最终选**整体替换**。理由：
+
+1. **stamp 输入短** —— 每条 1-2 个时间字段 + 1 个 note，提交即写盘；单条 IPC 的延迟开销不划算
+2. **天然 idempotent** —— 整体回写是"读 → 改 → 写"，断网 / 重复点击 / 多窗口同时编辑都安全（最终态 = 最后一次 IPC 的完整数组）
+3. **服务端兜底排序** —— 前端 `sortStamps` 排序后整体回写，服务端 `set_episode_stamps` 再 sort_by 一次；前端排序 bug 也不会污染持久化（双向防御）
+
+教训：**短输入多操作的列表形态优先整体替换**。CRUD 类操作（加单条、改单条、删单条）全部走"读 list → 改 → 整体写"三步，比单条 IPC 更简单、更可证、更可恢复。
+
+### 3. 决策：时间格式统一存秒
+
+UI 输入 `00:32:15` / `12:34` / `45` 三种人类格式，但持久化统一用 `u32` 秒数。理由：
+
+- 跨平台 / 跨语言避免格式不一致（Locale、时间分隔符 `:` vs `.`、前导零等）
+- Rust 端不引 chrono / time crate，纯数字运算
+- TS 端解析逻辑集中在 `parseStamp()` 一处，单元测试覆盖 `ss` / `mm:ss` / `hh:mm:ss` + 非法输入（60 秒位、负数、浮点、过多段数）
+
+格式转换边界：
+- **入界**（用户输入 → 存储）：`parseStamp()`，非法返回 `null`，前端 input 校验
+- **出界**（存储 → 用户显示）：`formatStamp()`，根据大小自动选 `mm:ss` vs `hh:mm:ss`
+- **边界检查**：每段位范围限制（分位 < 60、秒位 < 60），但时位无上限（避免"1:00:00:00"这种不合法场景在 parse 阶段就被拦掉）
+
+教训：**时间字段前后端交互优先用最小公倍数（秒）**，UI 边界做格式转换；不要让 Rust 端处理字符串解析。
+
+### 4. 决策：领域专属 vs 共享内核（stamp 工具函数测试放在哪）
+
+v1.3 新增 `formatStamp` / `parseStamp` / `sortStamps` 三个纯函数。AGENTS.md §十三 写"TS 纯函数测试放 monorepo packages/tracker-core"——但这些函数绑定 `EpisodeRecord.stamps`（Book 领域字段），不应该进 tracker-core。
+
+最终：
+
+- **测试位置**：`apps/book-tracker/src/shared/__tests__/stamp.test.ts`（Book 领域专属）
+- **vitest.config.ts::include** 同时扫 `packages/tracker-core/src/__tests__` + `src/shared/__tests__`，跑 `npm test` 一起跑
+- **AGENTS.md §十三** 加例外说明
+
+教训：**共享内核的判断要看"两个 app 是否都需要且语义一致"**。stamp 工具函数语义 = "EpisodeRecord.stamps 的辅助函数"——life-tracker 的 Goal 没有 episodes / stamps 概念，所以不共享。这与 v1.2 `episodeKey` / `parseEpisodeKey` 留 book-tracker 内的逻辑一致。
+
+### 5. 决策：稀疏策略扩展 —— 加新字段时"删 key 判定"必须同步更新
+
+v1.2 `set_episode_watched` / `set_episode_note` / `set_episode_title` 都有"如果该集没字段了 → 删 key（最稀疏）"的判断。v1.3 加 stamps 后，原来的判断"has_note && has_title"必须扩展成"has_note || has_title || has_stamps"——否则用户加 stamp 后清 note/title/watched，该集应该删 key 但 service 不删 → frontmatter 留个 `{ "stamps": [...] }` 空 watched/note/title 条目。
+
+教训：**最稀疏策略的"删 key 判定"是 N 元谓词，加新字段必须同步更新所有 4 个 service 方法的 has_* 判定**。漏一处 = 该集不再被最稀疏策略清理，frontmatter 留半空 record。建议加单测断言"清空所有字段后该 key 完全消失"覆盖所有 4 条路径。
+
+### 6. parse 容错：缺 id / start / note 的 stamp → 跳过该条
+
+`parse_stamps` 单条缺 id / start / note 时直接 `continue`，不抛错。理由：book 文件可能被用户手改、可能被老版本 schema 写坏——任意一条 stamp 字段缺损都不能让整本不可读。
+
+教训：**parse 阶段对"数组元素级"字段缺损的标准做法是 skip 该元素，让整本仍可读**。与 v1.2 `parse_episodes` "子对象字段缺失 → skip 该 key" 思路一致；统一在"破坏范围最小化"。
+
+### 7. UX 决策：Enter 提交 / 时间校验 / 错误提示就地显示
+
+stamp 添加区三段（开始 / 结束 / 笔记）+ 按钮 + Enter 提交。校验错误就地显示在按钮下方（不弹 alert）：
+
+- 开始时间空 → "请输入开始时间"
+- 开始 / 结束解析失败 → "格式错误:'xxx'(支持 ss / mm:ss / hh:mm:ss)"
+- 结束 < 开始 → "结束时间不能早于开始时间"
+
+UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert 太重；toast 又会消失；就地提示是"input 行级反馈"的最短路径。
+
+教训：**表单校验错误提示放在出错的 input 附近，不要用 alert**。alert 阻断用户操作、toast 会消失、就地提示最直接。
+
+### 8. 回归
+
+- `episode_stamps_round_trip_and_omit_when_empty`（data/books.rs::tests）—— 6 个不变量：
+  1. stamps 非空 → 写盘 + 按 start 升序读回
+  2. raw 文件确实含 `"stamps"` 字段
+  3. stamps 空数组 → 不写盘
+  4. 老文件缺 stamps → 读回 None
+  5. 缺 id / start / note 的 stamp → 跳过该条，整本仍可读
+  6. 同 start 按 id 字典序稳定排序
+- `stamp.test.ts`（apps/book-tracker）—— 13 个纯函数测试
+- book-tracker cargo 33 / vitest 156；monorepo 全量 cargo 152 / vitest 563 全绿
+
+---
+

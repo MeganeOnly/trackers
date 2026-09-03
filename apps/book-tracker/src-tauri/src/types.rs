@@ -73,10 +73,40 @@ pub struct SeasonInfo {
     pub notes: Option<String>,
 }
 
-/// 单集记录 —— 出现在 `Book.episodes` 稀疏 map 里（v1.2 新增）。
+/// 单集时间戳笔记 —— 出现在 `EpisodeRecord.stamps` 数组里（v1.3 新增）。
+///
+/// 用途：用户看剧时手动标"开始时间 [→ 结束时间] 描述"的片段笔记,
+/// 例如 `00:32:15 - 00:35:40 高潮追车`。`end` 可选 —— 单时间点 = "这一刻",
+/// 时间段 = "这段场景"。
+///
+/// 时间统一用**秒**存（避免 mm:ss/hh:mm:ss 在 UI 切换时反复解析、跨平台格式不一致）。
+/// UI 输入框解析 `mm:ss` / `hh:mm:ss` / `ss` 三种人类格式,写入前转成秒;
+/// 展示时再格式化为 `mm:ss` / `hh:mm:ss`,保证 Rust 端只面对纯数字。
+///
+/// `id` 是稳定 UUID(由前端 `crypto.randomUUID()` 生成),用于编辑 / 删除单条时定位;
+/// 跟同条目的 sort 顺序无关 —— 后端读时按 `start` 升序排序后返回。
+///
+/// 写盘策略:stamps 数组为空 → 不写字段(继承 EpisodeRecord 的"最稀疏"语义)。
+/// 老数据缺字段 → None(向后兼容,`parse_episodes` 容错)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeStamp {
+    /// 稳定 UUID —— 用于编辑 / 删除定位
+    pub id: String,
+    /// 开始时间(秒;非负整数;0 允许表示"开场")
+    pub start: u32,
+    /// 结束时间(秒;可选 —— 单时间点 vs 时间段)
+    /// `serde(default)` 让老数据缺字段反序列化成 `None`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<u32>,
+    /// 笔记内容
+    pub note: String,
+}
+
+/// 单集记录 —— 出现在 `Book.episodes` 稀疏 map 里（v1.2 新增,v1.3 加 stamps 字段）。
 /// - `watched`: 该集是否已看(允许乱序)
 /// - `note`: 该集笔记(空串也允许,语义 = "清空笔记")
 /// - `title`: 该集标题(可选;空串 → 不写盘)
+/// - `stamps`: 该集时间戳笔记数组(v1.3 新增;空数组 → 不写盘)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpisodeRecord {
     pub watched: bool,
@@ -85,6 +115,10 @@ pub struct EpisodeRecord {
     /// 集标题 —— `serde(default)` 让老数据缺字段也能反序列化成 `None`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// 时间戳笔记数组 —— `serde(default)` 让老数据缺字段反序列化成 `None`;
+    /// 写盘时由 `data/books.rs::persist` 判断"非空才写"（最稀疏策略）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamps: Option<Vec<TimeStamp>>,
 }
 
 /// 单集稀疏 map —— key = `"${season}-${episode}"`,如 "1-3" = S01E03。

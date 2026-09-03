@@ -71,6 +71,7 @@ mod tauri_app {
                 commands::books_episode_set_title,
                 commands::books_episodes_clear,
                 commands::books_episode_bump,
+                commands::books_episode_set_stamps,
                 commands::books_episodes_set,
                 commands::relations_get,
                 commands::relations_set,
