@@ -6,7 +6,7 @@ import { RankingKindSelect } from './RankingKindSelect'
 import { RankingList } from './RankingList'
 import { RankingCompare } from './RankingCompare'
 import { useBooksStore } from '../store/books'
-import { useRankingStore } from '../store/ranking'
+import { expandRankingPool, useRankingStore } from '../store/ranking'
 
 interface RankingModalProps {
   onClose: () => void
@@ -55,12 +55,13 @@ export function RankingModal({ onClose }: RankingModalProps): JSX.Element {
     setTab('list')
   }, [kind])
 
-  // 各个 kind 的 finished 数量（给 kind selector 用）
+  // 各个 kind 的「候选数」(给 kind selector 用)
+  // v1.2:tv/anime 按季拆分,finished 数 = 所有已读书的季数总和;其他 kind = 已读书数
   const kindCounts = useMemo(() => {
     const counts: Partial<Record<WorkKind, number>> = {}
     for (const k of WORK_KIND_ORDER) counts[k] = 0
-    for (const b of books) {
-      if (b.status === 'finished') counts[b.kind] = (counts[b.kind] ?? 0) + 1
+    for (const k of WORK_KIND_ORDER) {
+      counts[k] = expandRankingPool(books, k).length
     }
     return counts
   }, [books])

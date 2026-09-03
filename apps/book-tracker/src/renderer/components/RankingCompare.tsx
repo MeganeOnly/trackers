@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
-import type { Book, PairwiseResult, WorkKind } from '@shared/types'
+import type { Book, PairwiseResult, SeasonInfo, WorkKind } from '@shared/types'
 import { WORK_KIND_LABELS } from '@shared/types'
 import { expectedScore } from '@core'
-import { deriveRanking, useRankingStore } from '../store/ranking'
+import { deriveRanking, findCandidate, useRankingStore } from '../store/ranking'
 
 interface RankingCompareProps {
   pool: Book[]
@@ -60,12 +60,17 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
 
   const poolIds = pool.filter((b) => b.status === 'finished' && b.kind === kind).map((b) => b.id)
 
-  if (poolIds.length < 2) {
+  // v1.2:tv/anime 按季拆分后,池大小用 RankCandidate 数(展开后)
+  // 这里先 derive 一次,拿到 candidates + poolIds;不直接调 expandRankingPool 是为了避免重复扫
+  const derived = deriveRanking(file, pool, kind)
+  const expandedPoolIds = derived.poolIds
+
+  if (expandedPoolIds.length < 2) {
     return (
       <div className="ranking-empty">
         当前类型需要至少 2 个已读作品才能排名。
         <br />
-        已有 <b>{poolIds.length}</b> 个，还差 <b>{2 - poolIds.length}</b> 个。
+        已有 <b>{expandedPoolIds.length}</b> 个，还差 <b>{2 - expandedPoolIds.length}</b> 个。
       </div>
     )
   }
@@ -76,19 +81,18 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
   }
 
   const [aId, bId] = currentPair
-  const bookMap = new Map(pool.map((b) => [b.id, b]))
-  const bookA = bookMap.get(aId)
-  const bookB = bookMap.get(bId)
+  const candA = findCandidate(derived.candidates, aId)
+  const candB = findCandidate(derived.candidates, bId)
 
-  if (!bookA || !bookB) {
+  if (!candA || !candB) {
     return <div className="ranking-empty">候选作品不存在，请跳过</div>
   }
 
   // 当前评分 / 对比次数 / 池内排名：卡片上直接展示，让"这一对的实力位置"一目了然
-  const { ratings, counts, history } = deriveRanking(file, pool, kind)
+  const { ratings, counts, history } = derived
   const baseRating = Number.isFinite(file.initialRating) ? file.initialRating : 1500
   const scoreOf = (id: string): number => (Number.isFinite(ratings[id]) ? ratings[id] : baseRating)
-  const byScore = [...poolIds].sort((x, y) => scoreOf(y) - scoreOf(x))
+  const byScore = [...expandedPoolIds].sort((x, y) => scoreOf(y) - scoreOf(x))
   const rankOf = (id: string): number => byScore.indexOf(id) + 1
 
   // 两者的历史交手战绩（谁赢过谁几次）—— 让用户知道"这一对是不是老对手"
@@ -99,7 +103,7 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
   return (
     <div className="ranking-compare">
       <div className="ranking-compare-meta">
-        {WORK_KIND_LABELS[kind]} · 池 {poolIds.length} 本 · 本次已对比 {sessionCount} 次
+        {WORK_KIND_LABELS[kind]} · 池 {expandedPoolIds.length} 个 · 本次已对比 {sessionCount} 次
         {h2h.total > 0 && (
           <>
             {' '}
@@ -110,13 +114,13 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
       </div>
       <div className="ranking-compare-stage">
         <CompareCard
-          book={bookA}
+          candidate={candA}
           onPick={() => applyResult(pool, 'a')}
           side="left"
           score={scoreOf(aId)}
           count={counts[aId] ?? 0}
           rank={rankOf(aId)}
-          total={poolIds.length}
+          total={expandedPoolIds.length}
           winRate={winRateA}
           wins={h2h.aWins}
           losses={h2h.bWins}
@@ -124,13 +128,13 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
         />
         <div className="ranking-compare-vs">VS</div>
         <CompareCard
-          book={bookB}
+          candidate={candB}
           onPick={() => applyResult(pool, 'b')}
           side="right"
           score={scoreOf(bId)}
           count={counts[bId] ?? 0}
           rank={rankOf(bId)}
-          total={poolIds.length}
+          total={expandedPoolIds.length}
           winRate={1 - winRateA}
           wins={h2h.bWins}
           losses={h2h.aWins}
@@ -183,7 +187,7 @@ function shortDate(iso: string): string {
 }
 
 interface CompareCardProps {
-  book: Book
+  candidate: import('../store/ranking').RankCandidate
   onPick: () => void
   side: 'left' | 'right'
   /** 当前 Elo 评分 */
@@ -205,12 +209,14 @@ interface CompareCardProps {
 /**
  * 单张候选卡片（正方形，`aspect-ratio: 1`）。
  *
- * 信息层级：类型 + 池内排名 / 标题 / 字段表（主创·年份·地区·译者·主演·看过次数·收录时间）/
+ * 信息层级：类型 + 季徽标(tv/anime) + 池内排名 / 标题 / 字段表（主创·年份·地区·译者·主演·看过次数·收录时间）/
  * 笔记摘录 / 标签 / 评分脚注（评分 + 预期胜率 + 交手战绩）。
  * 内容溢出时卡片内部滚动，不撑破正方形比例。
+ *
+ * v1.2:tv/anime 候选是按季拆分的,candidate.season 非空时标题右侧显示「S0X」徽标。
  */
 function CompareCard({
-  book,
+  candidate,
   onPick,
   side,
   score,
@@ -222,6 +228,8 @@ function CompareCard({
   losses,
   ties
 }: CompareCardProps): JSX.Element {
+  const book = candidate.book
+  const season = candidate.season
   const kind = book.kind
   const rows: Array<[string, string]> = []
   if (book.author) rows.push([authorLabelFor(kind), book.author])
@@ -230,12 +238,13 @@ function CompareCard({
   if (kind === 'book' && book.translator) rows.push(['译者', book.translator])
   if ((kind === 'movie' || kind === 'tv') && book.starring) rows.push(['主演', book.starring])
   if ((kind === 'movie' || kind === 'tv') && book.screenwriter) rows.push(['编剧', book.screenwriter])
+  if (season) rows.push(['季', `S${String(season.number).padStart(2, '0')} · ${season.episodeCount} 集`])
   rows.push(['看过', book.read_count > 1 ? `${book.read_count} 次` : '1 次'])
   const finishedAt = shortDate(book.updated)
   if (finishedAt) rows.push(['最近更新', finishedAt])
   const addedAt = shortDate(book.created)
   if (addedAt) rows.push(['收录于', addedAt])
-  rows.push(['编号', `#${book.id}`])
+  rows.push(['编号', `#${book.id}${season ? `#${season.number}` : ''}`])
 
   const h2hText =
     wins + losses + ties === 0
@@ -250,6 +259,11 @@ function CompareCard({
     >
       <div className="ranking-compare-card-top">
         <span className="ranking-compare-card-kind">{WORK_KIND_LABELS[kind]}</span>
+        {season && (
+          <span className="ranking-compare-card-season">
+            S{String(season.number).padStart(2, '0')}
+          </span>
+        )}
         <span className="ranking-compare-card-rank">
           当前第 {rank} / {total}
         </span>
