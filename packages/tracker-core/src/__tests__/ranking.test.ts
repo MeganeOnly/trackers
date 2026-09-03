@@ -187,4 +187,89 @@ describe('pickNextPair', () => {
     expect(a).toBe('1')
     expect(b).toBe('3') // 比 2 更接近
   })
+
+  it('exclude: filters out excluded ids from A candidates', () => {
+    // 历史让 1 的 count 最少,但 exclude 把 1 排除 → A 必须从 2/3 选
+    const history = [
+      { a: '2', b: '3', winner: 'a' as const, ts: 't1' },
+      { a: '2', b: '3', winner: 'a' as const, ts: 't2' }
+    ]
+    const ratings = recomputeRatings(history, ['1', '2', '3'], INITIAL, K)
+    const [a] = pickNextPair(
+      ['1', '2', '3'],
+      history,
+      ratings,
+      INITIAL,
+      () => 0,
+      new Set(['1'])
+    )!
+    expect(a).not.toBe('1')
+    expect(['2', '3']).toContain(a)
+  })
+
+  it('exclude: filters out excluded ids from B candidates', () => {
+    // 强制 A = '1'(最少比较),排除 '3' → B 只能是 '2'
+    const ratings: Record<string, number> = { '1': 1500, '2': 1700, '3': 1505 }
+    const history = [
+      { a: '2', b: '3', winner: 'a' as const, ts: 't1' },
+      { a: '2', b: '3', winner: 'a' as const, ts: 't2' },
+      { a: '2', b: '3', winner: 'b' as const, ts: 't3' }
+    ]
+    const [, b] = pickNextPair(
+      ['1', '2', '3'],
+      history,
+      ratings,
+      INITIAL,
+      () => 0,
+      new Set(['3']) // 排掉 3,B 只能选 2
+    )!
+    expect(b).toBe('2')
+  })
+
+  it('exclude: returns null when filtered pool drops below 2', () => {
+    // pool = 4 个,exclude = 3 个 → 剩 1 个,无对可挑
+    expect(
+      pickNextPair(['1', '2', '3', '4'], [], {}, INITIAL, () => 0, new Set(['1', '2', '3']))
+    ).toBeNull()
+    // pool = 3 个,exclude = 2 个 → 剩 1 个,无对可挑(避免重复展示同一本)
+    expect(
+      pickNextPair(['1', '2', '3'], [], {}, INITIAL, () => 0, new Set(['1', '2']))
+    ).toBeNull()
+  })
+
+  it('exclude: empty set behaves identically to the 5-arg signature (back-compat)', () => {
+    const ratings: Record<string, number> = { '1': 1500, '2': 1700, '3': 1505 }
+    const history = [
+      { a: '2', b: '3', winner: 'a' as const, ts: 't1' },
+      { a: '2', b: '3', winner: 'a' as const, ts: 't2' }
+    ]
+    const without = pickNextPair(['1', '2', '3'], history, ratings, INITIAL, () => 0)!
+    const withEmpty = pickNextPair(
+      ['1', '2', '3'],
+      history,
+      ratings,
+      INITIAL,
+      () => 0,
+      new Set()
+    )!
+    expect(withEmpty).toEqual(without)
+  })
+
+  it('exclude: stays within filter even when pool order changes', () => {
+    // 池子顺序与 exclude 顺序无关,过滤只看成员身份
+    const ratings: Record<string, number> = { '1': 1500, '2': 1501, '3': 1499 }
+    const [a, b] = pickNextPair(
+      ['1', '2', '3'],
+      [],
+      ratings,
+      INITIAL,
+      () => 0,
+      new Set(['2'])
+    )!
+    expect(['1', '3']).toContain(a)
+    expect(['1', '3']).toContain(b)
+    expect(a).not.toBe(b)
+    expect(a).not.toBe('2')
+    expect(b).not.toBe('2')
+  })
 })

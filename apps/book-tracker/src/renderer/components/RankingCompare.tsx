@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { Book, PairwiseResult, SeasonInfo, WorkKind } from '@shared/types'
 import { WORK_KIND_LABELS } from '@shared/types'
 import { expectedScore } from '@core'
@@ -37,12 +37,14 @@ function countryLabelFor(kind: WorkKind): string {
  * - 进入 view 时如果没有 currentPair，自动调 pickPair 选一对
  * - applyResult 后 store 会自动选下一对
  * - 池子 < 2 时显示空状态
+ * - 池子里的 rankId 都已展示过 → 显示「本轮已无新候选」（可点工具栏 × 重置）
  */
 export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
   const kind = useRankingStore((s) => s.kind)
   const file = useRankingStore((s) => s.file)
   const currentPair = useRankingStore((s) => s.currentPair)
   const sessionCount = useRankingStore((s) => s.sessionCount)
+  const recentlyShown = useRankingStore((s) => s.recentlyShown)
   const pickPair = useRankingStore((s) => s.pickPair)
   const applyResult = useRankingStore((s) => s.applyResult)
 
@@ -54,16 +56,27 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind])
 
+  // v1.2:tv/anime 按季拆分后,池大小用 RankCandidate 数(展开后)。
+  // 这里先 derive 一次,拿到 candidates + poolIds;不直接调 expandRankingPool 是为了避免重复扫。
+  // v1.7(避免 hook 顺序漂移):把 deriveRanking 包进 useMemo,并上移到所有 early return 之前,
+  // kind=null 时它返回空 candidates/poolIds,后续判断 (kind/池大小/freshCount) 都能正确 fallthrough。
+  const derived = useMemo(
+    () => deriveRanking(file, pool, kind),
+    [file, pool, kind]
+  )
+  const expandedPoolIds = derived.poolIds
+
+  // v1.7:『已展示过』的 rankId 集合(本会话内已跳过/选过的)。
+  // 这一组不出现在下一对里,避免"跳过只换一个老熟人"的体验。
+  const shownSet = useMemo(() => new Set(recentlyShown), [recentlyShown])
+  const freshCount = useMemo(
+    () => expandedPoolIds.filter((id) => !shownSet.has(id)).length,
+    [expandedPoolIds, shownSet]
+  )
+
   if (!kind) {
     return <div className="ranking-empty">请先选择一种作品类型</div>
   }
-
-  const poolIds = pool.filter((b) => b.status === 'finished' && b.kind === kind).map((b) => b.id)
-
-  // v1.2:tv/anime 按季拆分后,池大小用 RankCandidate 数(展开后)
-  // 这里先 derive 一次,拿到 candidates + poolIds;不直接调 expandRankingPool 是为了避免重复扫
-  const derived = deriveRanking(file, pool, kind)
-  const expandedPoolIds = derived.poolIds
 
   if (expandedPoolIds.length < 2) {
     return (
@@ -76,7 +89,18 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
   }
 
   if (!currentPair) {
-    // pickPair 异步选了之后会被 effect 设置；这里给个过渡态
+    // pickPair 已选但没有新鲜候选(本会话内该 kind 全部都展示了)
+    if (freshCount < 2) {
+      return (
+        <div className="ranking-empty">
+          本轮对比的候选已经全部展示过。<br />
+          关闭并重新打开 Modal、或点工具栏的{' '}
+          <span style={{ fontFamily: 'monospace' }}>×</span>{' '}
+          清屏按钮，可重置本轮。
+        </div>
+      )
+    }
+    // pickPair 还在执行(useEffect 触发后同帧设 state,理论上一帧后消失)
     return <div className="ranking-empty">正在选下一对…</div>
   }
 
@@ -100,10 +124,15 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
   // Elo 预期胜率：分差换算成"按历史表现，这一方获胜的概率"
   const winRateA = expectedScore(scoreOf(aId), scoreOf(bId))
 
+  // v1.7:没有"未展示过"的候选时,跳过按钮禁用 + 提示,避免点了又落空
+  const canSkip = freshCount >= 2
+
   return (
     <div className="ranking-compare">
       <div className="ranking-compare-meta">
-        {WORK_KIND_LABELS[kind]} · 池 {expandedPoolIds.length} 个 · 本次已对比 {sessionCount} 次
+        {WORK_KIND_LABELS[kind]} · 池 {expandedPoolIds.length} 个（未展示{' '}
+        <b>{freshCount}</b> / 已展示 {expandedPoolIds.length - freshCount}）· 本次已对比{' '}
+        {sessionCount} 次
         {h2h.total > 0 && (
           <>
             {' '}
@@ -142,7 +171,16 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
         />
       </div>
       <div className="ranking-compare-actions">
-        <button className="ranking-compare-skip" onClick={() => pickPair(pool)}>
+        <button
+          className="ranking-compare-skip"
+          onClick={() => pickPair(pool)}
+          disabled={!canSkip}
+          title={
+            canSkip
+              ? '换一对（本次会话内已展示过的不再出现）'
+              : '本会话内已展示过所有候选，点工具栏 × 重置'
+          }
+        >
           跳过这对
         </button>
         <button className="ranking-compare-tie" onClick={() => applyResult(pool, 'tie')}>
@@ -150,7 +188,7 @@ export function RankingCompare({ pool }: RankingCompareProps): JSX.Element {
         </button>
       </div>
       <div className="ranking-compare-hint">
-        点击左侧 / 右侧表示更喜欢该作品；「跳过」不计入历史；「平局」让双方分数互相靠拢。
+        点击左侧 / 右侧表示更喜欢该作品；「跳过」换一对未展示过的；「平局」让双方分数互相靠拢。
       </div>
     </div>
   )

@@ -20,6 +20,11 @@ import { api } from '../lib/api'
  * 让不同季之间可独立排名（解决"前后季质量差异大不能放一起比"问题）。
  * 其他 kind（book / movie / other）保持 rank ID = book.id 不变。
  *
+ * **v1.7 改动**：会话内每个 rankId 最多展示一次（不论是选 a/b/tie 还是「跳过」）——
+ * 通过 `recentlyShown` 会话状态 + `pickNextPair` 的 `exclude` 参数实现。这样点「跳过」
+ * 后下一对是真正的新一对,而不是"老对再换位置"或"只换一个老熟人"。关闭 Modal / 切
+ * kind / 点会话清屏按钮时 `recentlyShown` 重置。
+ *
  * 评分完全由 history + 当前池派生（recomputeRatings），不在 store 里持久化。
  */
 
@@ -32,6 +37,13 @@ interface RankingState {
   currentPair: [string, string] | null
   /** 本次会话累计对比次数（前端计数，方便 UI 显示「本次 +N」） */
   sessionCount: number
+  /**
+   * 本次会话内已经展示过的 rankId 列表（顺序无意义，仅用来排除）。
+   * - 选完（a/b/tie）或点「跳过」后被展示过的 rankId 都进这里。
+   * - 重新打开 Modal / 切 kind / `resetSession()` 会清空。
+   * - 用数组而非 Set：zustand 用 Object.is 比对,数组引用替换即可触发订阅者更新。
+   */
+  recentlyShown: string[]
   /** loading / error 标记 */
   loading: boolean
 
@@ -39,7 +51,7 @@ interface RankingState {
   setKind: (kind: WorkKind | null) => void
   pickPair: (pool: Book[]) => void
   applyResult: (pool: Book[], winner: 'a' | 'b' | 'tie') => Promise<void>
-  /** 重置本次会话计数（不抹 history） */
+  /** 重置本次会话计数 + 清除『已展示过』集合（不抹 history） */
   resetSession: () => void
 }
 
@@ -123,13 +135,15 @@ export const useRankingStore = create<RankingState>((set, get) => ({
   kind: null,
   currentPair: null,
   sessionCount: 0,
+  recentlyShown: [],
   loading: false,
 
   load: async () => {
     set({ loading: true })
     try {
       const file = await api.ranking.get()
-      set({ file: sanitizeFile(file), loading: false })
+      // 重新打开 Modal 时重置本会话状态：避免上次的『已展示过』污染新的轮次
+      set({ file: sanitizeFile(file), loading: false, recentlyShown: [], currentPair: null })
     } catch (e) {
       console.error('ranking load failed:', e)
       set({ loading: false })
@@ -137,20 +151,12 @@ export const useRankingStore = create<RankingState>((set, get) => ({
   },
 
   setKind: (kind) => {
-    set({ kind, currentPair: null })
+    // 切 kind 时候选集合完全不同,旧 recentlyShown 没意义,一并清掉
+    set({ kind, currentPair: null, recentlyShown: [] })
   },
 
   pickPair: (pool) => {
-    const { file, kind } = get()
-    if (!kind) {
-      set({ currentPair: null })
-      return
-    }
-    const candidates = expandRankingPool(pool, kind)
-    const poolIds = candidates.map((c) => c.rankId)
-    const ratings = recomputeRatings(file.history, poolIds, file.initialRating, file.kFactor)
-    const pair = pickNextPair(poolIds, file.history, ratings, file.initialRating)
-    set({ currentPair: pair })
+    pickAndRememberPool(set, get, pool)
   },
 
   applyResult: async (pool, winner) => {
@@ -168,22 +174,67 @@ export const useRankingStore = create<RankingState>((set, get) => ({
         sessionCount: s.sessionCount + 1
       }))
       // 立即选下一对（用刚刚拿到的最新 file + 同 pool）
-      const { kind } = get()
-      if (kind) {
-        const candidates = expandRankingPool(pool, kind)
-        const poolIds = candidates.map((c) => c.rankId)
-        const cur = get().file
-        const ratings = recomputeRatings(cur.history, poolIds, cur.initialRating, cur.kFactor)
-        const nextPair = pickNextPair(poolIds, cur.history, ratings, cur.initialRating)
-        set({ currentPair: nextPair })
-      }
+      pickAndRememberPool(set, get, pool)
     } catch (e) {
       console.error('ranking apply failed:', e)
     }
   },
 
-  resetSession: () => set({ sessionCount: 0 })
+  resetSession: () =>
+    set({ sessionCount: 0, recentlyShown: [], currentPair: null })
 }))
+
+/**
+ * 内部 helper：用当前 kind 派生 pool,从『已展示过』集合以外选下一对,并把新一对
+ * 加入已展示集合。如果过滤后候选不足 2 个,currentPair = null(由 UI 渲染"已无新
+ * 候选"空状态)。
+ *
+ * 注意：先选下一对再加进 recentlyShown —— exclude 用的是『选之前已展示过』的集合,
+ * 否则新一对会被自己排除、永远拿不到合法 pair。
+ */
+function pickAndRememberPool(
+  set: (
+    partial:
+      | Partial<RankingState>
+      | ((state: RankingState) => Partial<RankingState>)
+  ) => void,
+  get: () => RankingState,
+  pool: ReadonlyArray<Book>
+): void {
+  const { file, kind, recentlyShown } = get()
+  if (!kind) {
+    set({ currentPair: null })
+    return
+  }
+  const candidates = expandRankingPool(pool, kind)
+  const poolIds = candidates.map((c) => c.rankId)
+  const excludeSet = new Set(recentlyShown)
+  const ratings = recomputeRatings(
+    file.history,
+    poolIds,
+    file.initialRating,
+    file.kFactor
+  )
+  const pair = pickNextPair(
+    poolIds,
+    file.history,
+    ratings,
+    file.initialRating,
+    Math.random,
+    excludeSet
+  )
+  if (pair === null) {
+    set({ currentPair: null })
+    return
+  }
+  const merged = new Set(recentlyShown)
+  merged.add(pair[0])
+  merged.add(pair[1])
+  set({
+    currentPair: pair,
+    recentlyShown: Array.from(merged)
+  })
+}
 
 /* ---------------- 派生 helper（纯函数，组件内调用） ---------------- */
 

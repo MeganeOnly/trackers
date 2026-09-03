@@ -6,6 +6,66 @@
 
 ---
 
+## 2026-09：[共享/book-tracker] RANK「跳过」语义 bug —— pickNextPair 纯函数跳过不触发重选，老对反复弹 (v1.4)
+
+### 1. 现象
+
+用户报告：「点 RANK 对比 tab 里的『跳过这对』按钮，**两个项目应该都换**，但实际是只换一个、或者两个换位置、或者干脆还是同一对。」预期行为：跳过之后应该看到两本全新的候选，不要让用户反复跟同一对打交道。
+
+### 2. 根因
+
+`packages/tracker-core/src/ranking.ts::pickNextPair` 是按「A = 对比次数最少 + B = 评分最接近 A」从 history 派生的纯函数。
+
+跳过语义在 store 里就是「调一次 pickPair 重选」—— 但 pickPair 不写 history，所以传给 pickNextPair 的 counts 和 ratings 都不变：
+
+- A 是按 `pool.filter(id => counts[id] === minCount)` 选的。刚显示的那一对里 A 本来就是 `minCount`（它是「最该被比」的那本），跳过不增计数 → 下次还是它
+- B 是按 `Math.abs(ratings[id] - ratingA)` 最小的选的（严格 `<`，取第一个最小差）→ A 没变、B 评分也没变 → 下次还是它
+
+三种表现：
+
+| 用户观察 | 触发条件 |
+|---|---|
+| **完全不变** | 最常见：minCount 唯一 + A 评估范围内只有 B |
+| **只换一个** | minCount 有平局，next rng() 摇到不同的 A → B 跟新 A 重新选 |
+| **两本换位置** | 新选出的 B 评分刚好跟原 A 范围接近，原 A 反过来成了更接近新 A 的 |
+
+用户原话：「**通常只会变一个，甚至只是两个换位置**」—— 三种表现都踩了。
+
+### 3. 修复
+
+**核心层（共享）**：给 `pickNextPair` 加可选参数 `exclude: ReadonlySet<string> = new Set()`（放在 `rng` 之后，旧 4-/5-arg 调用全部兼容）：先按 exclude 缩窄候选再挑 A/B，被排除项绝对不会出现在下一对；缩窄后候选 < 2 → 返回 null（业务语义「本会话内所有能展示的都展示过了」）。minCount 仍在 pool 全集里算，避免小池子里把被排除项也拿进基数反而让它下次被优先选出。
+
+**Renderer 层**：store 加 `recentlyShown: string[]` 会话状态（**不**持久化）；`pickPair` / `applyResult` 内部 helper `pickAndRememberPool` 用 `exclude = Set(recentlyShown)` 调 `pickNextPair`，再把新一对加入；`load()`（打开 Modal）/ `setKind()`（切 kind）/ `resetSession()` 都重置 `recentlyShown`。「一次会话」严格定义为「同一 Modal 同一 kind 同一会话计数」。
+
+选 a/b/tie 的 pair 也进 `recentlyShown` —— 评分后也不在本会话内重弹，跟用户原话「在我这次打开来进行排位的过程中」对齐（不论是「跳过」还是「选 a/b/tie」，本会话内 rankId 最多展示一次）。
+
+UI 同步：meta 行加「未展示 X / 已展示 Y」实时计数；`freshCount < 2` 时跳过按钮 `disabled`，hover title 提示「点工具栏 × 重置」；`currentPair === null && freshCount < 2` 时显示「本轮对比的候选已经全部展示过」空状态，引导重置或关重开。
+
+### 4. 修复时踩的二次坑：React Rules of Hooks
+
+详情见同时期同文件 [共享] Hooks 调用顺序违规条目（第 519 行起）。这里仅强调：加 `useMemo(deriveRanking / shownSet / freshCount)` 时，**直接复用了已经踩过的「把 hook 塞 early return 后面」反模式**，打开 Modal、选了 kind 那一瞬间会报 `Rendered more hooks than during the previous render`。
+
+修复：所有 `useMemo` 上移到 `if (!kind) return` 之前，early return 里用 `kind == null` / `expandedPoolIds.length < 2` 兜底。教训跟之前那条一样：**lint diff 里看到 `useMemo` 出现的位置就是审查重点**。
+
+### 5. 回归验证
+
+- `npm run typecheck` 三端（book + life + tracker-core）全过
+- `npm run test:core` —— tracker-core 23/23 vitest（ranking.test.ts：原 18 + 新 5 个 exclude 用例）
+- `npm run test:book` —— book-tracker 161/161 vitest
+- `npm run test`（root）—— 全 228 vitest 过
+
+### 6. 教训（共享 + 单 app）
+
+**A. [共享]** pickNextPair 这种「由历史派生的纯函数」+「stateful action（跳过）」组合时，要警觉：**action 没有让函数输入变化，算法自然感觉不到**。两个通用套路：
+- a. 让 action 落地到函数输入里（如本例的 exclude）—— 适合「幂等派生」的语义
+- b. 让 action 直接驱动「下一个 pair」—— 适合「每次都是新事件」的语义
+
+RANK 显然是 A 路线（同一会话内不重弹），所以选 A。
+
+**B. [单 app book-tracker]** 「跳过」按钮 = 「下一对」按钮是用户视角，但算法视角却是「无效 action」。这种「语义错位」很容易制造 UX bug：UI 文案写「换一对」但实际是「再用一次一样的算法」。**文案要跟状态（freshCount / 已展示计数）联动，不要写死。**
+
+---
+
 ## 2026-09：[book-tracker] 时间戳笔记添加区拆成 [MM][:][SS] —— 「：」固定视觉分隔符，只填数字
 
 ### 现象

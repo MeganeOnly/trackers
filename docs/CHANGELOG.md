@@ -262,3 +262,45 @@
 - `book-tracker-v1.3`
 
 两 tag 同 commit hash，按 release workflow 分派构建。
+---
+
+## v1.4 (2026-09): RANK 跳过语义 — 会话内每本只展示一次
+
+**「跳过」不再弹老对**。v1.3 之前 pickNextPair 是纯函数（counts + ratings），跳过不写 history 不会触发算法重选 —— 用户点「跳过这对」后屏幕上要么是同一对（A = 对比次数最少,跳过不改变 count,A 锁定 / B 评分最接近 A 没变），要么是只换了一个（A 的 count 平局被打乱时），要么是两本互换位置（新 B 评分恰好在原 A 范围）。
+
+### 核心层（[共享]）
+
+- packages/tracker-core/src/ranking.ts::pickNextPair 新增可选参数 exclude: ReadonlySet<string>（放在 rng 之后，默认空 Set，旧调用全兼容）：
+  - 先按 exclude 缩窄候选；若缩窄后候选 < 2 → 返回 null
+  - A / B 都在缩窄后的候选里挑 → 跳过永远不会再弹老对
+  - minCount 仍在 pool 全集里算（被排除项也参与「最少比较」基数），避免小池子里被排除项反而被优先选出
+- packages/tracker-core/src/__tests__/ranking.test.ts 新增 5 个 exclude 用例：排除 A 候选 / 排除 B 候选 / 缩窄后 < 2 返回 null / 空 Set 与 5-arg 签名等价 / 池子顺序与 exclude 顺序无关
+
+### Renderer 层
+
+- apps/book-tracker/src/renderer/store/ranking.ts：
+  - store 加 recentlyShown: string[] 会话状态（选完 a/b/tie 或跳过都会被记入）
+  - pickPair / applyResult 内部 helper pickAndRememberPool 用 exclude = Set(recentlyShown) 调 pickNextPair,再把新一对加入
+  - load() / setKind() 重置 recentlyShown —— 重新打开 Modal 或切 kind 视为新会话
+  - resetSession() 同时清 recentlyShown 与 sessionCount
+- apps/book-tracker/src/renderer/components/RankingCompare.tsx：
+  - 新增「未展示 / 已展示」计数展示在 meta 行
+  - 「跳过」按钮在 freshCount < 2 时 disabled，hover title 提示重置方法
+  - currentPair === null && freshCount < 2 时显示「本轮对比的候选已经全部展示过」空状态（引导用户点工具栏 × 或关闭重开）
+  - 关键 bug 修复：React Rules of Hooks —— 把新加的 useMemo（deriveRanking / shownSet / freshCount）全部上移到所有 early return 之前；否则「未选 kind → 选了 kind」时 hook 计数对不上，整组件报红（与 book-tracker AGENTS.md §十.28 同款）
+
+### 数据兼容性
+
+- rankings.json 字段零变化：PairwiseResult / RankingFile 都不动
+- 已有任意 rankings.json 数据继续可用：exclude 是 UI 会话状态，不持久化
+- 关闭 Modal / 切 kind / 点 × 都会重置 exclude，跨会话不会污染
+
+### 测试
+
+- tracker-core vitest 23/23（原 18 + exclude 新 5）
+- book-tracker vitest 161/161（含跨仓库共享）
+- typecheck + cargo 不需重跑（Rust 不动）
+
+### 标签
+
+- （待发 tag 时）

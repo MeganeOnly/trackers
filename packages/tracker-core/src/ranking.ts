@@ -123,25 +123,39 @@ export function countComparisons(
  * 2. B = 评分最接近 A 的 pool 成员（排除 A 自身）。
  *
  * 池子少于 2 个 → 返回 null（前端应展示「至少需要 2 个」空状态）。
+ *
+ * `exclude`（可选）：本会话内「已经展示过」的 rankId 集合。
+ * - 用于"跳过"语义：跳过不应立即弹出同一对。v1.7 演化为"会话内每本最多展示
+ *   一次"——前端在 store 里维护已展示集合,每次 pickNextPair 都过滤掉它们。
+ * - 与原算法的关系:首先按 exclude 缩窄候选,再在缩窄后的候选里按「最少比较」
+ *   选 A、按"评分最接近"选 B。这样:
+ *   a) exclude 为空时退化为原算法（向后兼容,所有原测试不需改）;
+ *   b) exclude 缩窄后候选 < 2 → 返回 null（前端展示"本轮已无新候选")。
+ * - 计数仍按 pool 全集算（不是缩窄后),避免被排除项因为"小池子里看着少"
+ *   反被优先选出。
  */
 export function pickNextPair(
   pool: readonly string[],
   history: readonly PairwiseResult[],
   ratings: Record<string, number>,
   initialRating: number,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  exclude: ReadonlySet<string> = new Set()
 ): [string, string] | null {
   if (pool.length < 2) return null
+  const candidates = exclude.size === 0 ? pool : pool.filter((id) => !exclude.has(id))
+  if (candidates.length < 2) return null
 
+  // minCount 在 pool 全集内算（被排除项也参与"公平"基数,避免它们在小池里反被优先）
   const counts = countComparisons(history, pool)
-  const minCount = Math.min(...pool.map((id) => counts[id] ?? 0))
-  const aCandidates = pool.filter((id) => (counts[id] ?? 0) === minCount)
-  const a = aCandidates[Math.floor(rng() * aCandidates.length)]
+  const minCount = Math.min(...candidates.map((id) => counts[id] ?? 0))
+  const aTied = candidates.filter((id) => (counts[id] ?? 0) === minCount)
+  const a = aTied[Math.floor(rng() * aTied.length)]
 
   const ratingA = ratings[a] ?? initialRating
   let bestB: string | null = null
   let bestDiff = Infinity
-  for (const id of pool) {
+  for (const id of candidates) {
     if (id === a) continue
     const diff = Math.abs((ratings[id] ?? initialRating) - ratingA)
     if (diff < bestDiff) {
