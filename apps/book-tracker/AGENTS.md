@@ -310,6 +310,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     - 实现:后端 service 接受 `last_modified: Option<u64>` 参数,**只有"实际写入内容"分支才刷**;前端 IPC 时**主动判断"是不是真改了"**——空操作不传时间戳。双向保险,避免误刷
     - 老数据缺 `lastModified` 字段 → 读回 `None`(向后兼容);`Some(0)` 等同 `None` 不写盘
 27. **v1.5 角色笔记整段 setCharacters IPC(跟 setSeasons / setEpisodeStamps 同款)**:`Book.characters` 数组用 `Vec<Character>`(用户 add 顺序,**不是** BTreeMap —— 跟 EpisodeNotes 的语义区别;`Character` 内部仍带稳定 UUID 用于编辑定位)。UI 在 add / edit / remove character 时**构造新数组整体回写**;**只对"被改的那条"刷 lastModified**,其他角色原值保持。整段 IPC 看起来浪费但实现简单 / 可恢复 / 避免并发冲突(跟 stamp 同款)
+28. **React Rules of Hooks:所有 hook 必须无条件、相同顺序、在 early return 之前调用**(2026-09 修 BookDetail 时踩):v1.6 加「下一季」`useMemo` 时直接放到了 `if (!book) return ...` 之后,导致「未选条目 → 选了条目」时 React hook 计数对不上(57 → 58),整组件报红。修复:所有 `useMemo` / `useState` / `useEffect` 上移到 early return 之前,内部用 `book?.xxx` / `if (!book) return []` 兜底。**审查新增 hook 的位置**是改动 React 组件时的强制 checklist —— 任何「先 early return 再 useMemo」都是反模式。共享层教训见 `docs/dev-notes.md` 2026-09 第 1 条
 
 ## 十一、已实现功能清单
 
