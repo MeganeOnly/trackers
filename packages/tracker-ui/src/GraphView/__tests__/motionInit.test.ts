@@ -146,7 +146,7 @@ describe('decideForceBranchMotion — 与 DEFAULT_MOTION 常量一致', () => {
     if (d.kind !== 'init') return
     expect(d.values.orbit).toBe(0.35)
     expect(d.values.jitter).toBe(0.25)
-    expect(d.values.centripetal).toBe(0.08)
+    expect(d.values.centripetal).toBe(0.01)
     expect(d.values.collideRadius).toBe(1.0)
   })
 

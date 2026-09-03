@@ -66,6 +66,30 @@ import { computeNodeRenderRadius } from './nodeRadius'
  *    centripetal 退居"轻微收紧"的角色;RANGES.centripetal max 保持 0.25
  *    不变 —— 用户仍可在 panel 拖到原默认的 1.7×。hover 自适应值
  *    (centripetalHover=0.004)不动 —— 冻结语义与默认大小正交。
+ *  - v8(2026-08):默认 centripetal 从 0.08 再降到 0.04、charge 从
+ *    -200 拉到 -260 —— 用户反馈"还是太小、向心力比排斥大"。
+ *    charge 是 1/r² (Barnes-Hut 衰减) 而 centripetal 是每 tick 恒定
+ *    向心,稳态半径上 centripetal 占主导 —— 光拉 charge 拉不动,只
+ *    会让 charge 在远端更强,近端一样塌缩。降一半 centripetal (稳
+ *    态向心 11→5.6 px/s) + 同步拉 charge (-200→-260) 让 charge 在
+ *    平衡半径处显著胜出,轨道半径大幅松一档,节点间空隙肉眼可读。
+ *    RANGES.centripetal max=0.25、RANGES.charge min=-300 不动,hover
+ *    自适应三个常量不动。
+ *  - v9(2026-08):默认 charge 从 -260 拉到 panel 下限 -300 —— 用户反
+   *    馈"默认排斥力再大一点"。直接顶到 RANGES.charge.min,centripetal
+   *    不动 (0.04)。默认即 panel 最强档:用户不能再靠面板往上推,只能
+   *    把它调弱 (往 0 方向) —— 想再散需要同步拉高 panel max 或继续降
+   *    centripetal。
+ *  - v10(2026-08):默认 centripetal 从 0.04 降到 0.01、加 linkDistance
+   *    = 20 —— 用户反馈"减小默认向心力、增大相联系节点引力"。
+   *    这是典型的"force-directed 集群"诉求:不相关节点强斥力分开、
+   *    相关节点被 link 拉成视觉集群。d3 默认 linkDistance=30(几乎
+   *    与节点半径量级相当、看不出"被吸引");降到 20 让相连节点明显
+   *    抱团。centripetal 0.04 → 0.01:稳态向心 5.6→1.4 px/s,几乎
+   *    取消径向收口,完全交给 link 拓扑决定集群形状(orphan 节点
+   *    不被 charge 推到无穷远,因为 link 拓扑把它们锚在集群边缘)。
+   *    linkDistance 不需要 hover 自适应 —— 静止时节点会自然 settle
+   *    到 link 距离。
  *
  *  hover 时 strength 降到 0.004: d=0.3 下 v_ss ≈ 0.004 * 2.33 ≈ 0.009/tick
  *  ≈ 0.55 px/s,基本静止,鼠标一上图就停稳,不影响点击命中。
@@ -75,7 +99,7 @@ import { computeNodeRenderRadius } from './nodeRadius'
 export const DEFAULT_MOTION = {
   orbit: 0.35,
   jitter: 0.25,
-  centripetal: 0.08,
+  centripetal: 0.01,
   /** pointerOver 时降到接近 0(force 函数内部 min(用户值, hover 默认值))
    *  d=0.3 下 v_ss ≈ 0.004 * 2.33 ≈ 0.009/tick ≈ 0.55 px/s,基本静止 */
   orbitHover: 0.004,
@@ -85,9 +109,21 @@ export const DEFAULT_MOTION = {
    *  21 px/s 向心,把节点全部拉到中心互相覆盖。配 orbitHover/jitterHover
    *  一起实现"hover → 图完全冻结"。 */
   centripetalHover: 0.004,
-  /** d3-force charge 强度 —— -120 比 -100 更明显散开(配合低 velocityDecay
-   *  让节点不会被向心过度收拢) */
-  charge: -120,
+  /** d3-force charge 强度 —— 用户反馈"默认节点挤在一起看不清",
+   * 从 -120 一路提到 -300(2.5× 散开),达到 panel RANGES.charge 的下限。
+   * 配合 centripetal=0.01 (v10) + 低 velocityDecay 一起决定稳态轨道半径
+   * —— 单拉 charge 拉不动近端塌缩,需要 centripetal 同步降一半让 charge
+   * 在平衡半径处胜出。默认 = panel max,用户仍可在面板把它调小(-300→0)
+   * 但不能再调更散 —— 想再散需要拉高 panel max 或继续降 centripetal。 */
+  charge: -300,
+  /** d3-force link distance —— "相联系节点引力"的物理实现。
+   * d3 默认 30(节点间自然距离 30px)。设到 20 = 让相连节点明显互相
+   * 拉近成视觉"集群",但仍由 collide (≈ 2× 节点半径 ≈ 16-24px) 兜底
+   * 防止物理重叠。配 centripetal=0.01 (v10) + charge=-300 (v9): 不
+   * 相连的节点被强斥力推到画面边缘、相连节点被 link 拉成紧密集群 →
+   * 视觉上"按主题分群"的力导向图。范围 [5, 80] 由 ForceParamsPanel
+   * 的 RANGES 协调;hover 自适应不需要它 —— link 距离与运动正交。 */
+  linkDistance: 20,
   /** d3-force velocityDecay —— 平衡"运动"与"稳定命中"。
    *  0.3 比 d3 默认 0.4 衰减更慢,稳态轨道速度几乎翻倍;配合 hover 自适
    *  应(orbit/jitter/centripetal 都接近 0)让鼠标点击稳定 */
@@ -123,6 +159,10 @@ export interface PhysicsController {
    * 用 setter 路线而不是重注册整个 force：保留 setCollideRadius 内部的
    * .radius() 闭包逻辑，只换系数；并 reheat 让 simulation 立刻应用新半径。 */
   setCollideRadius: (radius: number) => void
+  /** 重设 link force 的 distance —— panel 用这个实时调滑条 (2026-08 v10)。
+   * 走 d3-force-link 链式 .distance() setter,内部把 distance accessor
+   * 换成 constant 并重算 distances[i];reheat 后下次 tick 立刻生效。 */
+  setLinkDistance: (distance: number) => void
 }
 
 /**
@@ -163,6 +203,13 @@ export function useGraphPhysics(
    * 后续 panel 调 collideRadius 时通过单独的 setter 走（见 ForceParamsPanel
    * handleCollideRadiusChange）。 */
   const collideInitializedRef = useRef(false)
+  /* link force "初始化一次"哨兵(2026-08 v10 加)—— react-force-graph
+   * 在 mount 时注册 d3-force-link 的 forceLink() 实例,后续 graphData
+   * 更新只调 linkForce.links(...) 不重注册。 我们在 effect 首次就绪时
+   * 调 linkForce.distance(DEFAULT_MOTION.linkDistance) 设到默认 20
+   * (覆盖 d3 默认 30) —— 后续 panel 调 linkDistance 走单独的 setter
+   * (见 setLinkDistance)。 */
+  const linkInitializedRef = useRef(false)
 
   // 标记当前是否在 hover 状态 —— force 函数每 tick 读这个。
   // 注意：force 函数内部读 pointerOverRef.current + motionRef.current，
@@ -203,6 +250,28 @@ export function useGraphPhysics(
     }
   }
 
+  /* setLinkDistance —— 2026-08 v10:panel 调"连接距离"滑条时实时更新
+   * d3-force-link 的 distance 闭包。 走链式 .distance() setter (同
+   * setCollideRadius 路线),不重注册 link force —— link 实例由 react-
+   * force-graph 在 mount 时注册一次,后续 graphData 变化只调 .links()
+   * 不重创建;distance setter 内部把 distance accessor 换成 constant(新
+   * 值) 并调 initializeDistance() 重算 distances[i] 数组。 reheat 让
+   * simulation 重启,下次 tick 立刻按新距离算 link spring。 */
+  const setLinkDistance = (distance: number): void => {
+    const fg = fgRef.current
+    if (!fg) return
+    const linkRaw = fg.d3Force('link') as unknown as
+      | undefined
+      | { distance: (d: number) => unknown }
+    if (!linkRaw) return
+    try {
+      linkRaw.distance(distance)
+      fg.d3ReheatSimulation()
+    } catch (e) {
+      console.warn('setLinkDistance failed:', e)
+    }
+  }
+
   // 注册持续抖动 force：mount 后 fgRef 就绪时挂上。
   // d3Force('xxx') 在 d3 内模拟 tick 时被调用，每次给每个节点一个微小动量；
   // 不依赖 alphaTarget/alpha。
@@ -230,7 +299,7 @@ export function useGraphPhysics(
           /* 2) 包装 d3-force-charge,让 force 永远按 alpha=1 计算。
            *
            *  为什么:d3 默认 forceManyBody 是 alpha-scaled,alpha=0.001
-           *  时 charge 几乎不推、alpha=1 时全速推 (-120 * 1)。
+           *  时 charge 几乎不推、alpha=1 时全速推 (DEFAULT_MOTION.charge * 1)。
            *  d3ReheatSimulation() 内部调 simulation.restart(),把 alpha
            *  重置为 1。用户每次拖滑杆 / 重置都走 reheat,导致 charge
            *  在 alpha=1 短暂"爆发"推一次 —— 反复操作让节点被多次推而
@@ -317,6 +386,26 @@ export function useGraphPhysics(
         fg.d3Force('collide', collide as unknown as Parameters<typeof fg.d3Force>[1])
         collideInitializedRef.current = true
       }
+      /* link force distance —— 2026-08 v10:用户反馈"增大相联系节点引力",
+       * 把 d3 默认 linkDistance 30 调到 20 让相连节点明显拉成集群。
+       * 只在首次就绪时设一次 (linkInitializedRef 哨兵同 charge/collide);
+       * 后续 panel 调 linkDistance 走 setLinkDistance setter (链式 .distance()
+       * setter 与 collideRadius 模式一致)。 strength 不动 —— 保留 d3 默认
+       * 按度数自适应的 1/min(count[src], count[tgt]) (高连接度节点链接
+       * 自动变弱,避免 hub 节点被多边拉得太紧)。 */
+      if (!linkInitializedRef.current) {
+        const linkForce = fg.d3Force('link') as unknown as
+          | undefined
+          | { distance: (d: number) => unknown }
+        if (linkForce) {
+          try {
+            linkForce.distance(DEFAULT_MOTION.linkDistance)
+          } catch (e) {
+            console.warn('link distance init failed:', e)
+          }
+        }
+        linkInitializedRef.current = true
+      }
       fg.d3ReheatSimulation()
       // eslint-disable-next-line no-console
       console.log('[useGraphPhysics] force 注册成功 nodes=', nodes.length,
@@ -342,7 +431,7 @@ export function useGraphPhysics(
     return () => window.clearInterval(id)
   }, [motionLive, pointerOverLive, tickLive])
 
-  return { motionRef, pointerOverRef, setPointerOver, forceTickRef, setCollideRadius }
+  return { motionRef, pointerOverRef, setPointerOver, forceTickRef, setCollideRadius, setLinkDistance }
 }
 
 /* =====================================================================
@@ -399,8 +488,10 @@ function jitterForce(
  * 会被向心力收小，整张图视觉上更紧凑、不"摊"成一片大饼。
  *
  * 强度是直接加到 vx/vy 上的常量，不是按距离衰减的（与 orbit 同风格）；
- * 实际效果接近"持续弱重力"，在 charge = -80 的斥力场里找到新平衡。
- * strength=0 时函数立即 return，d3 仍会每 tick 调一次（成本可忽略）。
+ * 实际效果接近"持续弱重力"，与 d3-charge (1/r², 当前默认 -260) 共同决定
+ * 稳态轨道半径 —— centripetal 是常数推力、charge 越近越塌缩，两者不
+ * 同量纲，调一处会改变平衡。strength=0 时函数立即 return，d3 仍会每
+ * tick 调一次（成本可忽略）。
  */
 function centripetalForce(
   getNodes: () => BaseGraphNode[],

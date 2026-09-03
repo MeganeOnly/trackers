@@ -13,11 +13,13 @@
 // 数值范围（与 DEFAULT_MOTION 协调）：
 //   - orbit:         [0, 0.6]     默认 0.35 —— 切向速度，让节点绕中心旋转
 //   - jitter:        [0, 0.4]     默认 0.25 —— 随机噪声(有机感)
-//   - centripetal:   [0, 0.25]    默认 0.15 —— 径向向心(收半径)
-//   - charge:        [-300, 0]    默认 -120 —— d3 电荷斥力
+//   - centripetal:   [0, 0.25]    默认 0.01 —— 径向向心(收半径)
+//   - charge:        [-300, 0]    默认 -300 —— d3 电荷斥力
 //   - collideRadius: [0.5, 2.5]   默认 1.0 —— 实体碰撞半径系数(2026-08 加)
 //                                1.0=与绘制半径贴边、0.5=允许挤压一半、2.5=强制 2.5×间距
 //                                由 useGraphPhysics 暴露的 setCollideRadius 走链式 setter
+//   - linkDistance:  [5, 80]      默认 20 —— d3-force link 目标距离(2026-08 v10 加)
+//                                越小相连节点抱团越紧;5 ≈ 节点贴边、80 ≈ 散开网络拓扑
 //
 //   范围与 DEFAULT_MOTION 协调:max 必须 ≥ 默认值,且在用户拉到 max 时仍应
 //   有"明显但不失控"的视觉(orbit=0.6 约 84 px/s,11 秒/圈 @150px 半径)。
@@ -42,6 +44,9 @@ interface ForceParamsPanelProps {
   /** 重设 collide force 半径系数 —— useGraphPhysics 暴露的 setter(2026-08 加)。
    * 滑条 handle 拖动时调它,走过链式 .radius() 路线,不重注册整个 collide。 */
   setCollideRadius?: (radius: number) => void
+  /** 重设 link force distance(2026-08 v10)—— 走 d3-force-link 链式
+   * .distance() setter,实时改"相连节点的引力距离"。 */
+  setLinkDistance?: (distance: number) => void
   onClose: () => void
 }
 
@@ -56,6 +61,13 @@ const RANGES = {
     step: 0.05,
     label: '碰撞半径',
     hint: '节点间最小间距倍数；1.0 = 与绘制半径贴边'
+  },
+  linkDistance: {
+    min: 5,
+    max: 80,
+    step: 5,
+    label: '连接距离',
+    hint: '相连节点间目标距离；越小抱团越紧'
   }
 } as const
 
@@ -73,6 +85,7 @@ export function ForceParamsPanel({
   forceTickRef,
   layoutMode,
   setCollideRadius,
+  setLinkDistance,
   onClose
 }: ForceParamsPanelProps): JSX.Element {
   /* motion 三参用本地 useState 受控：避免 ref + React 受控 input 的同步陷阱
@@ -144,6 +157,21 @@ export function ForceParamsPanel({
     setCollideRadiusVal(motionRef.current.collideRadius)
   }, [layoutMode])
 
+  /* linkDistance 本地 state(2026-08 v10 加)—— 从 fgRef.d3Force('link').
+   * distance() 读初始值(因为 DEFAULT_MOTION.linkDistance 是 useGraphPhysics
+   * 首次就绪时才写到 d3-force 实例的,而 panel mount 时 fgRef 可能还没 ready)。
+   * 模式同 collideRadiusVal:受控 input + 走 setLinkDistance setter。 */
+  const [linkDistanceVal, setLinkDistanceVal] = useState<number>(() => {
+    const fg = fgRef.current
+    if (!fg) return DEFAULT_MOTION.linkDistance
+    const lf = fg.d3Force('link') as unknown as
+      | undefined
+      | { distance: () => unknown }
+    if (!lf) return DEFAULT_MOTION.linkDistance
+    const d = lf.distance()
+    return typeof d === 'function' ? DEFAULT_MOTION.linkDistance : Number(d)
+  })
+
   // Esc 关闭
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -200,6 +228,14 @@ export function ForceParamsPanel({
     if (setCollideRadius) setCollideRadius(value)
   }
 
+  /* handleLinkDistanceChange (2026-08 v10) —— 拖连接距离滑条时实时更新
+   * d3-force-link 的 distance。 与 handleCollideRadiusChange 同模式:
+   * 写本地 state + 调 useGraphPhysics 暴露的 setLinkDistance setter。 */
+  const handleLinkDistanceChange = (value: number): void => {
+    setLinkDistanceVal(value)
+    if (setLinkDistance) setLinkDistance(value)
+  }
+
   const handleReset = (): void => {
     setMotionVals({
       orbit: DEFAULT_MOTION.orbit,
@@ -211,6 +247,7 @@ export function ForceParamsPanel({
     motionRef.current.centripetal = DEFAULT_MOTION.centripetal
     handleChargeChange(DEFAULT_MOTION.charge)
     handleCollideRadiusChange(DEFAULT_MOTION.collideRadius)
+    handleLinkDistanceChange(DEFAULT_MOTION.linkDistance)
   }
 
   return createPortal(
@@ -283,6 +320,22 @@ export function ForceParamsPanel({
             step={RANGES.collideRadius.step}
             value={collideRadiusVal}
             onChange={(e) => handleCollideRadiusChange(Number(e.target.value))}
+          />
+        </label>
+        {/* 连接距离(2026-08 v10 加)—— d3-force-link 的 distance,控制
+            相连节点的弹簧静长;走 setLinkDistance 链式 setter 路线。 */}
+        <label className="force-param-row">
+          <span className="force-param-label" data-tip={RANGES.linkDistance.hint}>
+            {RANGES.linkDistance.label}
+            <span className="force-param-value">{linkDistanceVal.toFixed(0)}</span>
+          </span>
+          <input
+            type="range"
+            min={RANGES.linkDistance.min}
+            max={RANGES.linkDistance.max}
+            step={RANGES.linkDistance.step}
+            value={linkDistanceVal}
+            onChange={(e) => handleLinkDistanceChange(Number(e.target.value))}
           />
         </label>
         <button type="button" className="force-params-reset" onClick={handleReset}>
