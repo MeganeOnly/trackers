@@ -142,6 +142,30 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.id])
 
+  // ★ hooks 必须无条件调用 —— useMemo 必须在 early return 之前。
+  // 否则切换「未选条目 → 选了条目」时 React 看到 hook 数量变化,直接抛
+  // "Rendered more hooks than during the previous render"。
+  // book 可能 undefined(从集合里找不到),内部用 optional chaining 兜底。
+  // v1.6 「下一季」—— 当前 book.nextSeasonId 引用的目标 book(可能已被删除 → undefined)
+  const nextSeasonBook = useMemo(
+    () => (book?.nextSeasonId ? books.find((b) => b.id === book.nextSeasonId) : undefined),
+    [books, book?.nextSeasonId]
+  )
+  // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;最多 12 个
+  const nextSeasonCandidates = useMemo(() => {
+    if (!book) return []
+    return books
+      .filter((b) => b.id !== book.id)
+      .sort((a, b) => {
+        // tv / anime 优先
+        const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
+        const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
+        if (aTv !== bTv) return aTv - bTv
+        return a.title.localeCompare(b.title, 'zh')
+      })
+      .slice(0, 12)
+  }, [books, book?.id])
+
   if (!book) {
     return (
       <div className="detail-empty">
@@ -155,25 +179,6 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const isUnlocked = unlocked.get(cur.id) ?? true
   const cycle = cycles.find((c) => c.includes(cur.id))
   const pct = progressPercent(cur.progress)
-
-  // v1.6 「下一季」—— 当前 book.nextSeasonId 引用的目标 book(可能已被删除 → undefined)
-  const nextSeasonBook = useMemo(
-    () => (cur.nextSeasonId ? books.find((b) => b.id === cur.nextSeasonId) : undefined),
-    [books, cur.nextSeasonId]
-  )
-  // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;最多 12 个
-  const nextSeasonCandidates = useMemo(() => {
-    return books
-      .filter((b) => b.id !== cur.id)
-      .sort((a, b) => {
-        // tv / anime 优先
-        const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
-        const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
-        if (aTv !== bTv) return aTv - bTv
-        return a.title.localeCompare(b.title, 'zh')
-      })
-      .slice(0, 12)
-  }, [books, cur.id])
 
   async function handleSetNextSeason(id: string): Promise<void> {
     setNextSeasonPickerOpen(false)
