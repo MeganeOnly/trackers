@@ -189,6 +189,21 @@ pub fn books_characters_set(
     books::set_characters(&dir, &id, characters).map_err(|e| e.to_string())
 }
 
+// ==================== v1.6 「下一季」commands ====================
+
+/// 设置 / 清除「下一季」关联(v1.6 新增)。
+/// `next_season_id: None` 或 `Some("")` 等同"清除"(不写 frontmatter)。
+/// 禁止 self-loop(id 跟 next_season_id 相同 → Err)。
+/// 目标 book 不存在时不拒绝写盘,由前端 UI 兜底「原作品已删除」提示。
+#[tauri::command]
+pub fn books_set_next_season(
+    id: String,
+    next_season_id: Option<String>,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_next_season(&dir, &id, next_season_id).map_err(|e| e.to_string())
+}
+
 // ==================== relations commands ====================
 
 #[tauri::command]

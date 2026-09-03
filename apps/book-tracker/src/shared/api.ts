@@ -51,6 +51,14 @@ export interface BookAPI {
   // -------- v1.5 角色笔记 --------
   /** 整段替换角色笔记数组。`characters: []` 等同清空;稀疏写盘策略同 EpisodeRecord */
   charactersSet(id: string, characters: Character[]): Promise<Book>
+  // -------- v1.6 「下一季」 --------
+  /**
+   * 设置 / 清除「下一季」关联到另一部作品(v1.6 新增;仅 tv/anime 实际使用)。
+   * - `nextSeasonId: null` 或 `""` → 清空(不写 frontmatter)
+   * - 禁止 id 跟 nextSeasonId 相同(self-loop,Rust 端拒绝)
+   * - 目标 book 不存在时不拒绝(Rust 端不校验),由前端 UI 兜底提示「原作品已删除」
+   */
+  setNextSeason(id: string, nextSeasonId: string | null): Promise<Book>
 }
 
 export interface RelationsAPI {

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
 import { CharactersPanel } from './CharactersPanel'
+import { NextSeasonPicker } from './NextSeasonPicker'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
@@ -84,6 +85,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const bumpProgress = useBooksStore((s) => s.bumpProgress)
   const remove = useBooksStore((s) => s.remove)
   const select = useBooksStore((s) => s.select)
+  // v1.6 「下一季」action —— 走专用 IPC(同 seasons / episodes / characters 模式)
+  const setNextSeason = useBooksStore((s) => s.setNextSeason)
   const effectiveId = bookId ?? selectedId
   const book = books.find((b) => b.id === effectiveId)
   const { unlocked, cycles } = useUnlocked()
@@ -110,6 +113,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  // v1.6 「下一季」picker 开关(受控传给 NextSeasonPicker)
+  const [nextSeasonPickerOpen, setNextSeasonPickerOpen] = useState(false)
 
   // 切换条目时重置草稿（未保存的输入随之丢弃，与旧「弹窗编辑」语义一致）
   useEffect(() => {
@@ -132,6 +137,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setTagsText((book?.tags ?? []).join(', '))
     setError(null)
     setSaved(false)
+    // 切换作品时关闭 picker(避免开 picker 状态下切到另一部)
+    setNextSeasonPickerOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.id])
 
@@ -148,6 +155,43 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const isUnlocked = unlocked.get(cur.id) ?? true
   const cycle = cycles.find((c) => c.includes(cur.id))
   const pct = progressPercent(cur.progress)
+
+  // v1.6 「下一季」—— 当前 book.nextSeasonId 引用的目标 book(可能已被删除 → undefined)
+  const nextSeasonBook = useMemo(
+    () => (cur.nextSeasonId ? books.find((b) => b.id === cur.nextSeasonId) : undefined),
+    [books, cur.nextSeasonId]
+  )
+  // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;最多 12 个
+  const nextSeasonCandidates = useMemo(() => {
+    return books
+      .filter((b) => b.id !== cur.id)
+      .sort((a, b) => {
+        // tv / anime 优先
+        const aTv = a.kind === 'tv' || a.kind === 'anime' ? 0 : 1
+        const bTv = b.kind === 'tv' || b.kind === 'anime' ? 0 : 1
+        if (aTv !== bTv) return aTv - bTv
+        return a.title.localeCompare(b.title, 'zh')
+      })
+      .slice(0, 12)
+  }, [books, cur.id])
+
+  async function handleSetNextSeason(id: string): Promise<void> {
+    setNextSeasonPickerOpen(false)
+    if (id === cur.id) return // self-loop 兜底(Rust 也会拒绝,这里双保险)
+    try {
+      await setNextSeason(cur.id, id)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function handleClearNextSeason(): Promise<void> {
+    try {
+      await setNextSeason(cur.id, null)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   async function handleBump(delta: number): Promise<void> {
     const updated = await bumpProgress(cur.id, delta)
@@ -422,6 +466,75 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
+
+      {/* 「下一季」关联(v1.6 新增;tv/anime 实际使用)—— 单向 Book.nextSeasonId 字段,
+          与集笔记 / 角色笔记同级,放在前置依赖之前(让"下一季是另一部作品"的元信息优先可见) */}
+      <section className="next-season-block">
+        <h3 className="next-season-title">下一季</h3>
+        <div className="next-season">
+          <span className="next-season-label">下一季:</span>
+          {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
+            <>
+              <span className="next-season-missing">未设置</span>
+              <button
+                type="button"
+                className="next-season-add"
+                onClick={() => setNextSeasonPickerOpen(true)}
+              >
+                + 设置下一季
+              </button>
+            </>
+          ) : nextSeasonBook ? (
+            <>
+              <span
+                className="next-season-link"
+                onClick={() => select(nextSeasonBook.id)}
+                title="点击跳到该作品"
+              >
+                {nextSeasonBook.title}
+              </span>
+              <button
+                type="button"
+                className="next-season-add"
+                onClick={() => setNextSeasonPickerOpen(true)}
+                title="改成另一部作品"
+              >
+                改
+              </button>
+              <button
+                type="button"
+                className="next-season-remove"
+                onClick={() => void handleClearNextSeason()}
+                title="移除下一季关联"
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            // 引用了已被删除的作品 —— 优雅降级
+            <>
+              <span className="next-season-missing">
+                原作品已删除 (id: {cur.nextSeasonId})
+              </span>
+              <button
+                type="button"
+                className="next-season-remove"
+                onClick={() => void handleClearNextSeason()}
+                title="清除失效的下一季引用"
+              >
+                × 清除
+              </button>
+            </>
+          )}
+        </div>
+        <NextSeasonPicker
+          open={nextSeasonPickerOpen}
+          onClose={() => setNextSeasonPickerOpen(false)}
+          candidates={nextSeasonCandidates}
+          onPick={(id) => void handleSetNextSeason(id)}
+          currentTitle={cur.title}
+        />
+      </section>
 
       <PrereqEditor bookId={book.id} />
 

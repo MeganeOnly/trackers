@@ -87,6 +87,12 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
         seasons: parse_seasons(data.get("seasons")),
         episodes: parse_episodes(data.get("episodes")),
         characters: parse_characters(data.get("characters")),
+        // v1.6:next_season_id —— 字段缺损 / 非字符串 / 空串 → None（向后兼容;老文件无此字段）
+        next_season_id: data
+            .get("nextSeasonId")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     }
 }
 
@@ -264,6 +270,8 @@ pub fn write_book(
         episodes: None,
         // characters 不在 BookInput 里;详情页独占编辑;新建作品时为空
         characters: None,
+        // next_season_id 新建作品时为空(详情页独占编辑;v1.6 起)
+        next_season_id: None,
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -344,7 +352,13 @@ pub fn delete_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<()>
     }
 }
 
-fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
+/// 把 book 的 frontmatter 序列化 + 原子写到 `<id>.md`(覆盖现有文件)。
+/// 内部辅助函数:被 `write_book` / `update_book` / `set_seasons` / `set_episode_*` 等业务层调用。
+/// v1.6 起改为 `pub(crate)` —— `service::books::set_next_season` 需要直接调它(因为 BookPatch
+/// 没有 next_season_id 字段,走通用 update_book patch 路径无法更新这个字段;
+/// 走专用 IPC 直接 read → 改 merged.next_season_id → persist)。
+/// 其他业务方法仍走 update_book 路径(用 patch 合并 + persist)。
+pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
     // body 仅保留标题 heading —— notes 在 frontmatter 里,避免 body 反复重写丢失用户旧笔记
     let body = format!("# {}\n", book.title);
     // 构造 frontmatter (serde_json::Map)
@@ -512,6 +526,13 @@ fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Result<()> {
                 })
                 .collect();
             fm.insert("characters".into(), serde_json::Value::Array(arr));
+        }
+    }
+    // next_season_id: 仅在 Some(非空) 时写盘(v1.6 新增;跟 notes / starring 同款"空串不写"策略)
+    // 老文件缺字段 → None(向后兼容,parse 阶段 serde(default) 兜底)
+    if let Some(nid) = &book.next_season_id {
+        if !nid.is_empty() {
+            fm.insert("nextSeasonId".into(), serde_json::Value::String(nid.clone()));
         }
     }
 
@@ -1282,5 +1303,48 @@ mod tests {
         ).unwrap();
         let legacy_ep = read_book(&books_dir, "legacy-ep").unwrap().unwrap();
         assert!(legacy_ep.episodes.as_ref().unwrap().get("1-1").unwrap().last_modified.is_none());
+    }
+
+    /// v1.6 Book.next_season_id 字段的回归测试。
+    /// 不变量:
+    /// - Some(非空) → 写盘(frontmatter `nextSeasonId`);空串视为 None 不写盘
+    /// - 老文件缺 nextSeasonId 字段 → 读回 None(向后兼容)
+    /// 注:set_next_season 业务方法的 self-loop 校验在 service 模块(#[cfg(not(test))]),
+    /// 这里只测 data 层的 persist 写盘策略。
+    #[test]
+    fn next_season_id_round_trip_and_omit() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 写 book → next_season_id 默认 None,frontmatter 不写盘字段
+        let mut input = sample_input();
+        input.title = "S01".to_string();
+        let book_a = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(!raw.contains("nextSeasonId"), "新建作品默认无 nextSeasonId; raw={raw}");
+
+        // 2) 通过 set_next_season 业务方法被 cfg(not(test)) 隔离 — 这里直接模拟它的写盘逻辑:
+        // read → 改 merged.next_season_id → persist → 验证
+        let mut book = read_book(&books_dir, &book_a.id).unwrap().unwrap();
+        book.next_season_id = Some("5".to_string());
+        persist(&books_dir, &book).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(raw.contains("\"nextSeasonId\": \"5\""), "nextSeasonId 应写盘; raw={raw}");
+
+        // 3) 空串视为 None,不写盘
+        let mut book = read_book(&books_dir, &book_a.id).unwrap().unwrap();
+        book.next_season_id = None; // 空串 → normalize 成 None(service 层负责)
+        persist(&books_dir, &book).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(!raw.contains("nextSeasonId"), "None 不应写盘; raw={raw}");
+
+        // 4) 老文件缺 nextSeasonId 字段 → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy-next.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy-next\",\"title\":\"老剧\",\"status\":\"finished\",\"kind\":\"tv\"}\n---\n# 老剧\n",
+        ).unwrap();
+        let legacy_book = read_book(&books_dir, "legacy-next").unwrap().unwrap();
+        assert!(legacy_book.next_season_id.is_none());
     }
 }

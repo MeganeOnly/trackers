@@ -48,6 +48,14 @@ interface BooksState {
    * store 层不主动 inject 时间戳 —— 见 CharactersPanel 的处理。
    */
   setCharacters: (id: string, characters: Character[]) => Promise<Book>
+  // -------- v1.6 「下一季」actions --------
+  /**
+   * 设置 / 清除「下一季」关联到另一部作品(v1.6 新增;仅 tv/anime 实际使用)。
+   * - `nextSeasonId: null` 或 `""` → 清空
+   * - self-loop 在 Rust 端拒绝(id === nextSeasonId → IPC throw)
+   * - 目标 book 不存在不拒绝,前端 UI 兜底提示「原作品已删除」
+   */
+  setNextSeason: (id: string, nextSeasonId: string | null) => Promise<Book>
 }
 
 /**
@@ -140,6 +148,12 @@ export const useBooksStore = create<BooksState>((set) => ({
   // -------- v1.5 角色笔记 actions 实现 --------
   setCharacters: async (id, characters) => {
     const book = await api.books.charactersSet(id, characters)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v1.6 「下一季」actions 实现 --------
+  setNextSeason: async (id, nextSeasonId) => {
+    const book = await api.books.setNextSeason(id, nextSeasonId)
     upsertBook(set, book)
     return book
   }

@@ -41,7 +41,10 @@ export const api: ElectronAPI & {
     episodeSetStamps: (id, season, episode, stamps, lastModified) =>
       invoke<Book>('books_episode_set_stamps', { id, season, episode, stamps, lastModified }),
     // v1.5 角色笔记
-    charactersSet: (id, characters) => invoke<Book>('books_characters_set', { id, characters })
+    charactersSet: (id, characters) => invoke<Book>('books_characters_set', { id, characters }),
+    // v1.6 「下一季」
+    setNextSeason: (id, nextSeasonId) =>
+      invoke<Book>('books_set_next_season', { id, nextSeasonId })
   },
   relations: {
     get: () => invoke<Edge[]>('relations_get'),

@@ -330,6 +330,22 @@ export interface Book {
    * 单条 character 内部:见 Character 的稀疏语义（notes 空 → 保留条目;name 空 → 删除条目）。
    */
   characters?: CharacterNotes
+  /**
+   * 「下一季」关联到另一部作品的 id（v1.6 新增;仅 tv/anime 实际使用,其他类型也允许但场景少见）。
+   *
+   * 语义:把这部作品的"下一季"指向另一部已存在的 book。典型场景:一部剧拆成多个 book 追踪
+   * （S01 / S02 / S03+）时,把它们串起来形成连贯线索。
+   *
+   * **单向字段**;反向"谁的下季是本季"通过遍历所有 book 的 nextSeasonId 推断。
+   *
+   * 写盘策略:undefined / 空串 → 不写 frontmatter;老文件缺字段 → undefined（向后兼容）。
+   * 跟 `notes` / `starring` / `screenwriter` 同款"空值不写盘"语义。
+   *
+   * 候选过滤（在 BookDetail 的 NextSeasonPicker 里实现）:
+   * - 排除自己（self-loop 禁止）
+   * - 推荐优先显示 tv / anime 类型,但不强约束（允许跨类型,如漫画 → 动画）
+   */
+  nextSeasonId?: string
 }
 
 /** 主题预设（视觉风格）：classic = 当前样式（保留）；library = 深森林绿书架风 */

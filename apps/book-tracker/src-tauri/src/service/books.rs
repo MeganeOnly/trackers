@@ -3,6 +3,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use tracker_core::frontmatter::now_iso;
+
 use crate::data::books as data;
 use crate::types::{episode_key, parse_episode_key, Book, BookInput, BookPatch, CharacterNotes, EpisodeNotes, EpisodeRecord, SeasonInfo, TimeStamp};
 
@@ -357,4 +359,44 @@ pub fn set_characters(
         ..Default::default()
     };
     data::update_book(books_dir, id, &patch)
+}
+
+// ==================== v1.6 「下一季」业务方法 ====================
+
+/// 设置 / 清除「下一季」关联(v1.6 新增;仅 tv/anime 实际使用,其他类型也允许)。
+///
+/// - `next_season_id: None` → 清空(不写 frontmatter)
+/// - `next_season_id: Some("")` → 也视为清空(空串语义同 None,跟 notes / starring 同款)
+/// - `next_season_id: Some("42")` → 写 frontmatter `nextSeasonId: "42"`
+///
+/// 校验:
+/// - 禁止 self-loop(id 跟 next_season_id 相同 → Err)
+/// - next_season_id 引用的目标 book 是否存在 —— **不在这里硬拒绝**写盘,
+///   允许"目标被删除"的脏数据被存下,由前端 UI 兜底提示「原作品已删除 [× 移除]」。
+///
+/// 实现细节:`next_season_id` 不在 BookPatch 里(跟 seasons / episodes / characters 同款,
+/// 关联字段走专用 IPC),所以不走 update_book patch 路径 —— 直接 read → 改 merged → 调
+/// `data::books::persist`(pub(crate))。这样保证 updated 时间戳刷新、原子写、所有其他字段不变。
+pub fn set_next_season(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    next_season_id: Option<String>,
+) -> std::io::Result<Book> {
+    // 校验:self-loop 拒绝
+    if let Some(nid) = &next_season_id {
+        if !nid.is_empty() && nid == id {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "下一季不能指向自己",
+            ));
+        }
+    }
+    let existing = data::read_book(&books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let normalized: Option<String> = next_season_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    let mut merged = existing;
+    merged.next_season_id = normalized;
+    merged.updated = now_iso();
+    crate::data::books::persist(&books_dir, &merged)?;
+    Ok(merged)
 }

@@ -238,6 +238,13 @@ pub struct Book {
     /// 写盘策略由 data 层判定:空数组 / 全是 name 空的 character 不写。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characters: Option<CharacterNotes>,
+    /// 「下一季」关联到另一部作品的 id(v1.6 新增;仅 tv/anime 实际使用)。
+    /// 单向字段;语义 = 「这部作品的下一季是 `next_season_id` 那部 book」。
+    /// 反向"谁的下季是本季"通过遍历所有 book 的 next_season_id 推断。
+    /// 写盘策略:`Some(非空)` 才写,空串 / None 不写 frontmatter。
+    /// 老文件缺字段 → `None`(向后兼容,`serde(default)`)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_season_id: Option<String>,
 }
 
 /// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'>`
@@ -330,6 +337,9 @@ pub struct BookPatch {
     /// (语义 = "清空所有角色笔记";空数组 / 全是 name 空的 character 由 data 层兜底不写 frontmatter)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characters: Option<CharacterNotes>,
+    // 注意:`next_season_id` 不在 BookPatch 里 —— 改下一季走专用 IPC `books_set_next_season`
+    // (跟 seasons / episodes / characters 同款;BookPatch 只承载"基础字段"原子更新,
+    // 关联字段走专用命令便于将来加校验 / 反向引用清理 / 关系图联动)。
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

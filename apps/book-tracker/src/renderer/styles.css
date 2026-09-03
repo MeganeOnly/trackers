@@ -2041,3 +2041,144 @@ ul.book-grid {
 .compact-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .stamp-card { cursor: pointer; }
 .stamp-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+/* ============ v1.6 「下一季」区块(放在 BookDetail 上) ============ */
+.next-season-block {
+  margin-top: 18px;
+}
+.next-season-block .next-season-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.next-season {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg, #f7f7f5);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.next-season-label {
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.next-season-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.next-season-link:hover { filter: brightness(0.85); }
+.next-season-missing {
+  color: var(--muted);
+  font-style: italic;
+  flex: 1;
+}
+.next-season-add {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: white;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.next-season-add:hover { color: var(--accent); border-color: var(--accent); }
+.next-season-remove {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.next-season-remove:hover { color: var(--accent); border-color: var(--accent); }
+
+
+/* ============ v1.6 NextSeasonPicker(弹窗式 inline 选择器) ============ */
+.next-season-picker {
+  margin-top: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px 10px;
+  box-shadow: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.06));
+}
+.next-season-picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.next-season-picker-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.next-season-picker-close:hover { color: var(--accent); }
+.next-season-picker-search {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.next-season-picker-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.next-season-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.next-season-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.next-season-picker-item:hover { background: var(--bg); }
+.next-season-picker-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.next-season-picker-item .title {
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.next-season-picker-item .author {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.next-season-picker-item .tracker-id {
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace);
+  flex-shrink: 0;
+}
