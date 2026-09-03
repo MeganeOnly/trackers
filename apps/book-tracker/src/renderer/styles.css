@@ -421,6 +421,85 @@ button:focus-visible {
 /* progress input fields in BookForm */
 .progress-fields { align-items: flex-start; }
 
+/* ============ Season editor (BookForm: tv/anime) ============ */
+.seasons-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.seasons-editor-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; font-weight: 500;
+}
+.seasons-editor-head .muted { font-size: 12px; font-weight: 400; }
+.season-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.season-row .season-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  width: 36px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.season-row input {
+  flex: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  background: white;
+}
+.season-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.season-row .season-unit {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.season-remove {
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.season-remove:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.season-remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.season-add {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: white;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.season-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.seasons-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* clean-mode currently reading 进度 */
 .currently-progress {
   color: var(--muted);

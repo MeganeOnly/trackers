@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from './Modal'
 import { useBooksStore } from '../store/books'
 import { useSettingsStore } from '../store/settings'
 import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
-import type { Book, BookStatus, WorkKind } from '@shared/types'
+import type { Book, BookStatus, SeasonInfo, WorkKind } from '@shared/types'
 
 interface BookFormProps {
   /** null = 加作品；非空 = 改作品 */
@@ -115,6 +115,45 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 季设置 —— 仅 tv/anime 用;book?.seasons 为空时兜底用 progress.total 推一个单季
+  const [seasons, setSeasons] = useState<SeasonInfo[]>(
+    book?.seasons && book.seasons.length > 0
+      ? [...book.seasons].sort((a, b) => a.number - b.number)
+      : [{ number: 1, episodeCount: book?.progress?.total ?? 0 }]
+  )
+  // tv/anime 切换时若 seasons 为空,自动给一个单季 0 集
+  useEffect(() => {
+    if (kind === 'tv' || kind === 'anime') {
+      if (seasons.length === 0) {
+        setSeasons([{ number: 1, episodeCount: 0 }])
+      }
+    } else {
+      // 非 tv/anime 强制清空季设置(虽然 UI 已经不显示了,但 state 还留着)
+      if (seasons.length > 0) setSeasons([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind])
+
+  function addSeason(): void {
+    const nextNumber =
+      seasons.length === 0 ? 1 : Math.max(...seasons.map((s) => s.number)) + 1
+    setSeasons([...seasons, { number: nextNumber, episodeCount: 0 }])
+  }
+  function removeSeason(idx: number): void {
+    if (seasons.length <= 1) {
+      // 至少留一季(用户主动删完就只剩空季也允许,但 UI 上空季没意义 —— 强制删季时若只有 1 季,改其集数为 0)
+      const next = [...seasons]
+      next[idx] = { ...next[idx], episodeCount: 0 }
+      setSeasons(next)
+      return
+    }
+    setSeasons(seasons.filter((_, i) => i !== idx))
+  }
+  function updateSeasonCount(idx: number, count: number): void {
+    const next = [...seasons]
+    next[idx] = { ...next[idx], episodeCount: Math.max(0, Math.floor(count) || 0) }
+    setSeasons(next)
+  }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -155,10 +194,30 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
           }
         }
       }
+      // 季设置:仅 tv/anime 写入;空数组 / 全 0 集 → 不写
+      if (kind === 'tv' || kind === 'anime') {
+        const nonEmpty = seasons.filter((s) => s.episodeCount > 0)
+        if (nonEmpty.length > 0) {
+          input.seasons = nonEmpty
+          // tv/anime 时 progress.total 跟 seasons 总和保持同步(避免出现 5 季但 total 还是 10 的错位)
+          if (input.progress) {
+            input.progress = {
+              ...input.progress,
+              total: nonEmpty.reduce((sum, s) => sum + s.episodeCount, 0)
+            }
+          }
+        }
+      }
       if (isEdit && book) {
         const patch: Parameters<typeof update>[1] = { ...input, read_count: readCount }
         // 编辑模式下,如果 status 不是「进行中」,主动清空 progress（用户主动清除意图）
         if (status !== 'reading' && status !== 'watching') patch.progress = null
+        // 编辑模式下若 tv/anime 且用户没动 seasons,就不带 seasons 字段(避免 patch 覆盖为 None)
+        // —— 但因为 input.seasons 已经过滤过(空就不传),patch 走的是 spread input,
+        // 所以这里需要主动判断:只在 input.seasons 真的有值时才带
+        if (!(kind === 'tv' || kind === 'anime') || !input.seasons) {
+          delete (patch as { seasons?: unknown }).seasons
+        }
         await update(book.id, patch)
       } else {
         await create(input)
@@ -315,6 +374,44 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
                 placeholder="如 100；空 = 连载/更新中"
               />
             </label>
+          </div>
+        )}
+        {(kind === 'tv' || kind === 'anime') && (
+          <div className="seasons-editor">
+            <div className="seasons-editor-head">
+              <span>季设置</span>
+              <span className="muted">
+                总集数 = {seasons.reduce((sum, s) => sum + s.episodeCount, 0)}
+              </span>
+            </div>
+            {seasons.map((s, idx) => (
+              <div className="season-row" key={`${s.number}-${idx}`}>
+                <span className="season-label">S{String(s.number).padStart(2, '0')}</span>
+                <input
+                  type="number"
+                  value={s.episodeCount}
+                  onChange={(e) => updateSeasonCount(idx, Number(e.target.value))}
+                  min="0"
+                  placeholder="集数"
+                />
+                <span className="season-unit">集</span>
+                <button
+                  type="button"
+                  className="season-remove"
+                  onClick={() => removeSeason(idx)}
+                  disabled={seasons.length === 1}
+                  title={seasons.length === 1 ? '至少保留 1 季(改为 0 集)' : '删除这一季'}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" className="season-add" onClick={addSeason}>
+              + 新增一季
+            </button>
+            <p className="muted seasons-hint">
+              单集笔记 / 标题在详情页编辑;季数中途变化时旧的集笔记保留(用户手填即可)。
+            </p>
           </div>
         )}
         <label className="form-checkline">
