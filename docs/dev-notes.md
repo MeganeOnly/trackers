@@ -6,6 +6,220 @@
 
 ---
 
+## 2026-08：[共享] 关系图默认初始 zoom 太小——新加 `useInitialZoom`，v11→v12 拉到 ~2.5
+
+### 1. 现象（v11）
+
+经过 v7→v10 一路把 charge / centripetal / linkDistance 调到力导向集群风格后，用户继续反馈"节点还是看着挤"。检查后发现**问题不只是物理**——`react-force-graph-2d` 内部用 `ZOOM2NODES_FACTOR(4) / cbrt(N)` 算初始 zoom，N=27 时 ≈ 1.33。节点在画布上只占视觉区域的一小块，**即便物理布局已经拉开，人眼看仍觉得"挤"**。
+
+这跟 v7→v10 调的物理参数没关系——纯粹是"画布渲染比例"的问题。
+
+### 2. 修复（v11）
+
+新加 `packages/tracker-ui/src/GraphView/useInitialZoom.ts`：
+
+- 公式 `initialZoom = clamp(6 / cbrt(N), 1.0, 2.0)` —— 比库默认 1.5× 大
+  - N=8   → cap 在 2.0（6/2=3.0 → clamp）
+  - N=27  → 2.0（6/3 = 2.0，无需 clamp）
+  - N=64  → 1.5（6/4）
+  - N=216 → 1.0（6/6，到下限不再放大）
+
+### 3. 继续反馈"默认再大一点"（v12）
+
+v11 推上去后用户继续反馈"再大一点"。v12 直接把系数往激进推：
+
+- `INITIAL_ZOOM_FACTOR: 6 → 8`（整体公式变陡，2× 库默认而非 1.5×）
+- `INITIAL_ZOOM_CAP: 2.0 → 2.5`（上限抬高，典型节点数 N=27 从 2.0 → 2.5）
+- 新对照表：
+  - N=8   → 2.5（8/2=4.0 → cap）
+  - N=27  → 2.5（8/3≈2.67 → cap）
+  - N=64  → 2.0（8/4）
+  - N=216 → 1.33（8/6）
+  - N=512 → 1.0（8/8，到 floor 不再放大）
+
+### 4. 关键：不会被库的 onFinishUpdate 覆盖回去
+
+react-force-graph-2d 内部 `onFinishUpdate` 有这条逻辑：
+
+```js
+if (transform(state.canvas).k === state.lastSetZoom && graphData.nodes.length) {
+    state.zoom.scaleTo(elem, state.lastSetZoom = ZOOM2NODES_FACTOR / cbrt(N));
+}
+```
+
+即"当前 zoom == 上次设置的 zoom"才覆盖。我调 `fg.zoom(myK)` → 内部 `state.zoom.scaleTo(elem, myK)` —— **这条路径不更新 `state.lastSetZoom`**。下次 `onFinishUpdate` 看到 `transform.k (myK) !== lastSetZoom (库默认)` → 跳过覆盖。我的 zoom 持久。
+
+### 5. 取舍
+
+- **不重设**：filter 切换 / 加书后不重置 zoom；用户加一本书时图不该自己缩放。
+- **一次性**：用户手动 zoom 后也不会被悄悄覆盖（`zoomAppliedRef` 哨兵只跑一次）。
+- **不暴露 panel**：v11/v12 不加 zoom 滑条——zoom 是浏览行为不是物理参数；用户用鼠标滚轮 / ctrl+wheel 即可，需要精细控制时再加。
+
+### 6. 回归
+
+- `useInitialZoom.test.ts`（9 个）—— 锁死 N=8/27/64/216/512/0/10000 七个取值，硬挂 `INITIAL_ZOOM_FACTOR=8`、`INITIAL_ZOOM_CAP=2.5`、`INITIAL_ZOOM_FLOOR=1.0` 三个常量（v11 是 8 个，v12 增到 9 个因为典型节点数从 64 改为 512）。
+- tracker-ui 全套 41 个 vitest 全过（v10 是 32，v11 是 40，+1）。
+- `npm run typecheck` 三端 + core 全过。
+
+### 7. 教训
+
+**「节点挤在一起」要分清三层：**
+
+1. 物理层（v7→v10）：charge / centripetal / linkDistance —— 节点在"模拟空间"里的位置
+2. 渲染层（v11→v12）：zoom —— 画布"相机"看多近
+3. 视觉层：节点大小（`nodeRelSize` / `NODE_SIZE_FN`）—— 节点圆多大
+
+用户连续 4 轮反馈"挤"时，第 1 层我已经调到 panel 上限，但**第 2 层没动过**。物理层调到极限 ≠ 视觉上不挤 —— 因为相机离得太远，节点物理拉开了但视觉上还是小。**规律**：调物理参数没解决视觉问题 → 检查渲染层（zoom / canvas size）有没有同时被卡住。
+
+更一般：**不要把"用户看着挤"全部归因到物理力**，要看 canvas 实际占用的像素面积。如果节点在画布上只占 20% 的可见区域，再大的斥力也只是把节点推到画布外而已 —— 物理拉得开但视觉上"挤在一角"。
+
+**另外（v12 新增）**：用户连续反馈"再大点"时不要只调系数、还要同步抬 cap。v11 的 `INITIAL_ZOOM_FACTOR=6` 单调拉到 8 也能让典型 N=27 节点的 zoom 从 2.0 → 2.67（自然超过 cap）；但因为 cap 还是 2.0，最后还是被截到 2.0 —— **调系数和调 cap 必须同步**，否则公式斜率变了但上限没动，实际效果不变。
+
+---
+
+## 2026-08：[共享] 关系图力导向从"半径圆"切换到"拓扑集群"——`centripetal` 降 + `linkDistance` 显式配置
+
+### 1. 现象（v7→v8→v9→v10 的连续迭代）
+
+经过 v7（charge -120→-200）、v8（再加 centripetal 0.08→0.04 + charge -200→-260）、v9（charge -260→-300）三轮把"散开"推到 panel 上限后，用户继续要求"减小默认向心力、增大相联系节点引力" —— 整张图的诉求从「节点能看清」转向「按主题分群」的力导向图谱风格。
+
+### 2. 修复（v10）
+
+- `DEFAULT_MOTION.centripetal: 0.04 → 0.01`（稳态向心 5.6→1.4 px/s，几乎取消径向收口 —— 不再"绕中心转"的圆盘结构，转为 link 拓扑决定的集群形状）
+- 新增 `DEFAULT_MOTION.linkDistance: 20`，覆盖 d3 默认 `forceLink.distance=30` —— 让相连节点明显拉成视觉集群
+
+`useGraphPhysics` 增加 `linkInitializedRef` 哨兵 + `setLinkDistance` setter，**首次就绪时**调 `fg.d3Force('link').distance(20)` 一次性写默认（react-force-graph 在 mount 时注册 link force，后续 graphData 变化只调 `.links()` 不重创建 —— 所以 `.distance()` 只设一次就持久）。
+
+d3 默认的 link **strength 不动**（`1/min(count[src], count[tgt])`，按度数自适应 —— hub 节点自然变弱，避免被多边拉得太紧）。如果用户想要"全连接等强度"再考虑暴露。
+
+### 3. 配套：把 `linkDistance` 加进 panel 滑条
+
+`ForceParamsPanel.RANGES.linkDistance: [5, 80]` step 5，新增"连接距离"滑条（默认 20）。理由：用户已经在 4 轮迭代里反复调"节点分散 / 集群"相关参数，加 slider 比"再改一次 DEFAULT_MOTION"迭代更快 —— 用户能直接看效果。
+
+滑条走 `setLinkDistance` 链式 setter（同 `setCollideRadius` 模式），`.distance(value)` + `d3ReheatSimulation()` 即时生效。
+
+### 4. 视觉预期（用户视角）
+
+- 不相关节点被强斥力 (`charge=-300`) 推到画面边缘
+- 相关节点被 link (`distance=20`) 拉成紧密集群
+- 整张图视觉上自然分群（按主题 / 知识域 / 目标族）—— 经典 force-directed graph 风格
+
+### 5. 回归
+
+- `tracker-ui` 32 个 vitest 全过；`motionInit.test.ts` 同步 hardcoded `centripetal: 0.04 → 0.01`。
+- `book-tracker` 131 个 + `life-tracker` 211 个测试全过。
+- `npm run typecheck` 三端 + core 全过。
+
+### 6. 教训
+
+**1. 「让相连节点抱团」在 d3 里就是 `linkDistance` 调小**，不是调 `charge` 或 `collideRadius` —— 后两者是"全节点间"作用力。混淆表现：「拖 collisionRadius 到 2.5 节点还是散开的」—— collsion 是全局最小间距，不会让相连节点"抱团"。
+
+**2. d3 默认的 `forceLink.strength` 是度数自适应的 `1/min(count)`**，调它会让 hub 节点的连接等强度变弱 —— 多数场景不用动。如果用户反馈"hub 节点被多边拉得不稳"，**优先调 `collideIterations` 或 `linkDistance`**，不要动 strength。
+
+**3. `d3Force('xxx', newFn)` 会让 simulation 重新跑初始化 nodes 路径**，所以"设一次"模式需要哨兵 ref。但 `linkForce.distance(value)` 这种链式 setter **不会**触发重初始化（distance 内部只换 `distance` accessor + 调 `initializeDistance()`），可以直接调。判断口诀：
+
+- `forceLinks(links)`、`forceManyBody(strength)` → 设后想"立即生效"必须 reheat 但不需要哨兵
+- `forceCollide.radius(fn)`、`forceLink.distance(num)` → 设后 reheat 即生效，**哨兵只是防"用户调过的值被 effect 重跑冲掉"**
+- `fg.d3Force('xxx', newForce)` → 会让 simulation 重新初始化，必须用哨兵（见 `linkInitializedRef` / `chargeInitializedRef` / `collideInitializedRef`）
+
+---
+
+## 2026-08：[共享] 关系图默认节点挤在一起看不清——`DEFAULT_MOTION.charge` 一路从 -120 提到 -300
+
+### 1. 现象
+
+用户报「关系图打开看的时候，节点都挤在一块看不清楚」。
+
+### 2. 修复（v7）
+
+`DEFAULT_MOTION.charge: -120 → -200`（1.67× 散开）。仍低于 `ForceParamsPanel.RANGES.charge.min = -300`，留余量给用户在面板继续拉。
+
+### 3. 根因续（v8）—— 「光拉 charge 拉不动」
+
+用户报"还是太小"。检查后才发现问题：charge 是 d3 的 1/r² Barnes-Hut，**近距时推力会塌缩到 ~0**；而 centripetal 是每 tick 恒定向心（v_ss ≈ 11 px/s）。**两者不同量纲**：
+
+- 想把"近距"节点推开 → 要靠 centripetal 让出来 —— 但 centripetal 是径向向心、专管收半径
+- 想把"远距"节点推开 → charge 越强越散
+
+只在 charge 单边加力，只能让"远端更散、近端照样塌"。需要**两边一起调**才能在"平衡半径"处让 charge 胜出。
+
+### 4. 修复（v8）
+
+- `DEFAULT_MOTION.centripetal: 0.08 → 0.04`（稳态向心 11→5.6 px/s，半径更大一档）
+- `DEFAULT_MOTION.charge: -200 → -260`（同倍 1.3× 散开）
+
+### 5. 修复（v9）—— 直接顶到 panel max
+
+用户继续报"默认排斥力再大一点"。这轮不再纠结 centripetal，单边把 charge 推到 panel 下限：
+
+- `DEFAULT_MOTION.charge: -260 → -300`（顶到 `RANGES.charge.min`）
+
+**取舍**：默认 = panel 最强档后，用户不能再靠面板往上推，只能调弱（往 0 方向）。这是有意识的 trade-off —— 用户已经明确"想更散"的诉求，迭代三轮都没找到平衡点，说明默认值应该偏激进；想再散下一步是同步拉高 panel max（`-300 → -400`）或继续降 centripetal。
+
+### 6. 回归
+
+- `motionInit.test.ts`（12 个）全过 —— charge 不在 MotionDecision.values 里，v9 只改 charge 字段。
+- tracker-ui 全套 32 个 vitest 全过；core / book / life 全跑 211 个全过。
+- `npm run typecheck` 三端 + core 全过。
+
+### 7. 教训
+
+**「节点挨在一起」要分清是 charge 还是 collide**：
+
+- 节点互相覆盖、看着是叠在同一个圆里 → collide 力不够 → 调 `DEFAULT_MOTION.collideRadius` 或 collide iterations。
+- 节点都活着、彼此清晰、但整体靠中心、间距偏小 → charge vs centripetal 平衡问题 → 调两边。
+
+混淆的常见症状：「调了 collideRadius 到 2.5 节点还是挤成一坨」——其实撞不动的是 charge vs centripetal 的平衡，collideRadius 拉到天上去也没用。
+
+**另外（v8 新增）**：「调散 charge 没用」通常是 **charge 和 centripetal 不同量纲导致的近端盲区** —— 光拉 charge 拉不动，centripetal 必须同步降。这条规律适用于任何「恒定径向力 vs 1/r² 斥力」组合（不限于 d3-force，也适用于自实现物理模拟）。
+
+**再另外（v9 新增）**：用户连续三轮反馈"默认想更散"时，**默认值应该偏激进** —— 反复迭代没找到平衡点说明"中等值"不是用户的目标；激进默认值让想"调紧"的用户也能调（panel 还有空间往 0 方向调），只有想"调散"的用户才被卡住 —— 而被卡住的少数用户才会继续反馈，多数被满足的用户沉默。这是一个用户反馈的"沉默多数"陷阱。
+
+---
+
+### 2. 根因
+
+`useGraphPhysics.ts` 里 `DEFAULT_MOTION.charge = -120` 是「v4 灵动」那次定的——当时配合 `collide`（2026-08 加）才让节点不重叠、但**轨道半径偏紧**。collide 解决的是"两个节点不能完全画到一起"，charge 解决的是"节点之间保持多远"。两者正交：用户看到的「挤成一团」是 charge 决定的稳态半径太小、不是 collide 失效。
+
+### 3. 修复（v7）
+
+`DEFAULT_MOTION.charge: -120 → -200`（1.67× 散开）。仍低于 `ForceParamsPanel.RANGES.charge.min = -300`，留余量给用户在面板继续拉。
+
+### 4. 根因续（v8）—— 「光拉 charge 拉不动」
+
+用户报"还是太小"。检查后才发现问题：charge 是 d3 的 1/r² Barnes-Hut，**近距时推力会塌缩到 ~0**；而 centripetal 是每 tick 恒定向心（v_ss ≈ 11 px/s）。**两者不同量纲**：
+
+- 想把"近距"节点推开 → 要靠 centripetal 让出来 —— 但 centripetal 是径向向心、专管收半径
+- 想把"远距"节点推开 → charge 越强越散
+
+只在 charge 单边加力，只能让"远端更散、近端照样塌"。需要**两边一起调**才能在"平衡半径"处让 charge 胜出。
+
+### 5. 修复（v8）
+
+- `DEFAULT_MOTION.centripetal: 0.08 → 0.04`（稳态向心 11→5.6 px/s，半径更大一档）
+- `DEFAULT_MOTION.charge: -200 → -260`（同倍 1.3× 散开）
+
+`RANGES.centripetal max=0.25`、`RANGES.charge min=-300` 不动 —— 用户仍可在面板继续调。hover 三个常量不动。
+
+### 6. 回归
+
+- `motionInit.test.ts`（12 个）全过 —— 同步把 hardcoded `centripetal: 0.08` 改成 `0.04`（防 "DEFAULT_MOTION 改值忘同步"）。
+- tracker-ui 全套 32 个 vitest 全过；core / book / life 全跑 211 个全过。
+- `npm run typecheck` 三端 + core 全过。
+
+### 7. 教训
+
+**「节点挨在一起」要分清是 charge 还是 collide**：
+
+- 节点互相覆盖、看着是叠在同一个圆里 → collide 力不够 → 调 `DEFAULT_MOTION.collideRadius` 或 collide iterations。
+- 节点都活着、彼此清晰、但整体靠中心、间距偏小 → charge vs centripetal 平衡问题 → 调两边。
+
+混淆的常见症状：「调了 collideRadius 到 2.5 节点还是挤成一坨」——其实撞不动的是 charge vs centripetal 的平衡，collideRadius 拉到天上去也没用。
+
+**另外（v8 新增）**：「调散 charge 没用」通常是 **charge 和 centripetal 不同量纲导致的近端盲区** —— 光拉 charge 拉不动，centripetal 必须同步降。这条规律适用于任何「恒定径向力 vs 1/r² 斥力」组合（不限于 d3-force，也适用于自实现物理模拟）。
+
+---
+
 ## 2026-08：[共享] 关系图 hover 时节点被向心力拽到中心互相覆盖——centripetal 漏了 hover 自适应
 
 ### 1. 现象
