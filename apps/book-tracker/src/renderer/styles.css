@@ -2026,3 +2026,18 @@ ul.book-grid {
   font-weight: 500;
   opacity: 0.85;
 }
+
+
+
+/* ============ v1.6 日常模式可点击作品(via onClick → 切 EditMode) ============
+ * focal-card / compact-item / stamp-card / collapsed-item 全部加 cursor + 焦点轮廓。
+ * base.css 已经有 hover 效果(focal-card 没有),这里只补 cursor + a11y。
+ * .clean-item-left 在上面 §1020 已配 cursor + hover,这里给其它 view 配齐。
+ */
+.focal-card { cursor: pointer; transition: transform 0.12s ease; }
+.focal-card:hover { transform: translateY(-1px); }
+.focal-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.compact-item { cursor: pointer; }
+.compact-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.stamp-card { cursor: pointer; }
+.stamp-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

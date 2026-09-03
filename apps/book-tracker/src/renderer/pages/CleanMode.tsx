@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
+import { useModeStore } from '../store/mode'
 import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
 import { useSearchStore, matchBook } from '../store/search'
@@ -31,6 +32,8 @@ const RESTORE_TO: Record<BookStatus, BookStatus> = {
 export function CleanMode(): JSX.Element {
   const books = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
+  const select = useBooksStore((s) => s.select)
+  const setMode = useModeStore((s) => s.setMode)
   const edges = useRelationsStore((s) => s.edges)
   const { unlocked } = useUnlocked()
   const query = useSearchStore((s) => s.query)
@@ -91,6 +94,19 @@ export function CleanMode(): JSX.Element {
     await update(b.id, { status: RESTORE_TO[b.status] })
   }
 
+  /**
+   * 日常模式点击作品 → 切到编辑模式 + 选中该书(v1.6 新增):
+   * 用户在 CleanMode 列表点作品后,自动跳到 EditMode,右侧 BookDetail 显示完整的
+   * 集笔记面板(EpisodesPanel) + 进度条 + 笔记区 + 角色笔记 + 前置依赖。
+   * 这是"集中笔记 + 选看到哪了"的一站式入口。
+   *
+   * 不走 modal / drawer —— 复用现有 BookDetail,避免重复组件 + 状态同步复杂度。
+   */
+  function openInEdit(id: string): void {
+    select(id)
+    setMode('edit')
+  }
+
   function toggle(key: BookStatus): void {
     setOpenSections((prev) => {
       const next = new Set(prev)
@@ -135,6 +151,7 @@ export function CleanMode(): JSX.Element {
           byFilter={byFilter}
           onFinish={markFinished}
           onShelve={shelve}
+          onOpenInEdit={openInEdit}
         />
       ) : (
         <>
@@ -146,7 +163,19 @@ export function CleanMode(): JSX.Element {
             <ul className="clean-list">
               {readableList.map(({ book, refCount }) => (
                 <li key={book.id} className={`clean-item kind-${book.kind}`}>
-                  <div className="clean-item-left">
+                  <div
+                    className="clean-item-left"
+                    onClick={() => openInEdit(book.id)}
+                    title="点击进入编辑模式(查看集笔记 / 笔记 / 进度)"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        openInEdit(book.id)
+                      }
+                    }}
+                  >
                     <span className={`kind-tag kind-${book.kind}`}>{WORK_KIND_LABELS[book.kind]}</span>
                     <span className="title">{book.title}</span>
                     <span className="author muted">{book.author}</span>
@@ -159,7 +188,9 @@ export function CleanMode(): JSX.Element {
                     >
                       解锁 {refCount} 部
                     </span>
-                    <div className="quick-actions">
+                    {/* 快速操作按钮:加 stopPropagation 防止冒泡触发 li / clean-item-left 的 onClick,
+                        否则点「搁置 / 看完」按钮会同时切模式 + 选中该作品(用户预期是只切状态) */}
+                    <div className="quick-actions" onClick={(e) => e.stopPropagation()}>
                       <button className="btn-secondary" onClick={() => shelve(book.id)} title="搁置">
                         搁置
                       </button>
@@ -198,11 +229,31 @@ export function CleanMode(): JSX.Element {
                     <li className="muted empty-hint">{query ? '— 无匹配 —' : '—'}</li>
                   ) : (
                     items.map((b) => (
-                      <li key={b.id} className="collapsed-item">
+                      <li
+                        key={b.id}
+                        className="collapsed-item"
+                        onClick={() => openInEdit(b.id)}
+                        title="点击进入编辑模式"
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            openInEdit(b.id)
+                          }
+                        }}
+                      >
                         <span className={`kind-tag kind-${b.kind}`}>{WORK_KIND_LABELS[b.kind]}</span>
                         <span className="title">{b.title}</span>
                         <span className="author muted">{b.author}</span>
-                        <button className="restore-btn" onClick={() => restore(b)} title="恢复">
+                        <button
+                          className="restore-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void restore(b)
+                          }}
+                          title="恢复"
+                        >
                           恢复
                         </button>
                       </li>
@@ -230,6 +281,8 @@ interface FocusStackViewProps {
   byFilter: (b: Book) => boolean
   onFinish: (id: string) => Promise<void>
   onShelve: (id: string) => Promise<void>
+  /** v1.6 起:点击作品切到 EditMode + 选中(复用 CleanMode 的 openInEdit) */
+  onOpenInEdit: (id: string) => void
 }
 
 function FocusStackView({
@@ -239,7 +292,8 @@ function FocusStackView({
   query,
   byFilter,
   onFinish,
-  onShelve
+  onShelve,
+  onOpenInEdit
 }: FocusStackViewProps): JSX.Element {
   return (
     <div className="focus-stack">
@@ -248,6 +302,16 @@ function FocusStackView({
         <section
           className="focal-card"
           style={{ '--item-stripe': `var(--kind-${focalBook.kind})` } as React.CSSProperties}
+          onClick={() => onOpenInEdit(focalBook.id)}
+          title="点击进入编辑模式(查看集笔记 / 笔记 / 进度)"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenInEdit(focalBook.id)
+            }
+          }}
         >
           <div className="focal-card-label">
             <span className="focal-card-eyebrow muted">当前焦点 · {WORK_KIND_LABELS[focalBook.kind]}</span>
@@ -287,6 +351,16 @@ function FocusStackView({
                 key={book.id}
                 className="compact-item"
                 style={{ '--item-stripe': `var(--kind-${book.kind})` } as React.CSSProperties}
+                onClick={() => onOpenInEdit(book.id)}
+                title="点击进入编辑模式"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onOpenInEdit(book.id)
+                  }
+                }}
               >
                 <span className="compact-item-title">{book.title}</span>
                 <span className="compact-item-meta muted">
@@ -294,7 +368,8 @@ function FocusStackView({
                   <span> · {book.author}</span>
                   {refCount > 0 && <span> · 解锁 {refCount} 部</span>}
                 </span>
-                <span className="compact-item-actions">
+                {/* 紧凑清单的快速操作按钮加 stopPropagation,避免点按钮同时切模式 + 选中 */}
+                <span className="compact-item-actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn-secondary btn-tiny"
                     onClick={() => void onShelve(book.id)}
@@ -326,6 +401,16 @@ function FocusStackView({
                 key={b.id}
                 className="stamp-card"
                 style={{ '--item-stripe': `var(--kind-${b.kind})` } as React.CSSProperties}
+                onClick={() => onOpenInEdit(b.id)}
+                title="点击进入编辑模式"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onOpenInEdit(b.id)
+                  }
+                }}
               >
                 <span className="stamp-card-id muted">№ {b.id}</span>
                 <h4 className="stamp-card-title">{b.title}</h4>
