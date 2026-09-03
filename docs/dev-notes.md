@@ -6,6 +6,99 @@
 
 ---
 
+## 2026-09：[book-tracker] 时间戳笔记 `lastModified` 改为 per-row（与 v1.5 character 一致；episode-level 不再被 stamp 改动触发）
+
+### 现象
+
+用户报告：v1.3 时间戳笔记（stamp）的"最后修改时间"语义错了——改了某一条 stamp
+的笔记内容，下面整集 episode 的「最后修改」时间就被覆盖，**这条 stamp 自己的
+修改时间反而没记录**。期望：每条 stamp 独立的"该条最后修改时间"。
+
+### 根因
+
+v1.3 引入 stamp 时（dev-notes.md 2026-08 同主题条目），整体替换式 IPC
+`books_episode_set_stamps(id, season, episode, stamps)` 没有 per-row `lastModified`，
+`StampList` 整段改后只刷该集 `EpisodeRecord.last_modified`（EpisodesPanel `onSetStamps` 当时
+永远传 `lm = Date.now()`）。问题：
+
+1. 用户**只改了某一条** stamp 的笔记 → 整集 `lastModified` 刷新；那条 stamp 自己
+   没时间戳
+2. UI 只在 episode 编辑器底部展示 `EpisodeRecord.lastModified` —— 用户看到
+   「最后修改」被频繁刷新，但**没法看每条 stamp 何时被改**
+
+而 v1.5 `Character.lastModified` 已经是 per-row 跟踪（`CharactersPanel.handleUpdate`
+` 仅对被改的那条刷 timeStamp`,其他保持原值）,dev-notes.md 2026-08 同条
+注释里写过"（跟 stamp 同款）"——但实际 stamp 没实现到位。
+
+### 修复
+
+**类型**：
+- TS `TimeStamp` 加 `lastModified?: number`（apps/book-tracker/src/shared/types.ts）
+- Rust `TimeStamp` 加 `last_modified: Option<u64>` + `#[serde(rename_all = "camelCase")]`
+  （apps/book-tracker/src-tauri/src/types.rs，继承上一次的 rename 修复）
+
+**Rust 写 / 读路径**（data/books.rs）：
+- `parse_stamps` 读 `lastModified` 字段；缺损 / 0 / 非数字 → None（filter 同
+  EpisodeRecord 处理）
+- `persist` 在 stamp 序列化 loop 里写 `lastModified`（Some 非 0 才写）
+
+**Service 语义**（service/books.rs::set_episode_stamps）：保留 IPC 参数
+`last_modified: Option<u64>` 不动（向后兼容），但**前端永远传 `undefined`** ——
+
+**UI 行为**（apps/book-tracker/src/renderer/components/EpisodesPanel.tsx）：
+- `StampList.handleAdd` — 新 stamp `lastModified = Date.now()`
+- `StampList.handleEditStart / End / Note` — 仅对被改的 stamp 刷 `lastModified`
+  （其他 spread 原值,`...s` 自动保留）
+- `StampList.handleDelete` — 仅移除,不动其他 stamp 的 `lastModified`
+- `StampList` 行级展示 `formatLastModified(s.lastModified)`（老数据缺字段 → 不渲染时间列,
+  用空 span 占位保持网格对齐）
+- `EpisodesPanel.onSetStamps` — 改为 `setEpisodeStamps(..., undefined)`,
+  不再传 `lm = Date.now()`（与 EpisodeRecord.lastModified 解耦）
+
+**CSS**（styles.css）：
+- `.stamp-row` grid 从 `minmax(110px,auto) 1fr auto`(3 列) 改为加第 4 列承载 lm;
+- `.stamp-row-lm` 紧凑 muted 文本,`tabular-nums` 等宽数字
+- `.stamp-row-lm-empty` 占位空白（min-width 与有 lm 时一致,网格不塌陷）
+
+### 回归验证
+
+- `cargo test -p book-tracker --lib` —— 37 / 37 通过
+  - `episode_stamps_round_trip_and_omit_when_empty` 现 8 个不变量（含 7、8 两个新增）:
+    7. per-stamp `lastModified`:Some(非 0) → 写盘 + 读回同值;None / 0 / 缺损 → None
+    8. 老 stamp 数据(frontmatter 没 `lastModified`)→ 读回 None,整本仍可读
+- `cargo test -p book-tracker --test season_field_test` —— 4 / 4 通过（TimeStamp
+  加 `last_modified` + `rename_all = "camelCase"` 后 IPC payload / serialize / 
+  deserialize 都正常）
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 全绿
+- `npm run test` —— tracker-core 143 + book-tracker 156 + life-tracker 223 = 522 个 vitest 全过
+
+### 教训（共享）
+
+- **「v1.5 角色整段 setCharacters IPC(跟 setSeasons / setEpisodeStamps 同款)」
+  这条 dev-notes 注释里说"（跟 stamp 同款）"——但当时 stamp 实际没实现 per-row
+  时间戳**。前后措辞不一致,后来人按注释改 stamp 也不会改 per-row。要么把
+  同款语义同步实施,要么不要在注释里"许诺"还没实现的语义。本 commit 把欠
+  下的"同款"补齐。
+- **`Book.characters` 用 `Vec<Character>` 不带稳定 id 字典序排序**（用户添加
+  顺序）,而 `Book.episodes` 用 `BTreeMap` —— 两种列表的「id 在哪里」选择不同,
+  「per-row 时间戳」语义也独立:**整段 IPC 看起来浪费但实现简单 / 可恢复 /
+  避免并发冲突**,不论 Vec 还是 BTreeMap 路径都适用(都是"读 list → 改 → 整体写")。
+- **加新字段时 4 处服务方法同步判定**:EpisodeRecord.lastModified 已有"加新字段
+  必须同步更新所有 service 方法的 has_* 判定"教训(本 commit 仅加字段、未加
+  最稀疏策略判定,因为 stamp 自身就走"非空才写"路径,不影响 EpisodeRecord 删
+  key 判定)。**加新最稀疏策略判定前必跑 `episode_stamps_round_trip_and_omit_when_empty`
+  + EpisodeRecord 级别的 6 个单测**。
+- **同步解耦的设计边界**:UI 上同一组件可能同时有"per-row 时间戳"和"parent
+  时间戳"两个字段(CharacterPanel 只有 per-row;EpisodeEditor 同时有
+  `EpisodeRecord.lastModified`(只反映 note / title)和 stamp 的 per-row
+  时间戳)。**两者的写入触发条件必须显式分开**:
+  - `EpisodeRecord.lastModified` ← note / title 改动触发(stamps 改动**不**触发)
+  - stamp 行 `lastModified` ← 该 stamp 的 start / end / note 任一被改触发
+  改动后,文档注释(`// v1.6 起:stamps 自带 per-row ... 不再刷新此处`)要明确
+  写出边界,避免后人 review 时以为"`lm = Date.now()` 应该总是刷新"。
+
+---
+
 ## 2026-09：[book-tracker] 「下一季」picker 候选 `.slice(0, 12)` 截断 → 同前缀后续作品搜不到
 
 ### 现象
