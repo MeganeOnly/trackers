@@ -60,6 +60,57 @@ pub enum BookStatus {
     Abandoned,
 }
 
+/// 单季元信息 —— 仅 `kind === 'tv' | 'anime'` 时有意义（v1.2 集笔记功能配套字段）。
+/// - `number`: 季号(1-based)
+/// - `episode_count`: 该季总集数
+/// - `notes`: 该季整体笔记(可选;空串 → 不写盘)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeasonInfo {
+    pub number: u32,
+    pub episode_count: u32,
+    /// 季笔记 —— `serde(default)` 让老数据缺字段也能反序列化成 `None`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// 单集记录 —— 出现在 `Book.episodes` 稀疏 map 里（v1.2 新增）。
+/// - `watched`: 该集是否已看(允许乱序)
+/// - `note`: 该集笔记(空串也允许,语义 = "清空笔记")
+/// - `title`: 该集标题(可选;空串 → 不写盘)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpisodeRecord {
+    pub watched: bool,
+    #[serde(default)]
+    pub note: String,
+    /// 集标题 —— `serde(default)` 让老数据缺字段也能反序列化成 `None`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// 单集稀疏 map —— key = `"${season}-${episode}"`,如 "1-3" = S01E03。
+/// 用 BTreeMap 而不是 HashMap 是为了:序列化顺序稳定（key 字典序）,
+/// 方便 frontmatter diff / git diff 友好,也让 renderer 端按集号遍历时更可预期。
+pub type EpisodeNotes = std::collections::BTreeMap<String, EpisodeRecord>;
+
+/// 把 season + episode 拼成 EpisodeNotes key(与 TS 端 `episodeKey` 同源语义)。
+pub fn episode_key(season: u32, episode: u32) -> String {
+    format!("{}-{}", season, episode)
+}
+
+/// 把 EpisodeNotes key 拆回 (season, episode)。拆分失败 → None。
+pub fn parse_episode_key(key: &str) -> Option<(u32, u32)> {
+    let idx = key.find('-')?;
+    if idx == 0 || idx == key.len() - 1 {
+        return None;
+    }
+    let s: u32 = key[..idx].parse().ok()?;
+    let e: u32 = key[idx + 1..].parse().ok()?;
+    if s < 1 || e < 1 {
+        return None;
+    }
+    Some((s, e))
+}
+
 /// 一部作品的完整结构(后端 ↔ 前端通信载体)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Book {
@@ -98,9 +149,20 @@ pub struct Book {
     /// 写盘策略同 `starring`:空串不写 frontmatter,老文件缺字段 → ""。
     #[serde(default)]
     pub screenwriter: String,
+    /// 季信息数组 —— 仅 `kind === 'tv' | 'anime'` 时有意义(v1.2 集笔记配套)。
+    /// `serde(default)` 让老数据缺字段 → `None`(向后兼容);写盘策略由 data 层判定(空数组不写)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seasons: Option<Vec<SeasonInfo>>,
+    /// 单集稀疏 map —— 仅 `kind === 'tv' | 'anime'` 时有意义(v1.2 新增)。
+    /// `serde(default)` 让老数据缺字段 → `None`(向后兼容);写盘策略由 data 层判定(空 map 不写)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episodes: Option<EpisodeNotes>,
 }
 
-/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'notes'>`
+/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'>`
+///
+/// `episodes` 不在 BookInput 里 —— 单集笔记是详情页独占编辑的,不在加作品表单出现。
+/// `seasons` 保留在 BookInput(季结构是创建作品时确定的)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookInput {
     pub title: String,
@@ -125,6 +187,9 @@ pub struct BookInput {
     /// 编剧(影视专用) —— 默认空串（无编剧）
     #[serde(default)]
     pub screenwriter: String,
+    /// 季信息数组(可选;tv/anime 用)—— 创建时由表单传入;改 kind 后允许后续 patch 补
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seasons: Option<Vec<SeasonInfo>>,
 }
 
 /// 更新书的 patch(全字段可选)。
@@ -172,6 +237,12 @@ pub struct BookPatch {
     /// 编剧 —— `None` 不改,`Some("")` 清空
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenwriter: Option<String>,
+    /// 季信息数组 —— `None` 不改,`Some(vec![])` 清空（语义 = "这部作品去掉季记录"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seasons: Option<Vec<SeasonInfo>>,
+    /// 单集稀疏 map —— `None` 不改,`Some(empty_map)` 清空（语义 = "清空所有集笔记"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episodes: Option<EpisodeNotes>,
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。
