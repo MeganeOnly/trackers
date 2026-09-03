@@ -180,11 +180,17 @@ fn parse_stamps(v: Option<&serde_json::Value>) -> Option<Vec<TimeStamp>> {
         let note = obj.get("note").and_then(|x| x.as_str()).unwrap_or("").to_string();
         // end 字段缺损 / 非数字 → None(单时间点 vs 时间段)
         let end = obj.get("end").and_then(|x| x.as_u64()).map(|n| n as u32);
+        // lastModified(v1.6 新增):per-row 跟踪。字段缺损 / 非数字 / 0 → None(向后兼容老数据)
+        let last_modified = obj
+            .get("lastModified")
+            .and_then(|x| x.as_u64())
+            .filter(|&n| n > 0);
         stamps.push(TimeStamp {
             id: id.to_string(),
             start: start as u32,
             end,
             note,
+            last_modified,
         });
     }
     if stamps.is_empty() {
@@ -466,7 +472,7 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
                         rec_obj.insert("title".into(), serde_json::Value::String(title.clone()));
                     }
                 }
-                // stamps: 仅在 Some(non_empty) 时写盘;每个 stamp 序列化 id/start/end/note
+                // stamps: 仅在 Some(non_empty) 时写盘;每个 stamp 序列化 id/start/end/note/lastModified
                 // (end 和 空 note 也写 —— note 允许"这一帧的吐槽",end 允许 null 单时间点)
                 if let Some(stamps) = &rec.stamps {
                     if !stamps.is_empty() {
@@ -481,6 +487,12 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
                                 }
                                 // note 允许空串(保留字段,语义 = "有时间戳无笔记")
                                 s_obj.insert("note".into(), serde_json::Value::String(s.note.clone()));
+                                // lastModified(v1.6 新增):per-row;Some(非 0) 才写
+                                if let Some(ts) = s.last_modified {
+                                    if ts > 0 {
+                                        s_obj.insert("lastModified".into(), serde_json::Value::Number(ts.into()));
+                                    }
+                                }
                                 serde_json::Value::Object(s_obj)
                             })
                             .collect();
@@ -1007,6 +1019,8 @@ mod tests {
     /// - stamps 内单条字段缺损(id / start / note) → 跳过该条(避免坏数据整本不可读)
     /// - end 字段缺损 / null → 读回 None(单时间点);end 非 null → 读回 Some(时间段)
     /// - persist 期间保证稳定排序(同一 id 写两次顺序不变)
+    /// - **v1.6 per-stamp lastModified**:Some(非 0) 写盘 + 读回同值;None / 0 / 缺损 → None
+    ///   (与 EpisodeRecord.lastModified 同款写盘稀疏策略)
     #[test]
     fn episode_stamps_round_trip_and_omit_when_empty() {
         let dir = temp_books_dir();
@@ -1031,18 +1045,21 @@ mod tests {
                         start: 1945,
                         end: Some(2200),
                         note: "追车".to_string(),
+                        last_modified: None,
                     },
                     TimeStamp {
                         id: "id-001".to_string(),
                         start: 100,
                         end: None,
                         note: "开场".to_string(),
+                        last_modified: None,
                     },
                     TimeStamp {
                         id: "id-003".to_string(),
                         start: 5000,
                         end: Some(5500),
                         note: "高潮".to_string(),
+                        last_modified: None,
                     },
                 ]),
                 last_modified: None,
@@ -1146,9 +1163,9 @@ mod tests {
                 note: String::new(),
                 title: None,
                 stamps: Some(vec![
-                    TimeStamp { id: "z-id".to_string(), start: 100, end: None, note: "Z".to_string() },
-                    TimeStamp { id: "a-id".to_string(), start: 100, end: None, note: "A".to_string() },
-                    TimeStamp { id: "m-id".to_string(), start: 100, end: None, note: "M".to_string() },
+                    TimeStamp { id: "z-id".to_string(), start: 100, end: None, note: "Z".to_string(), last_modified: None },
+                    TimeStamp { id: "a-id".to_string(), start: 100, end: None, note: "A".to_string(), last_modified: None },
+                    TimeStamp { id: "m-id".to_string(), start: 100, end: None, note: "M".to_string(), last_modified: None },
                 ]),
                 last_modified: None,
             },
@@ -1161,6 +1178,71 @@ mod tests {
         assert_eq!(stamps_sorted[0].id, "a-id");
         assert_eq!(stamps_sorted[1].id, "m-id");
         assert_eq!(stamps_sorted[2].id, "z-id");
+
+        // 7) v1.6 per-stamp lastModified round-trip + 老数据 / 0 视为 None
+        // 不变量:
+        // - last_modified: Some(非 0) → 写盘 + 读回 Some(同值)
+        // - 老文件缺 lastModified 字段 → 读回 None(向后兼容)
+        // - last_modified: Some(0) / 非法值 → 视为 None(同 EpisodeRecord 处理)
+        let mut input5 = sample_input();
+        input5.kind = WorkKind::Tv;
+        input5.seasons = Some(vec![SeasonInfo { number: 1, episode_count: 1, notes: None, last_modified: None }]);
+        let book5 = write_book(&books_dir, &input5, &HashSet::new()).unwrap();
+        let mut eps5 = EpisodeNotes::new();
+        eps5.insert(
+            "1-1".to_string(),
+            EpisodeRecord {
+                watched: true,
+                note: String::new(),
+                title: None,
+                stamps: Some(vec![
+                    TimeStamp { id: "st-with".to_string(), start: 100, end: None, note: "带时间戳".to_string(), last_modified: Some(1730000000000) },
+                    TimeStamp { id: "st-none".to_string(), start: 200, end: None, note: "无时间戳".to_string(), last_modified: None },
+                    // Some(0) 应被 filter 视为 None(同 EpisodeRecord.last_modified 处理)
+                    TimeStamp { id: "st-zero".to_string(), start: 300, end: None, note: "零时间戳".to_string(), last_modified: Some(0) },
+                ]),
+                last_modified: None,
+            },
+        );
+        let patch = BookPatch { episodes: Some(eps5), ..Default::default() };
+        update_book(&books_dir, &book5.id, &patch).unwrap();
+
+        // raw 写盘:带时间戳的 stamp 写 lastModified;None / 0 都不写
+        let raw5 = std::fs::read_to_string(books_dir.join(format!("{}.md", book5.id))).unwrap();
+        assert!(raw5.contains("\"id\": \"st-with\""), "带时间戳的 stamp 应写 id");
+        assert!(raw5.contains("\"lastModified\": 1730000000000"), "带时间戳的 stamp 应写 lastModified");
+        // st-none 的 lastModified 是 None → 不写该字段;用 count 兜底:
+        // raw 里恰好出现 1 次 "st-with" + "lastModified" 配对(其他两条不应写)
+        let with_count = raw5.matches("\"st-with\"").count();
+        let lm_count = raw5.matches("\"lastModified\"").count();
+        assert_eq!(with_count, 1, "st-with 应只出现 1 次");
+        assert_eq!(lm_count, 1, "只有带非 0 时间戳的 stamp 才写 lastModified");
+
+        // 读回:stamp 顺序按 start 升序
+        let read5 = read_book(&books_dir, &book5.id).unwrap().unwrap();
+        let stamps5 = read5.episodes.as_ref().unwrap().get("1-1").unwrap().stamps.as_ref().unwrap();
+        assert_eq!(stamps5.len(), 3);
+        // Some(非 0) → 保留值
+        assert_eq!(stamps5[0].id, "st-with");
+        assert_eq!(stamps5[0].last_modified, Some(1730000000000));
+        // None → None
+        assert_eq!(stamps5[1].id, "st-none");
+        assert_eq!(stamps5[1].last_modified, None);
+        // Some(0) → None(filter 视为无)
+        assert_eq!(stamps5[2].id, "st-zero");
+        assert_eq!(stamps5[2].last_modified, None);
+
+        // 8) 老 stamp 数据(frontmatter 里没 lastModified 字段)→ 读回 None
+        let legacy5 = books_dir.join("legacy-stamps.md");
+        std::fs::write(
+            &legacy5,
+            "---\n{\"id\":\"legacy-stamps\",\"title\":\"老剧\",\"status\":\"finished\",\"kind\":\"tv\",\"episodes\":{\"1-1\":{\"watched\":true,\"note\":\"\",\"stamps\":[{\"id\":\"old\",\"start\":10,\"note\":\"老 stamp\"}]}}}\n---\n# 老剧\n",
+        ).unwrap();
+        let legacy5_book = read_book(&books_dir, "legacy-stamps").unwrap().unwrap();
+        let legacy5_stamps = legacy5_book.episodes.as_ref().unwrap().get("1-1").unwrap().stamps.as_ref().unwrap();
+        assert_eq!(legacy5_stamps.len(), 1);
+        assert_eq!(legacy5_stamps[0].id, "old");
+        assert!(legacy5_stamps[0].last_modified.is_none(), "老 stamp 缺字段 → None");
     }
 
     /// v1.5 角色笔记 + lastModified 字段的回归测试。

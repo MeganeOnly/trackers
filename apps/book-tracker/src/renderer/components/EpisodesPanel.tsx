@@ -297,8 +297,11 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
             void setEpisodeTitle(book.id, currentSeason.number, expandedEpisode, title, lm)
           }}
           onSetStamps={(stamps) => {
-            const lm = stamps.length === 0 ? undefined : Date.now()
-            void setEpisodeStamps(book.id, currentSeason.number, expandedEpisode, stamps, lm)
+            // v1.6 起:stamps 是 per-row 自跟踪(lastModified 在每条 stamp 上,
+            // 见 StampList 注释 + apps/book-tracker/AGENTS.md §十.27),
+            // 这里不再刷新 EpisodeRecord.lastModified —— 后者只反映该集
+            // note / title 改动。 传 undefined 让 service 端 `if let Some(ts)` 分支跳过。
+            void setEpisodeStamps(book.id, currentSeason.number, expandedEpisode, stamps, undefined)
           }}
         />
       )}
@@ -470,7 +473,9 @@ function EpisodeEditor({
         >
           删除此集记录
         </button>
-        {/* v1.5:显示该集笔记内容最后修改时间(仅 note / title / stamps 变更时刷新;watched 不刷) */}
+        {/* v1.6 起:EpisodeRecord.lastModified 只反映该集 note / title 改动;
+            stamps 改动不再刷新此处(stamps 自带 per-row lastModified,
+            在 StampList 行级显示)。watched 仍不刷。 */}
         {record?.lastModified !== undefined && (
           <span className="muted">
             最后修改：{formatLastModified(record.lastModified)}
@@ -544,11 +549,14 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
       setInputError('结束时间不能早于开始时间')
       return
     }
+    // v1.6 起:per-row lastModified —— 新建 stamp 一次性设当前时间戳,
+    // 与 v1.5 Character.new lastModified 同款语义
     const newStamp: TimeStamp = {
       id: makeStampId(),
       start: startSec,
       end: endSec,
-      note: noteTrimmed
+      note: noteTrimmed,
+      lastModified: Date.now()
     }
     onChange(sortStamps([...sortedStamps, newStamp]))
     // 清空输入(让用户看清"已添加");焦点自然回落到第一个 input
@@ -558,29 +566,57 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
   }
 
   function handleDelete(id: string): void {
+    // 删除 stamp 不刷 lastModified(条目已消失);其他 stamp 原值保持
     onChange(sortStamps(sortedStamps.filter((s) => s.id !== id)))
   }
 
   function handleEditStart(id: string, raw: string): void {
     const parsed = parseStamp(raw)
     if (parsed === null) return // 解析失败静默不写(避免覆盖合法数据);用户撤销 / 重新输入
-    onChange(sortStamps(sortedStamps.map((s) => (s.id === id ? { ...s, start: parsed } : s))))
+    const now = Date.now()
+    onChange(
+      sortStamps(
+        sortedStamps.map((s) =>
+          s.id === id ? { ...s, start: parsed, lastModified: now } : s
+        )
+      )
+    )
   }
 
   function handleEditEnd(id: string, raw: string): void {
     const trimmed = raw.trim()
+    const now = Date.now()
     if (trimmed === '') {
-      // 空串 → 清除 end(回到单时间点)
-      onChange(sortStamps(sortedStamps.map((s) => (s.id === id ? { ...s, end: undefined } : s))))
+      // 空串 → 清除 end(回到单时间点);同样刷该 stamp 的 lastModified
+      onChange(
+        sortStamps(
+          sortedStamps.map((s) =>
+            s.id === id ? { ...s, end: undefined, lastModified: now } : s
+          )
+        )
+      )
       return
     }
     const parsed = parseStamp(trimmed)
     if (parsed === null) return
-    onChange(sortStamps(sortedStamps.map((s) => (s.id === id ? { ...s, end: parsed } : s))))
+    onChange(
+      sortStamps(
+        sortedStamps.map((s) =>
+          s.id === id ? { ...s, end: parsed, lastModified: now } : s
+        )
+      )
+    )
   }
 
   function handleEditNote(id: string, raw: string): void {
-    onChange(sortStamps(sortedStamps.map((s) => (s.id === id ? { ...s, note: raw } : s))))
+    const now = Date.now()
+    onChange(
+      sortStamps(
+        sortedStamps.map((s) =>
+          s.id === id ? { ...s, note: raw, lastModified: now } : s
+        )
+      )
+    )
   }
 
   return (
@@ -609,6 +645,18 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
                 onChange={(e) => handleEditNote(s.id, e.target.value)}
                 placeholder="(无笔记)"
               />
+              {/* v1.6 起:per-row lastModified —— 显示"该条"最后修改时间
+                  (与 EpisodeRecord.lastModified 解耦,后者只反映 note / title) */}
+              {s.lastModified !== undefined ? (
+                <span
+                  className="stamp-row-lm muted"
+                  title="该时间戳最后修改时间(per-row,与整集最后修改时间独立)"
+                >
+                  {formatLastModified(s.lastModified)}
+                </span>
+              ) : (
+                <span className="stamp-row-lm muted stamp-row-lm-empty" />
+              )}
               <button
                 type="button"
                 className="stamp-row-del"

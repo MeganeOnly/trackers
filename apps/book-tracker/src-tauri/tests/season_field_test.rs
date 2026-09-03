@@ -65,12 +65,15 @@ pub struct EpisodeRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeStamp {
     pub id: String,
     pub start: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<u32>,
     pub note: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<u64>,
 }
 
 // 镜像 types.rs 的 `Book`（仅字段对齐 serde 行为，类型用占位；本测试只关心

@@ -827,7 +827,9 @@ button:focus-visible {
 }
 .stamp-row {
   display: grid;
-  grid-template-columns: minmax(110px, auto) 1fr auto;
+  /* v1.6 起:新增第 4 列承载 per-stamp lastModified 显示;
+     4 列 = time | note | lm | delete;note 列保持 1fr 自适应 */
+  grid-template-columns: minmax(110px, auto) 1fr auto auto;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
@@ -835,6 +837,18 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 12px;
+}
+.stamp-row-lm {
+  /* per-row 最后修改时间;与 character-row-mod 同款 muted + 紧凑 */
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--muted);
+  min-width: 96px; /* 兜底 "MM-DD HH:MM" / "YYYY-MM-DD HH:MM" 的展示宽度,避免 note 输入抖动 */
+}
+.stamp-row-lm-empty {
+  /* 老数据 / 刚加未编辑:占位空白,保持列宽一致(避免第一行有 lm 第二行没有 → 网格塌陷) */
+  min-width: 96px;
 }
 .stamp-row-time {
   font-variant-numeric: tabular-nums;

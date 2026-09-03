@@ -101,8 +101,20 @@ pub struct SeasonInfo {
 /// 跟同条目的 sort 顺序无关 —— 后端读时按 `start` 升序排序后返回。
 ///
 /// 写盘策略:stamps 数组为空 → 不写字段(继承 EpisodeRecord 的"最稀疏"语义)。
-/// 老数据缺字段 → None(向后兼容,`parse_episodes` 容错)。
+/// 老数据缺字段 → None(向后兼容,`parse_stamps` 容错)。
+///
+/// **`last_modified` 是 per-row 跟踪**(v1.6 修正)—— 每个 stamp 独立的"最后
+/// 修改时间",与 v1.5 `Character.last_modified` 同款语义。StampList 编辑单条
+/// 时构造新数组,对被改的 stamp 刷 `last_modified = Date.now()`;其他 stamp
+/// 原值保持。**与 `EpisodeRecord.last_modified` 解耦** —— 后者只反映该集
+/// note / title 改动,不被 stamp 改动触发(避免"改了某条 stamp → 整个 episode
+/// 的最后修改时间被刷新"的混淆)。
+///
+/// **IPC 字段名**:`#[serde(rename_all = "camelCase")]` 已生效(同 SeasonInfo /
+/// EpisodeRecord / Character),所有字段 IPC 走 camelCase。`last_modified` →
+/// `lastModified`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeStamp {
     /// 稳定 UUID —— 用于编辑 / 删除定位
     pub id: String,
@@ -114,6 +126,12 @@ pub struct TimeStamp {
     pub end: Option<u32>,
     /// 笔记内容
     pub note: String,
+    /// 该 stamp 最后修改时间 —— `serde(default)` 老数据缺字段 → `None`;
+    /// 写盘时由 data 层判定:Some(非 0)才写。
+    /// 决策:仅 note / start / end 任一被用户改写时刷新;删除 stamp 不刷
+    /// (条目已消失);新建 stamp 一次性设当前时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<u64>,
 }
 
 /// 单集记录 —— 出现在 `Book.episodes` 稀疏 map 里（v1.2 新增,v1.3 加 stamps 字段）。

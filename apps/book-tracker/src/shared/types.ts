@@ -62,7 +62,14 @@ export interface SeasonInfo {
  * 跟同条目的 sort 顺序无关 —— 后端读时按 `start` 升序排序后返回。
  *
  * 写盘策略：stamps 数组为空 → 不写字段（继承 EpisodeRecord 的"最稀疏"语义）。
- * 老数据缺字段 → undefined（向后兼容，`parse_episodes` 容错）。
+ * 老数据缺字段 → undefined（向后兼容，`parse_stamps` 容错）。
+ *
+ * **`lastModified` 是 per-row 跟踪**（v1.6 修正）—— 每个 stamp 独立的"最后
+ * 修改时间"，与 v1.5 `Character.lastModified` 同款语义。StampList 编辑单条
+ * 时构造新数组，对被改的 stamp 刷 `lastModified = Date.now()`；其他 stamp
+ * 原值保持。**与 `EpisodeRecord.lastModified` 解耦** —— 后者只反映该集
+ * note / title 改动，不被 stamp 改动触发（避免"改了某条 stamp → 整个 episode
+ * 的最后修改时间被刷新"的混淆）。
  */
 export interface TimeStamp {
   /** 稳定 UUID —— 用于编辑 / 删除定位 */
@@ -73,6 +80,13 @@ export interface TimeStamp {
   end?: number
   /** 笔记内容 */
   note: string
+  /**
+   * 该 stamp 最后修改时间（毫秒;可选;向后兼容老数据）——
+   * 仅在该 stamp 的 start / end / note 任一被改时刷新;同一条 stamp 多次
+   * 编辑时取最后一次时间戳。删除 stamp 不刷（条目已消失）。
+   * 字段缺损 / 老文件缺字段 → undefined，UI 不显示时间戳。
+   */
+  lastModified?: number
 }
 
 /**
