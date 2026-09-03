@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
+import { EpisodesPanel } from './EpisodesPanel'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
@@ -414,6 +415,9 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         </label>
         {error && <p className="form-error">{error}</p>}
       </div>
+
+      {/* 集笔记 —— 仅 tv/anime 显示,放在前置依赖之前(用户最关心的进度信息) */}
+      {(kind === 'tv' || kind === 'anime') && <EpisodesPanel book={cur} />}
 
       <PrereqEditor bookId={book.id} />
 

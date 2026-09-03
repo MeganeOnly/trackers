@@ -500,6 +500,168 @@ button:focus-visible {
   line-height: 1.4;
 }
 
+/* ============ Episodes Panel (BookDetail: tv/anime) ============ */
+.episodes-panel {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.episodes-panel-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.episodes-stats {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.episodes-stats .dot { opacity: 0.5; }
+.episodes-stats b { font-variant-numeric: tabular-nums; }
+.episodes-actions {
+  margin-left: auto;
+  display: flex; gap: 6px;
+}
+.episodes-clear {
+  color: var(--muted);
+}
+
+.seasons-tabs {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 10px;
+}
+.season-nav {
+  padding: 4px 10px;
+  font-size: 14px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.season-nav:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.season-nav:disabled { opacity: 0.3; cursor: not-allowed; }
+.seasons-tabs-list {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  flex: 1; min-width: 0;
+}
+.season-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.season-tab:hover { color: var(--accent); border-color: var(--accent); }
+.season-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.season-summary {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.episodes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.episode-cell {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s, background 0.12s, transform 0.08s;
+}
+.episode-cell:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.episode-cell.watched {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.episode-cell.expanded {
+  border-width: 2px;
+  padding: 0;
+  /* 抵消 border 加厚的 1px 抖动 */
+}
+.episode-cell.has-note::after {
+  content: '';
+  position: absolute;
+  right: 3px; bottom: 3px;
+  width: 5px; height: 5px;
+  background: var(--status-finished);
+  border-radius: 50%;
+}
+.episode-cell-tick {
+  position: absolute;
+  top: 2px; left: 4px;
+  font-size: 10px;
+  color: var(--accent);
+}
+.episode-cell-note-mark {
+  position: absolute;
+  bottom: 1px; right: 3px;
+  font-size: 9px;
+  opacity: 0.85;
+}
+
+/* 展开区 */
+.episode-editor {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: white;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.episode-editor-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.episode-editor-close {
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  color: var(--muted);
+}
+.episode-editor-close:hover { color: var(--fg); }
+.episode-editor-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.episode-delete {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
 /* clean-mode currently reading 进度 */
 .currently-progress {
   color: var(--muted);
