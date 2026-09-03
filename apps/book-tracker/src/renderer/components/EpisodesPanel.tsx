@@ -229,7 +229,13 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
             type="number"
             min="0"
             value={countDraft}
-            onChange={(e) => setCountDraft(e.target.value)}
+            onChange={(e) => {
+              setCountDraft(e.target.value)
+              // v1.6 起:每次输入触发 debounce 实时写盘(默认 500ms 内连续输入只发一次 IPC)
+              // —— 解决"用户改了 input 没失焦就切换作品 / 关闭 app 导致修改丢失"的场景
+              // (BookForm 的季设置区块已经走 onBlur 实时写盘,这里补齐 EpisodesPanel 的一致行为)
+              scheduleCountFlush()
+            }}
             onBlur={flushSeasonCount}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -237,7 +243,7 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
                 e.currentTarget.blur()
               }
             }}
-            title="修改本季集数(失焦或回车保存)"
+            title="修改本季集数(失焦 / 回车 / 停 500ms 自动保存)"
             aria-label={`S${pad2(currentSeason.number)} 集数`}
           />
           <span className="season-count-unit">集</span>

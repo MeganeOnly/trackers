@@ -1347,4 +1347,50 @@ mod tests {
         let legacy_book = read_book(&books_dir, "legacy-next").unwrap().unwrap();
         assert!(legacy_book.next_season_id.is_none());
     }
+
+    /// 模拟用户场景「鉴证实录」:老 book 文件没 seasons 字段(老 tv 文件),
+    /// 通过 set_seasons IPC 写一个新的 seasons 数组(模拟 EpisodesPanel "X 集"
+    /// input 失焦写盘),确认持久化 + 读回都正常。
+    /// 这覆盖了 fallback 路径(useSeasonsForBook 会用 progress.total 兜底显示)
+    /// 与真实写盘路径(set_seasons 走 update_book + persist)的衔接。
+    /// 注:service 模块 #[cfg(not(test))] 无法在 tests 里 import,这里直接 inline
+    /// set_seasons 的实现(read → 改 merged.seasons → persist)。
+    #[test]
+    fn legacy_tv_set_seasons_round_trip() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 写一个「老 tv 文件」:有 kind=tv,但没 seasons / episodes / progress.total=null
+        //   —— 对应 useSeasonsForBook 的 fallback 路径(book.seasons=undefined 时
+        //   返回 [{number:1, episodeCount: progress.total ?? 0}],这里 total 是 null → 0)
+        let legacy_path = books_dir.join("99.md");
+        std::fs::write(
+            &legacy_path,
+            "---\n{\"id\":\"99\",\"title\":\"鉴证实录\",\"author\":\"TVB\",\"status\":\"want\",\"kind\":\"tv\",\"progress\":{\"current\":5,\"total\":null}}\n---\n# 鉴证实录\n",
+        ).unwrap();
+
+        // 2) 读出来:seasons 应为 None(老文件缺字段;normalize_book 走 fallback 路径)
+        let book = read_book(&books_dir, "99").unwrap().unwrap();
+        assert!(book.seasons.is_none(), "老文件缺 seasons → None");
+
+        // 3) 模拟 EpisodesPanel flushSeasonCount 走的 store action:
+        //   store.setSeasons(id, [{number:1, episodeCount:25}]) → IPC books_seasons_set →
+        //   service::set_seasons → update_book patch { seasons: Some(...) } → persist
+        //   这里 inline 等价路径:
+        let mut book_for_update = read_book(&books_dir, "99").unwrap().unwrap();
+        let new_seasons = vec![SeasonInfo { number: 1, episode_count: 25, notes: None, last_modified: None }];
+        book_for_update.seasons = Some(new_seasons);
+        book_for_update.updated = now_iso();
+        persist(&books_dir, &book_for_update).unwrap();
+
+        // 4) 磁盘上 raw 必须含 "seasons" + "episodeCount": 25
+        let raw = std::fs::read_to_string(&legacy_path).unwrap();
+        assert!(raw.contains("\"seasons\""), "raw 必须写 seasons 字段; raw={raw}");
+        assert!(raw.contains("\"episodeCount\": 25"), "raw 必须含新集数; raw={raw}");
+
+        // 5) 重新读:seasons 应有值,episodes 仍是 None
+        let book2 = read_book(&books_dir, "99").unwrap().unwrap();
+        assert_eq!(book2.seasons.as_ref().unwrap().len(), 1);
+        assert_eq!(book2.seasons.as_ref().unwrap()[0].episode_count, 25);
+    }
 }

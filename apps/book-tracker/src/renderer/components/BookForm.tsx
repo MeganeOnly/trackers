@@ -242,17 +242,20 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         }
       }
       // 季设置:仅 tv/anime 写入。
-      // **编辑模式**下季设置已通过 input onBlur 实时写盘(setSeasons IPC),
-      // handleSubmit 不再覆盖,避免"用户改完失焦→保存按钮触发再次写盘"的双写竞态。
+      // **编辑模式**下季设置已通过 input onBlur 实时写盘(setSeasons IPC),但**用户可能
+      // 改了 input 没失焦就点保存**(没触发 onBlur),所以 handleSubmit 也要兜底带
+      // patch.seasons —— 以本地 React state 为准(stripSeasonsFromStateForPatch 过滤空季)。
+      // 与 onBlur 实时写盘不冲突:两者都写同一个值(都是本地 state),React 18 自动 batch。
       // **新建模式**下(book === null)需要把 seasons 写进 input 走 create。
-      if (!isEdit && (kind === 'tv' || kind === 'anime')) {
-        if (seasons.length > 0) {
-          input.seasons = seasons
+      if (kind === 'tv' || kind === 'anime') {
+        const validSeasons = seasons.filter((s) => s.episodeCount > 0 || seasons.length === 1)
+        if (validSeasons.length > 0) {
+          input.seasons = validSeasons
           // tv/anime 时 progress.total 跟 seasons 总和保持同步(避免出现 5 季但 total 还是 10 的错位)
           if (input.progress) {
             input.progress = {
               ...input.progress,
-              total: seasons.reduce((sum, s) => sum + s.episodeCount, 0)
+              total: validSeasons.reduce((sum, s) => sum + s.episodeCount, 0)
             }
           }
         }
@@ -261,10 +264,12 @@ export function BookForm({ book, onClose }: BookFormProps): JSX.Element {
         const patch: Parameters<typeof update>[1] = { ...input, read_count: readCount }
         // 编辑模式下,如果 status 不是「进行中」,主动清空 progress（用户主动清除意图）
         if (status !== 'reading' && status !== 'watching') patch.progress = null
-        // 编辑模式下不传 seasons（v1.6 起由季设置 input onBlur 实时写盘走 setSeasons IPC,
-        // 避免「实时写盘 + 保存按钮 patch」双写造成竞态或覆盖）。
-        // kind 不是 tv/anime 时主动 delete（保持现状,清掉老 seasons 字段）。
-        delete (patch as { seasons?: unknown }).seasons
+        // 编辑模式下 kind 不是 tv/anime 时主动 delete patch.seasons(保持现状,
+        // 清掉老 seasons 字段);tv/anime 保留 input.seasons 作为兜底(以防用户改了
+        // input 没失焦就点保存 —— onBlur 实时写盘未触发)。
+        if (!(kind === 'tv' || kind === 'anime')) {
+          delete (patch as { seasons?: unknown }).seasons
+        }
         await update(book.id, patch)
       } else {
         await create(input)
