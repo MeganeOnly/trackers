@@ -6,6 +6,75 @@
 
 ---
 
+## 2026-09：[book-tracker] 时间戳笔记添加区拆成 [MM][:][SS] —— 「：」固定视觉分隔符，只填数字
+
+### 现象
+
+用户反馈：v1.3 时间戳笔记添加区的"开始时间"input 让用户自己敲「12:34」这种
+带冒号的字符串,容易出"12 : 34"(空格)、"1:2"(单位数)、":34"(漏 MM) 等需要
+parseStamp 容错的格式,UX 不直观。期望:`:` 是固定的视觉分隔符,**只填分和秒**,
+自动拼成 `mm:ss` 给后端。
+
+### 修复
+
+`apps/book-tracker/src/renderer/components/EpisodesPanel.tsx` StampList:
+
+- **state 拆分**:把单字符串 `startInput` / `endInput` 改成 4 个独立 state
+  `startMin` / `startSec` / `endMin` / `endSec`(都是 string,数字位)
+- **JSX 拆分**:把单个 `<input className="stamp-add-time">` 改成
+  `<div class="stamp-time-pair">` 包裹的 2 个 `<input>` + 1 个 `<span class="stamp-add-colon">:`
+- **input 限制**:MM / SS 都是 `inputMode="numeric"` + `maxLength={2}` +
+  `digitsOnly()` 过滤非数字(防止"-" / "12." 等 invalid 输入到 parseStamp)
+- **自动聚焦**:MM 满 2 位时 `startSecRef.current?.focus()`,减少 Tab 切换
+- **拼字符串**:`handleAdd` 里 `${startMin}:${startSec}` 拼成 mm:ss 走 parseStamp
+  (parseStamp 接受任意位数的 mm / ss,无需补零)
+- **placeholder**:MM = "00",SS = "00"(开始);MM = "--",SS = "--"(结束,留空语义更直观)
+- **Enter 提交**:SS / note input 都有 `onKeyDown Enter → handleAdd`,避免鼠标点 +
+
+`apps/book-tracker/src/renderer/styles.css`:
+
+- `.stamp-add` grid 列从 `88px 12px 88px 1fr 28px` 改为 `auto 12px auto 1fr 28px`
+  (子容器自适应)
+- 新增 `.stamp-time-pair` flex 子容器 + `.stamp-add-mm` / `.stamp-add-ss` 30px 紧凑
+  text-align: center + `.stamp-add-colon` 粗体 muted 视觉分隔
+- `.stamp-add-colon` 加 `user-select: none` + `pointer-events: none` 防止用户
+  误选 / 误点 ":" 把焦点带走
+- `.stamp-add-mm` / `.stamp-add-ss` 用 `-moz-appearance: textfield` +
+  `::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0 }`
+  隐藏浏览器原生 spin 按钮(input type 默认是 text,但仍防御性隐藏)
+- 提示文案从「支持 ss / mm:ss / hh:mm:ss」改为「时间填分:秒(秒位需 < 60);留空结束 = 单时间点」
+  —— 反映新 UI 的心智(不再让用户手敲 ":")
+
+### 回归验证
+
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 全绿
+- `npm run test` —— tracker-core 143 + book-tracker 156 + life-tracker 223 = 522 个 vitest 全过
+- `cargo test -p book-tracker` —— 37 unit + 4 integration 全过
+- 手动(待你下次启动 app 验证):时间戳笔记添加区变成「MM:SS」→「MM:SS」两段式;
+  MM 输入满 2 位焦点自动跳 SS;开始 MM 填 "12" SS 填 "34" → + → 新增 stamp 的 start = 754 秒
+
+### 教训(共享)
+
+- **"固定符号 + 多 input"模式**:UI 里**位置/分隔符**经常是用户的视觉锚点,但
+  整段单 input 让用户自敲分隔符就是把视觉锚点交给用户记,容易出容错需求。
+  把分隔符拆成视觉元素(不响应点击 / 选中),数字拆成独立 input(自动聚焦 / 数字键盘),
+  是这类表单的通用最优解。本仓库还有 PrereqEditor / CleanMode 等地方用类似
+  pattern,改天可以扫一遍看有没有类似重构机会。
+- **`parseStamp` 三段式容错的价值**:虽然 UI 拆成 MM / SS 两段,但后端 `parseStamp`
+  仍保留 `ss` / `mm:ss` / `hh:mm:ss` 三格式兼容 —— StampRow 编辑时用户可以填更
+  宽松的格式(尤其 hh:mm:ss 长剧)。**前端 UI 拆细 ↔ 后端 parse 宽松**是配对的:
+  UI 拆细减少用户输入错误,parse 宽松保留后端可扩展性。两边同时收紧会锁死格式。
+- **`inputMode="numeric"` ≠ `<input type="number">`**:移动端要弹数字键盘用
+  `inputMode="numeric"`(软键盘数字布局),而 `<input type="number">` 还带
+  spin 按钮 + 浏览器原生 number 校验(拒绝 "-", ".", "e", "1e3" 等字符),
+  UX 不够直接。本仓库全部 numeric 输入统一用 `type="text" + inputMode="numeric"
+  + maxLength + 手动 digitsOnly 过滤`,避免 type="number" 的 UX 包袱。
+- **空 ↔ 占位符语义统一**:MM = "00"(必填所以 00 是合法默认值),SS = "00";
+  end MM / SS = "--"(留空 = 单时间点,所以 placeholder 用占位符风格而非"00")。
+  placeholder 文案要符合"用户期望看到的初始状态"。
+
+---
+
 ## 2026-09：[book-tracker] 时间戳笔记 `lastModified` 改为 per-row（与 v1.5 character 一致；episode-level 不再被 stamp 改动触发）
 
 ### 现象
