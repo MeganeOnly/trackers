@@ -6,6 +6,104 @@
 
 ---
 
+## 2026-09：[共享/book-tracker] 集数 / 时间戳 / 「下一季」三处静默失效——Tauri 2 嵌套 struct 字段不会自动 snake ↔ camel 转换
+
+### 现象
+
+用户报告：book-tracker 里 tv/anime 类作品（kind=tv 或 kind=anime）在详情页改"X 集"输入框的数字时，下面**不出现任何集数格子**。具体场景：
+
+- **鉴证实录**（kind=tv，老文件，frontmatter 没有 `seasons` 字段也没 progress）：把"X 集"从 `0` 改成 `25`，下面仍然是 0 个格子。
+- **端脑**（kind=anime，有 `progress.total=16`）：无需改就能正常显示 16 个格子。
+
+修前只有这两类路径会被踩到，所以"看起来"功能 OK；但只要用户真的去尝试加 / / 改季结构，就会撞上静默失败的 IPC。
+
+同一根因还连带 3 处静默 bug（TS 端代码读不到正确数据但**不报错**）：
+
+1. **EpisodeRecord.lastModified** —— EpisodesPanel 单集笔记"最后修改: YYYY-MM-DD HH:MM"时间戳从未显示（`record.lastModified` 永远是 undefined）。
+2. **Character.lastModified** —— CharactersPanel 角色笔记时间戳同样从未显示。
+3. **Book.nextSeasonId** —— BookDetail 右侧的「下一季」字段永远显示"未设置"（`book.nextSeasonId` 永远是 undefined）。
+
+### 根因
+
+**Tauri 2 `#[tauri::command]` 宏只对**顶层参数**做 snake_case ↔ camelCase 转换**（这是官方文档明示的：`org_name` ↔ `orgName` 这层由它兜底），但**不递归到嵌套 struct 字段**。嵌套 struct 字段的 JSON 键名由 `serde` 默认行为决定——按 Rust 字段名严格匹配。
+
+book-trenderer 端 TS 域类型（`apps/book-tracker/src/shared/types.ts`）用 camelCase：
+
+```ts
+interface SeasonInfo { number: number; episodeCount: number; notes?: string; lastModified?: number }
+interface EpisodeRecord { watched: boolean; note: string; title?: string; stamps?: TimeStamp[]; lastModified?: number }
+interface Character { id: string; name: string; notes?: string; lastModified?: number }
+interface Book { /* ... */; nextSeasonId?: string; /* ... */ }
+```
+
+但 Rust 端（`apps/book-tracker/src-tauri/src/types.rs`）用 snake_case，**且未加 `#[serde(rename_all)]`**：
+
+```rust
+pub struct SeasonInfo {
+    pub number: u32,
+    pub episode_count: u32,                  // ← TS 发 episodeCount,Rust 找不到
+    #[serde(default, /*...*/)]
+    pub last_modified: Option<u64>,          // ← TS 发 lastModified,被 #[serde(default)] 静默吞掉
+}
+```
+
+具体踩坑三档：
+
+| 字段 | 表现 | 原因 |
+|---|---|---|
+| `SeasonInfo.episode_count` | **响亮失败** —— IPC reject 报 "missing field `episode_count`"，前端 `.then` 不触发，countDraft 显示用户输入的数字但 UI 无盒子 | u32 没有 `#[serde(default)]`，serde 找不到键直接报错 |
+| `SeasonInfo.last_modified` / `EpisodeRecord.last_modified` / `Character.last_modified` | **静默丢失** —— IPC 成功，时间戳悄悄变 `None`，用户写笔记的"最后修改时间"丢失 | 有 `#[serde(default)]`，serde 把缺失字段填默认 `None` 而不报错 |
+| `Book.next_season_id` | **静默**：Rust 出参 Book 里 `next_season_id` 是 snake_case，TS `book.nextSeasonId` 永远 undefined → BookDetail 的「下一季」永远显示"未设置" | 同上，TS 读 snake_case key 是 undefined |
+
+文件格式不受影响：`persist` / `parse_seasons` / `parse_episodes` / `parse_characters` 全是手写 JSON（见 `apps/book-tracker/src-tauri/src/data/books.rs:99-167` 那一段 `obj.get("episodeCount")`），不经过 serde。改 serde 属性**不会**触动文件读 / 写。
+
+### 修复
+
+`apps/book-tracker/src-tauri/src/types.rs`：
+
+1. 三个嵌套结构体加 `#[serde(rename_all = "camelCase")]`：`SeasonInfo` / `EpisodeRecord` / `Character`。
+2. `Book.next_season_id` 单字段加 `#[serde(rename = "nextSeasonId")]`。
+
+**为什么 `Book` / `BookInput` / `BookPatch` 不整体 `rename_all = "camelCase"`？** —— TS 端 `Book.read_count` 走 snake_case 访问（`BookDetail.tsx:101`、`BookForm.tsx:102`、`RankingCompare.tsx:242` 等 8 处），整体 rename 会让这些访问全部变 `undefined`。`nextSeasonId` 是 Book 中唯一需要 camelCase 的字段，用单字段 rename 兜底最安全。
+
+`TimeStamp` 不动 —— 字段全是单词（`id` / `start` / `end` / `note`），无 case mismatch。
+
+新增 `apps/book-tracker/src-tauri/tests/season_field_test.rs`：4 个集成测试覆盖 camelCase IPC payload 反序列化、Rust 端序列化为 camelCase、`lastModified` / `nextSeasonId` 端到端 round-trip。
+
+### 回归验证
+
+- `cargo test -p book-tracker --test season_field_test` —— 4 / 4 通过
+- `cargo test -p book-tracker --lib` —— 37 / 37 通过（确认 `legacy_tv_set_seasons_round_trip` / `next_season_id_round_trip_and_omit` 仍然 pass，文件格式 / 手写 JSON 路径不受 serde rename 影响）
+- `cargo test -p tracker-core` —— 95 / 95 通过（共享内核无回归）
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 全绿（TS 代码零改动）
+- `npm run test` —— tracker-core 143 + book-tracker 156 + life-tracker 223 = 522 个 vitest 全过
+
+### 教训（共享 / book-tracker）
+
+加 / 改 **跨 IPC 的 Rust struct** 字段（任意 app）必须做"两端键名同源"检查清单：
+
+1. **嵌套 struct → 必加 `#[serde(rename_all = "camelCase")]`**（如果 TS 端用 camelCase）。这条规则覆盖 `SeasonInfo` / `EpisodeRecord` / `Character` / 任何嵌套项。
+2. **`Book` / `Goal` 这种顶层 snake_case 被 TS 用 `.xxx` 读的 → 不整体 rename**，单字段用 `#[serde(rename = "...")]`（`Book.next_season_id` 就是这种）。
+3. **文件格式不受影响**（手写 JSON 与 serde 无关）→ 改 serde 属性不会破坏旧 .md 数据，不需要迁移脚本。
+4. **typecheck 抓不到**：类型只描述编译期契约，跨进程 JSON 的实际键名由 serde 属性决定，`tsc` 与 `cargo build` 都认为自己是对的。
+5. **诊断优先级**：
+   - 没有 `#[serde(default)]` 的字段 → 响亮失败，IPC reject，控制台能看到 "missing field" 错误（最容易发现）
+   - 有 `#[serde(default)]` 的字段 → **静默丢弃**，要主动加 round-trip 单测才能发现；本测试文件正是为此场景设立
+6. **与既有 `[共享] 排名 Modal 一打开就白屏（IPC 字段命名不一致）` 条目配对阅读**：那条覆盖 `crates/tracker-core::RankingFile` 的 `initial_rating` / `k_factor`（camelCase rename + alias 兼容旧 snake_case 文件），本条覆盖 book-tracker 嵌套域类型 + 单字段 rename 的混合模式。两组合起来就是"跨 IPC 的 Rust struct 字段命名"完整规则集。
+7. **预防性扫描命令**（加新 IPC 类型时跑一遍）：
+
+```bash
+# 找所有 snake_case 字段且未加 rename 的 struct（粗筛）：
+grep -rnE '#\[derive\(.*Serialize' apps/*/src-tauri/src/types.rs crates/*/src/types.rs
+# 看每个 serde 派生结构体是否带 rename_all / rename；TS 端访问路径是否一致：
+grep -nE '\.(episodeCount|lastModified|nextSeasonId|readCount|initialRating|kFactor)' \
+  apps/*/src packages/*/src
+```
+
+只要有任何一端用了 camelCase 而另一端是 snake_case 且没 rename / rename_all，就会重复踩这个坑。
+
+---
+
 ## 2026-09：[共享] React Hooks 调用顺序违规——`useMemo` 放在 early return 之后，切换「未选条目 → 选了条目」直接崩
 
 ### 1. 现象
