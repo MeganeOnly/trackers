@@ -6,6 +6,75 @@
 
 ---
 
+## 2026-09：[book-tracker] wikilink `[[角色名]]` —— 数据格式不变 + 后端零改动的 Obsidian 风格双链 (v1.5)
+
+### 1. 现象 / 需求
+
+用户希望能在 book-tracker 的所有自由文本字段（Book.notes / Character.notes / EpisodeRecord.note / TimeStamp.note）里用 `[[角色名]]` 双链语法，自动链接到已建立的角色笔记——本地命中、跨作品兜底、断链一键创建。这是 Obsidian / Logseq 等 PKM 工具的核心心智。
+
+### 2. 关键设计决策：数据格式不变 + 后端零改动
+
+**最大胆的设计选择是「`[[小明]]` 原样存进 frontmatter 字符串，只在渲染层识别」**——不引入 links.json、不做字符转换、不动 Rust / IPC / 数据层。
+
+理由：
+1. **完全可逆**：用户随时 grep / 手编辑 frontmatter / 跨机器同步无破坏
+2. **跟 Obsidian / Logseq 同款**：用户在迁移 / 跨工具时有相同预期
+3. **零迁移**：老 book 文件没有 wikilink 概念，但 `[[...]]` 之前就是普通字符串——现在多了渲染语义，无需任何转换
+
+代价：每次渲染要 parse。但 wikilink 文本量小（单条几 KB），parse 几十次完全够用。如果未来有性能问题再加 links.json 索引。
+
+### 3. 实现关键点（共享给所有 wikilink-like 功能）
+
+#### 3.1 大小写敏感 + 精确匹配（trim 后比对）
+
+`resolveWikilink` 用 `name.trim() === target.trim()`。**避免**英文作品 `Alice` vs `alice` 误匹配。模糊匹配 / 别名 / 拼音留后续。
+
+#### 3.2 `[[` 重复触发防护
+
+`useWikilinkTextarea` 检测 `value.slice(cursorPos - 2, cursorPos) === '[['` 时还要检查 `cursorPos - 1` 之前不是 `[`,排除 `[[[`（用户在 `[[` 后又敲 `[`）的中间触发。
+
+#### 3.3 `setTimeout(0)` 重置光标（React 18 兼容性）
+
+React 18 在 onChange 同步调用 setValue 会触发 re-render，直接在 onChange 末尾 `setSelectionRange` 会被覆盖。**正确做法**：包一层 `setTimeout(() => ta.setSelectionRange(...), 0)` 等 React commit 后再设光标，跟 `requestAnimationFrame` 等价但更轻。
+
+#### 3.4 跨组件跳转走 store 字段
+
+CharactersPanel 用本地 `useState(expandedId)` 管展开，但跨组件跳转需要全局信号。**方案**：store 新增 `navigateToCharacter: { bookId, characterId } | null` 字段，CharactersPanel useEffect 监听并匹配自己 bookId 时展开，**然后清回 null**——避免"同 character 再次点击"无法再次触发。
+
+#### 3.5 断链创建后自动 navigateLocal
+
+`WikilinkCreateCharacterModal.onCreated` 回调里父组件调 `navigateLocal(bookId, characterId)`，让用户立刻看到新角色已就位（比单纯"modal 关闭 / 渲染刷新"更友好）。
+
+#### 3.6 `splitWikilinkSegments` 未闭合边界
+
+未闭合 `[[` 时，**不要把 `[[` 之前的 plain 段先 flush 再把后续当 plain** —— 这会拆成两个 plain 段（测试失败案例）。**正确做法**：把 buf 跨整段累积，遇到未闭合 `[[` 时直接 `buf += text.slice(open)`,让整段（包括未闭合 `[[`）落在一个 plain 段里。
+
+### 4. 测试中的踩坑：localeCompare 平台差异
+
+`'三体'.localeCompare('百年孤独', 'zh')` 在 Node 默认 ICU 上**按 pinyin 排**（bai < san → 返回 -1，即 `百年孤独 < 三体`），不是按 Unicode codepoint。
+
+**测试时不要断言具体顺序**（如 `['三体', '围城', '百年孤独']`），断言「相邻对相对顺序与 localeCompare 一致」即可 —— 跨平台 / 跨 ICU 版本稳定。
+
+### 5. `RefObject` vs `MutableRefObject`
+
+useWikilinkTextarea 返回的 `taRef` 类型选 `MutableRefObject<T | null>`,因为 StampRow 这种需要把 hook 的 ref 与自己的 `textareaRef` 合并（callback ref 同时写两个），`RefObject<T>` 的 readonly current 写不进去。
+
+### 6. 已知限制
+
+- **picker 中间输入处理**：picker 打开后用户在 textarea 继续敲的内容会被 `value.slice(cursorPos)` 截到 after 段，最终插入后追加在 `]]` 后面（产生重复）。**缓解**：user 打闭合 `]]` 自动删掉（`after.startsWith(']]')` 时 `endTrim = 2`），但用户敲其他字符不处理。彻底解决需要监听 picker's focus state 让 textarea 在 picker 打开时只读，留后续。
+- **跨作品跳转不重定向**：删除被引用 book 后 wikilink 变 broken，需要用户手动重新链接。**不**自动扫描 wikilink 改成指向别的同名角色（用户原意是显式的，不擅自重写）。
+- **TimeStamp.note 单行 textarea 的 picker 高度**：stamp 自动撑高是依赖 `[stamp.note]` useEffect；picker 插入 `[[name]]` 后 useEffect 触发，scrollHeight 重算正常。
+
+### 7. 通用教训（共享）
+
+**a)** 「renderer 加新能力时，先问后端能不能不改」是 monorepo 的核心模式 —— `[[小明]]` 是个完美案例：渲染层 6 个新文件 + 40 个新测试，但 Rust / IPC / 数据层零改动，既不破坏老数据，也不增加打包体积。
+
+**b)** 「纯函数 + 解析 / 渲染分离」是 wikilink 这类「文本 → 富文本」功能的标配。`parseWikilinks` / `splitWikilinkSegments` / `resolveWikilink` 三个纯函数只关心文本 → 结构 / 文本 → 解析，不关心 React / DOM；`WikilinkText` 纯渲染组件只关心结构 → JSX。**纯函数 + memo 包装** 是性能友好 + 易测试的组合。
+
+**c)** 「全局协调层用 React Context，而不是 zustand」 —— picker / create 模态是 UI 协调层，不该污染 store（store 是「应用状态」不是「UI 临时态」）。**判断标准**：关了 app 之后还需要保留 → 进 store；不需要 → Context / useState。
+
+---
+
 ## 2026-09：[共享/book-tracker] RANK「跳过」语义 bug —— pickNextPair 纯函数跳过不触发重选，老对反复弹 (v1.4)
 
 ### 1. 现象

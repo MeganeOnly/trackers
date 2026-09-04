@@ -25,6 +25,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { formatLastModified, makeId } from '@shared/types'
 import type { Book, Character } from '@shared/types'
+import { WikilinkText } from './WikilinkText'
+import { useWikilinkTextarea } from './useWikilinkTextarea'
 
 interface CharactersPanelProps {
   book: Book
@@ -35,12 +37,28 @@ const DEBOUNCE_MS = 500
 export function CharactersPanel({ book }: CharactersPanelProps): JSX.Element {
   const characters = book.characters ?? []
   const setCharacters = useBooksStore((s) => s.setCharacters)
+  // v1.7 wikilink —— 监听 store.navigateToCharacter(bookId, characterId),
+  // 跨组件触发展开:wikilink 点击 resolved-local 时由 Provider 写入这里消费。
+  const navigateToCharacter = useBooksStore((s) => s.navigateToCharacter)
+  const setNavigateToCharacter = useBooksStore((s) => s.setNavigateToCharacter)
+  // 全作品列表(给 wikilink 预览解析跨作品用)—— 订阅保证 books 变化时重渲染
+  const allBooks = useBooksStore((s) => s.books)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   // book.id 切换时收起展开区
   useEffect(() => {
     setExpandedId(null)
   }, [book.id])
+
+  // v1.7 wikilink —— 跨组件跳转落地:匹配当前 book 时展开目标 character,
+  // 然后清回 null(避免二次触发;同条 trigger 重设也只会触发一次 effect)。
+  useEffect(() => {
+    if (navigateToCharacter && navigateToCharacter.bookId === book.id) {
+      setExpandedId(navigateToCharacter.characterId)
+      // 立即清,让下一次跳转(同 character 再次点击 / 跳别的)能再触发
+      setNavigateToCharacter(null)
+    }
+  }, [navigateToCharacter, book.id, setNavigateToCharacter])
 
   /** 新增一空角色(只填名字 + 时间戳,笔记留空) */
   async function handleAdd(): Promise<void> {
@@ -93,6 +111,8 @@ export function CharactersPanel({ book }: CharactersPanelProps): JSX.Element {
               onToggle={() => setExpandedId(expandedId === c.id ? null : c.id)}
               onUpdate={(patch) => void handleUpdate(c.id, patch)}
               onRemove={() => void handleRemove(c.id)}
+              allBooks={allBooks}
+              currentBook={book}
             />
           ))}
         </div>
@@ -112,6 +132,10 @@ interface CharacterRowProps {
   onToggle: () => void
   onUpdate: (patch: Partial<Pick<Character, 'name' | 'notes'>>) => void
   onRemove: () => void
+  /** v1.7 wikilink —— 当前 book 的全作品(预览跨作品解析用) */
+  allBooks: Book[]
+  /** 当前 book(wikilink local 解析用;CharacterPanel 一本书渲染一次) */
+  currentBook: Book
 }
 
 function CharacterRow({
@@ -119,7 +143,9 @@ function CharacterRow({
   expanded,
   onToggle,
   onUpdate,
-  onRemove
+  onRemove,
+  allBooks,
+  currentBook
 }: CharacterRowProps): JSX.Element {
   const displayName = character.name.trim() || '(未命名)'
   const noteLen = character.notes?.length ?? 0
@@ -146,6 +172,8 @@ function CharacterRow({
           character={character}
           onUpdate={onUpdate}
           onRemove={onRemove}
+          currentBook={currentBook}
+          allBooks={allBooks}
         />
       )}
     </div>
@@ -158,13 +186,24 @@ interface CharacterEditorProps {
   character: Character
   onUpdate: (patch: Partial<Pick<Character, 'name' | 'notes'>>) => void
   onRemove: () => void
+  /** v1.7 wikilink —— 当前 book,`[[` 触发 picker 用 */
+  currentBook: Book
+  /** v1.7 wikilink —— 全作品列表(预览跨作品解析用) */
+  allBooks: Book[]
 }
 
 /**
  * 角色编辑区:名字输入(blur 即写) + 笔记 textarea(debounce 500ms 写)。
  * 时间戳由 store 层自动 inject(在 handleUpdate 里 Date.now()),组件不感知。
+ * v1.7 wikilink:textarea 集成 `[[` 触发 picker + 下方渲染预览(可点击 wikilink)。
  */
-function CharacterEditor({ character, onUpdate, onRemove }: CharacterEditorProps): JSX.Element {
+function CharacterEditor({
+  character,
+  onUpdate,
+  onRemove,
+  currentBook,
+  allBooks
+}: CharacterEditorProps): JSX.Element {
   const [nameDraft, setNameDraft] = useState<string>(character.name)
   const [noteDraft, setNoteDraft] = useState<string>(character.notes ?? '')
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -176,6 +215,18 @@ function CharacterEditor({ character, onUpdate, onRemove }: CharacterEditorProps
   useEffect(() => {
     setNoteDraft(character.notes ?? '')
   }, [character.notes])
+
+  // v1.7 wikilink —— `[[` 触发 picker;book 由 CharacterRow 透传。
+  // 这里 useWikilinkTextarea 替换原 textarea 的 onChange,
+  // 在 `[[` 检测到时打开 picker 并插入 `[[name]]`,其他输入照常透传。
+  const { handleChange: handleNoteChange, taRef: noteTaRef } = useWikilinkTextarea({
+    book: currentBook,
+    value: noteDraft,
+    setValue: (v) => {
+      setNoteDraft(v)
+      scheduleNoteFlush()
+    }
+  })
 
   function flushName(): void {
     const trimmed = nameDraft.trim()
@@ -215,16 +266,21 @@ function CharacterEditor({ character, onUpdate, onRemove }: CharacterEditorProps
       <label className="field">
         <span>角色笔记</span>
         <textarea
+          ref={noteTaRef}
           value={noteDraft}
-          onChange={(e) => {
-            setNoteDraft(e.target.value)
-            scheduleNoteFlush()
-          }}
+          onChange={handleNoteChange}
           onBlur={flushNote}
           rows={6}
-          placeholder="自由写 —— 人物小传 / 关系网 / 名场面 / 心理活动(空 = 删除此条笔记)"
+          placeholder="自由写 —— 人物小传 / 关系网 / 名场面 / 心理活动(输入 [[ 触发角色选择;空 = 删除此条笔记)"
         />
       </label>
+      {/* v1.7 wikilink 预览 —— 解析 notes 里的 [[xxx]] 成可点击链接 */}
+      <WikilinkText
+        text={noteDraft}
+        currentBook={currentBook}
+        allBooks={allBooks}
+        className="wikilink-preview-block"
+      />
       <div className="character-editor-foot">
         <button type="button" className="btn-danger character-delete" onClick={onRemove}>
           删除该角色

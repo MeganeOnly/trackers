@@ -1,15 +1,17 @@
 // 集笔记面板 —— BookDetail 的「集笔记」区块
 //
 // 仅当 book.kind === 'tv' | 'anime' 时渲染(由 BookDetail 决定是否引入)。
-// 职责:
-// - 季选择器(tab 式 + 「上一季 / 下一季」按钮 + 「+ 季」追加 + 「删除此季」移除)
-// - 当前季的集网格(点击格子展开 / 双击切换 watched)
+// 职责(v1.6 简化):
+// - 当前唯一季的集网格(点击格子展开 / 双击切换 watched)
+//   —— **v1.6 起不再有季选择器 tabs**:用户约定"不同季用 nextSeasonId 串成多个 book",
+//   每本 book 只追踪一季;季切换 UI 已删,改用 BookDetail「上一季 / 下一季」区块跳转。
+//   季结构(seasons[])仍保留 —— 一本书可能因历史遗留 / 误填仍有多个 seasons,
+//   这里取 `seasons[0]` 显示(简化逻辑,不再维护 selectedSeason 状态)。
 // - 展开区:标题输入 / watched toggle / 笔记 textarea / 时间戳笔记 stamps / 删除按钮
 // - 顶部操作栏:已看统计 / +1 / -1 / 清空
 // - 季标题里"X 集"是 inline 可编辑 input:用户就地改单季集数,失焦写盘
 //
 // 状态:
-// - selectedSeason: 当前选中的季号(默认 = 第一个未完全看完的季;全看完则最后一个季)
 // - expandedEpisode: 当前展开的集号(单选,互斥)
 // - 笔记/标题本地 draft:失焦 / debounce 500ms 写盘
 // - 时间戳笔记:本地即时态(无 debounce),按 start 升序自动排列,逐条 add/edit/delete 都整体回写
@@ -19,10 +21,10 @@
 // - 季信息 / 集笔记通过 selectors 取(useSeasonsForBook / useEpisodesForBook / useEpisodeStats)
 // - 所有变更走 store action(setEpisode* / episodeBump / clearEpisodes / setSeasons / setEpisodeStamps)
 //
-// 季结构编辑(v1.4 新增):
-// - 「+ 季」按钮:number = max+1, episodeCount = 0;走 setSeasons 整段替换
+// 季结构编辑(v1.4 保留 v1.6 部分):
 // - 「X 集」inline input:仅改当前季的 episodeCount,其他季不动
 // - 「删除此季」按钮:整段 setSeasons 过滤掉当前季;保留旧 episodes key 不清理(决策 B)
+// - **v1.6 移除 「+ 季」按钮 + tabs 切换**:用户加新季的路径改为"新建一本 book + 设下一季"。
 // - 同步策略:**不**联动改 book.progress.total / progress.current;理由见 AGENTS.md §十.24
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -30,6 +32,8 @@ import { useBooksStore } from '../store/books'
 import { useEpisodeStats, useEpisodesForBook, useSeasonsForBook } from '../store/selectors'
 import { episodeKey, formatLastModified, formatStamp, parseEpisodeKey, parseStamp, sortStamps } from '@shared/types'
 import type { Book, TimeStamp } from '@shared/types'
+import { WikilinkText } from './WikilinkText'
+import { useWikilinkTextarea } from './useWikilinkTextarea'
 
 interface EpisodesPanelProps {
   book: Book
@@ -47,28 +51,24 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
   const setEpisodeStamps = useBooksStore((s) => s.setEpisodeStamps)
   const episodeBump = useBooksStore((s) => s.episodeBump)
   const clearEpisodes = useBooksStore((s) => s.clearEpisodes)
-  // v1.4 季结构就地编辑 —— 整段替换 seasons
+  // v1.4 季结构就地编辑 —— 整段替换 seasons(v1.6 起只用于"X 集"inline + 删除此季,
+  // 不再有「+ 季」和季切换 —— 加新季走"新建 book + 设下一季"路径)
   const setSeasons = useBooksStore((s) => s.setSeasons)
-
-  // 选中的季号:默认 = 第一个未完全看完的季;全看完则最后一个季;无季时 = 1
-  const [selectedSeason, setSelectedSeason] = useState<number>(() => initialSeason(seasons, episodes))
-  // book.id 切换时重置季选择 / 展开
-  useEffect(() => {
-    setSelectedSeason(initialSeason(seasons, episodes))
-    setExpandedEpisode(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id])
-  // 当前季变了 → 收起展开的格子
-  useEffect(() => {
-    setExpandedEpisode(null)
-  }, [selectedSeason])
 
   const [expandedEpisode, setExpandedEpisode] = useState<number | null>(null)
 
-  // 当前季的元信息
+  // book.id 切换时收起展开的格子(v1.6 简化:不再有 selectedSeason state)
+  useEffect(() => {
+    setExpandedEpisode(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book.id])
+
+  // 当前季的元信息 —— v1.6 简化:不再维护 selectedSeason 状态,直接取 seasons[0]
+  // (用户约定不同季用 nextSeasonId 串成多本 book,每本只追踪一季;若某本 book 历史
+  // 遗留多季,这里只显示 seasons[0];仍保留 seasons[] 以便"X 集"和"删除此季"还能用)
   const currentSeason = useMemo(
-    () => seasons.find((s) => s.number === selectedSeason) ?? seasons[0],
-    [seasons, selectedSeason]
+    () => seasons[0] ?? null,
+    [seasons]
   )
 
   async function handleBump(delta: number): Promise<void> {
@@ -81,10 +81,10 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     setExpandedEpisode(null)
   }
 
-  // v1.4 季结构就地编辑 ——「+ 季」/「删除此季」/「改单季集数」
+  // v1.4 季结构就地编辑 —— v1.6 起只剩"X 集"和"删除此季"(无 "+ 季" / 切换季)
   // ---- 单季集数 draft state + flush ----
   const [countDraft, setCountDraft] = useState<string>(() => String(currentSeason?.episodeCount ?? 0))
-  // currentSeason 切换 / seasons 数组变化 → 同步本地 draft(避免覆盖用户正在敲的内容)
+  // currentSeason 变化 → 同步本地 draft(避免覆盖用户正在敲的内容)
   useEffect(() => {
     setCountDraft(String(currentSeason?.episodeCount ?? 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,12 +119,6 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     countTimerRef.current = setTimeout(flushSeasonCount, DEBOUNCE_MS)
   }
 
-  async function handleAddSeason(): Promise<void> {
-    const nextNumber = seasons.length === 0 ? 1 : Math.max(...seasons.map((s) => s.number)) + 1
-    await setSeasons(book.id, [...seasons, { number: nextNumber, episodeCount: 0 }])
-    setSelectedSeason(nextNumber)
-  }
-
   async function handleDeleteSeason(): Promise<void> {
     if (!currentSeason) return
     const msg =
@@ -134,9 +128,7 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     if (!confirm(msg)) return
     const next = seasons.filter((s) => s.number !== currentSeason.number)
     await setSeasons(book.id, next)
-    // 选中上一季;若删完则回到 1(此时 seasons 已空,selectedSeason 不会被读到)
-    const fallback = currentSeason.number > 1 ? currentSeason.number - 1 : 1
-    setSelectedSeason(next.length > 0 ? fallback : 1)
+    // v1.6 简化:不再维护 selectedSeason,删完后自然回到"无季"分支
   }
 
   if (!currentSeason) {
@@ -176,49 +168,9 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
         </div>
       </div>
 
-      {/* 季选择器:tab + 上一季/下一季 + 「+ 季」追加(用户要求) */}
-      <div className="seasons-tabs">
-        <button
-          className="season-nav"
-          onClick={() => setSelectedSeason(Math.max(1, selectedSeason - 1))}
-          disabled={selectedSeason <= 1}
-          title="上一季"
-        >
-          ◀
-        </button>
-        <div className="seasons-tabs-list">
-          {seasons.map((s) => {
-            const seasonWatched = countWatchedInSeason(s.number, s.episodeCount, episodes)
-            const isCurrent = s.number === selectedSeason
-            return (
-              <button
-                key={s.number}
-                className={`season-tab${isCurrent ? ' active' : ''}`}
-                onClick={() => setSelectedSeason(s.number)}
-                title={`S${pad2(s.number)} · ${seasonWatched}/${s.episodeCount}`}
-              >
-                S{pad2(s.number)}
-              </button>
-            )
-          })}
-        </div>
-        <button
-          className="season-nav"
-          onClick={() => setSelectedSeason(Math.min(maxSeason(seasons), selectedSeason + 1))}
-          disabled={selectedSeason >= maxSeason(seasons)}
-          title="下一季"
-        >
-          ▶
-        </button>
-        {/* v1.4 新增一季 —— number = max+1, episodeCount = 0 */}
-        <button
-          className="season-nav season-nav-add"
-          onClick={() => void handleAddSeason()}
-          title="新增一季"
-        >
-          +
-        </button>
-      </div>
+      {/* v1.6 起删除季选择器 tabs(S01/S02/... + 上一季/下一季 + 「+ 季」)——
+          用户约定用 BookDetail「下一季」关联把不同季拆成不同 book,每本只追踪一季。
+          季结构(seasons[])就地编辑只剩"X 集"inline + 「删除此季」两处。 */}
 
       {/* 当前季标题 + 集数就地编辑 + 删除季 —— v1.4 季结构下沉到 EpisodesPanel */}
       <div className="season-summary">
@@ -394,6 +346,17 @@ function EpisodeEditor({
     setNoteDraft(record?.note ?? '')
   }, [record?.note])
 
+  // v1.7 wikilink —— `[[` 触发 picker;book 透传自父组件
+  const allBooks = useBooksStore((s) => s.books)
+  const { handleChange: handleNoteChange, taRef: noteTaRef } = useWikilinkTextarea({
+    book,
+    value: noteDraft,
+    setValue: (v) => {
+      setNoteDraft(v)
+      scheduleNoteFlush()
+    }
+  })
+
   function flushTitle(): void {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     const trimmed = titleDraft.trim()
@@ -442,18 +405,25 @@ function EpisodeEditor({
       <label className="field">
         <span>笔记</span>
         <textarea
+          ref={noteTaRef}
           value={noteDraft}
-          onChange={(e) => {
-            setNoteDraft(e.target.value)
-            scheduleNoteFlush()
-          }}
+          onChange={handleNoteChange}
           onBlur={flushNote}
           rows={5}
-          placeholder="自由写 —— 心得 / 摘录 / 备忘(空串 = 删除此集记录)"
+          placeholder="自由写 —— 心得 / 摘录 / 备忘(输入 [[ 触发角色选择;空串 = 删除此集记录)"
         />
       </label>
+      {/* v1.7 wikilink 预览 —— 解析 episode note 里的 [[xxx]] */}
+      <WikilinkText
+        text={noteDraft}
+        currentBook={book}
+        allBooks={allBooks}
+        className="wikilink-preview-block"
+      />
       {/* v1.3 时间戳笔记 —— 按 start 升序自动排列,逐条 add/edit/delete 都整体回写 */}
       <StampList
+        book={book}
+        allBooks={allBooks}
         stamps={record?.stamps ?? []}
         onChange={onSetStamps}
       />
@@ -494,6 +464,10 @@ function EpisodeEditor({
 // ==================== 子组件:StampList (v1.3 时间戳笔记) ====================
 
 interface StampListProps {
+  /** v1.7 wikilink —— 当前作品(每个 stamp 的 textarea 触发 [[ 时 picker 用) */
+  book: Book
+  /** v1.7 wikilink —— 全作品列表(stamp note 预览解析跨作品用) */
+  allBooks: Book[]
   stamps: TimeStamp[]
   onChange: (stamps: TimeStamp[]) => void
 }
@@ -507,8 +481,10 @@ interface StampListProps {
  * - **自动排序**:写盘前 `sortStamps` 按 start 升序;显示列表也是已排序的
  * - **单时间点 vs 时间段**:end 留空 = 单时间点(时刻),end 填了 = 时间段(片段)
  * - **id 用 `crypto.randomUUID()`**:稳定 UUID,让 edit/delete 能精确锁定单条
+ * - **v1.7 wikilink**:每条 stamp 的 note textarea 集成 `[[` 触发 picker;
+ *   紧凑场景(单行 + 自动撑高)所以 picker 用同款,但 stamp 内嵌上下文注入当前 book。
  */
-function StampList({ stamps, onChange }: StampListProps): JSX.Element {
+function StampList({ book, allBooks, stamps, onChange }: StampListProps): JSX.Element {
   // 已排序的展示列表 —— 每次 props.stamps 变化重排(防止外部不按序传入)
   const sortedStamps = useMemo(() => sortStamps(stamps), [stamps])
 
@@ -650,6 +626,8 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
             <StampRow
               key={s.id}
               stamp={s}
+              book={book}
+              allBooks={allBooks}
               onEditNote={(raw) => handleEditNote(s.id, raw)}
               onDelete={() => handleDelete(s.id)}
             />
@@ -756,6 +734,10 @@ function StampList({ stamps, onChange }: StampListProps): JSX.Element {
 
 interface StampRowProps {
   stamp: TimeStamp
+  /** v1.7 wikilink —— 当前 book,`[[` 触发 picker 用 */
+  book: Book
+  /** v1.7 wikilink —— 全作品列表(预览跨作品解析用) */
+  allBooks: Book[]
   onEditNote: (raw: string) => void
   onDelete: () => void
 }
@@ -769,8 +751,10 @@ interface StampRowProps {
  * - **自动撑高**:用 useEffect + scrollHeight 把高度自动撑到内容;max-height
  *   兜底避免一条超长笔记把整个 episode 编辑器撑爆(超出滚动)
  * - **per-row lastModified**:沿用 v1.6 决定,行级显示 + 不影响 EpisodeRecord.lastModified
+ * - **v1.7 wikilink**:textarea 集成 `[[` 触发 picker;选完插入 `[[name]]` 后,
+ *   useEffect 监听 stamp.note 变化会自动重算高度,无需手工 resize。
  */
-function StampRow({ stamp, onEditNote, onDelete }: StampRowProps): JSX.Element {
+function StampRow({ stamp, book, allBooks, onEditNote, onDelete }: StampRowProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   // 自动撑高:mount + stamp.note 变化时(外部 store 更新或本组件 onChange)
@@ -782,6 +766,21 @@ function StampRow({ stamp, onEditNote, onDelete }: StampRowProps): JSX.Element {
     ta.style.height = 'auto'
     ta.style.height = `${ta.scrollHeight}px`
   }, [stamp.note])
+
+  // v1.7 wikilink —— `[[` 触发 picker;note 是 stamp.note(每条 stamp 独立 note)。
+  // 选完 name 后 setValue 写入 stamp.note(通过 onEditNote 上抛给 StampList → onChange)
+  const { handleChange: handleNoteChange, taRef: wikilinkTaRef } = useWikilinkTextarea({
+    book,
+    value: stamp.note,
+    setValue: (v) => onEditNote(v)
+  })
+
+  // 合并两个 ref —— 撑高需要 textareaRef,wikilink hook 也需要 ref。
+  // 用 callback ref 把两者合一
+  function setCombinedRef(el: HTMLTextAreaElement | null): void {
+    textareaRef.current = el
+    wikilinkTaRef.current = el
+  }
 
   return (
     <li className="stamp-row">
@@ -795,15 +794,16 @@ function StampRow({ stamp, onEditNote, onDelete }: StampRowProps): JSX.Element {
         )}
       </span>
       <textarea
-        ref={textareaRef}
+        ref={setCombinedRef}
         className="stamp-row-note"
         value={stamp.note}
         rows={1}
         onChange={(e) => {
-          // 立即撑高(不等 React re-render)—— 用户敲键时高度跟随
+          // 先让 wikilink hook 处理(透传 value + 检测 [[)
+          handleNoteChange(e)
+          // 然后立即撑高(不等 React re-render)—— 用户敲键时高度跟随
           e.currentTarget.style.height = 'auto'
           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`
-          onEditNote(e.currentTarget.value)
         }}
         placeholder="(无笔记;Enter 换行)"
       />
@@ -842,30 +842,6 @@ function makeStampId(): string {
 
 // ==================== 工具函数 ====================
 
-/** 默认选中的季号:第一个未完全看完的季;全看完 = 最后一季。 */
-function initialSeason(
-  seasons: ReadonlyArray<{ number: number; episodeCount: number }>,
-  episodes: Record<string, { watched: boolean }>
-): number {
-  if (seasons.length === 0) return 1
-  for (const s of seasons) {
-    if (countWatchedInSeason(s.number, s.episodeCount, episodes) < s.episodeCount) return s.number
-  }
-  return seasons[seasons.length - 1].number
-}
-
-function countWatchedInSeason(
-  season: number,
-  count: number,
-  episodes: Record<string, { watched: boolean }>
-): number {
-  let n = 0
-  for (let e = 1; e <= count; e++) {
-    if (episodes[episodeKey(season, e)]?.watched) n++
-  }
-  return n
-}
-
 function collectSeasonEpisodes(
   season: number,
   count: number,
@@ -876,11 +852,6 @@ function collectSeasonEpisodes(
     list.push({ episode: e, record: episodes[episodeKey(season, e)] })
   }
   return list
-}
-
-function maxSeason(seasons: ReadonlyArray<{ number: number }>): number {
-  if (seasons.length === 0) return 1
-  return Math.max(...seasons.map((s) => s.number))
 }
 
 function pad2(n: number): string {

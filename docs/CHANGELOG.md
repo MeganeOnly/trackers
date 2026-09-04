@@ -304,3 +304,84 @@
 ### 标签
 
 - （待发 tag 时）
+
+---
+
+## v1.5 (2026-09): 作品双链 `[[角色名]]` —— Obsidian 风格 wiki-link
+
+**笔记里点名词跳到角色笔记**。在所有自由文本字段里支持 `[[角色名]]` 双链语法,自动链接到角色笔记(local 命中 / 全局唯一 / 全局多匹配 picker / 断链一键创建)。**后端零改动 —— `[[小明]]` 原样存进 frontmatter 字符串,只在渲染层识别**(跟 Obsidian 同款)。
+
+### 新增能力
+
+- **共享内核(纯函数 + 测试)**
+  - `apps/book-tracker/src/shared/wikilink.ts` 新增三个纯函数:
+    - `parseWikilinks(text)` —— 提取所有 `[[...]]` 内的目标名(去重保留顺序;空 / 纯空白跳过)
+    - `splitWikilinkSegments(text)` —— 把文本切成 `plain | wikilink` 段,渲染层用
+    - `resolveWikilink(target, ctx)` —— 在「当前作品 + 全作品」上下文中解析:
+      - **local** 当前作品里找到该 character(精确匹配、大小写敏感、trim 后比对)
+      - **global-unique** 跨作品唯一命中
+      - **global-multi** 跨作品多条同名 → 候选列表
+      - **broken** 哪里都没找到
+  - `collectLocalCharacterCandidates(book)` / `collectAllCharacterCandidates(books)` —— 候选构造
+  - 测试:`apps/book-tracker/src/shared/__tests__/wikilink.test.ts` —— **40 个用例**(parseWikilinks 12 / splitWikilinkSegments 8 / resolveWikilink 12 / candidates 8)
+  - **不进 tracker-core**:wikilink 绑定 `Character` 概念,life-tracker 没角色;留 book-tracker 内(同 stamp.test.ts 思路)
+
+- **4 处文本字段支持 wikilink**(Book.notes / Character.notes / EpisodeRecord.note / TimeStamp.note)
+  - **textarea `[[` 触发 picker**:输入 `[[` 后弹全局 picker(候选 = 当前 book 全量 character);↑↓ 选 / Enter 确认 / Esc 关闭;支持搜索过滤 + 「+ 创建新角色」入口
+  - **picker 关闭时自动插入 `[[name]]`** 到光标位置,光标落到 `]]` 之后
+  - **直接打 `[[新名字]]`** 不开 picker,文本原样存进 frontmatter,渲染时自动标「断链」
+  - **复用 hook**:`useWikilinkTextarea(book, value, setValue)` 把「`[[` 检测 + 插入 + 光标定位」统一封装,4 处 textarea 共用,父组件只负责自己的 debounce 写盘逻辑
+
+- **WikilinkText 渲染组件**:
+  - 把 textarea 下方文本切成 plain + wikilink 段,wilink 段渲染成可点击 button
+  - 视觉(由 status 决定 className):
+    - **local** —— 主题色 + hover 下划线;点击 → 滚到 CharactersPanel 并展开该 character
+    - **global-unique** —— 同上 + 角标 `↗`;点击 → 切到目标 book + 展开该 character
+    - **global-multi** —— `角色名 · N处 ↗`;点击 → 弹跨作品 picker,选完跳转
+    - **broken** —— 红色虚线下划线 + `[[]]` 包裹显示;点击 → 弹「创建角色『xxx』」modal
+  - React.memo 包装 + useMemo 缓存整张 segments 解析
+
+- **WikilinkContext 全局协调层**:
+  - 4 类交互(navigateLocal / navigateGlobal / openGlobalPicker / openCreate)统一暴露给 WikilinkText
+  - picker / create 模态全局唯一(同时只能开一个);Provider 挂在 `App.tsx` 顶层
+  - 跨作品跳转走 `store.navigateToCharacter` 字段(新增)→ CharactersPanel 监听后自动展开
+  - **store 新增字段**:`navigateToCharacter: { bookId, characterId } | null` + `setNavigateToCharacter` action
+
+### 实现关键决策
+
+- **数据格式不变**:`[[小明]]` 原样存进 frontmatter 字符串(同 Obsidian / Logseq)。**后端 / IPC / Rust / 数据层全部零改动**;既不引入 links.json,也不做字符转换 —— 渲染时实时解析。
+- **大小写敏感 + 精确匹配**:避免英文作品里大小写误匹配;模糊匹配留后续。
+- **`[[` 重复触发防护**:检测 `value.slice(cursorPos - 2, cursorPos) === '[['` 时,排除前一个字符也是 `[` 的情况(`[[[` 不会重复触发 picker)。
+- **用户中间输入处理**:picker 打开后用户在 textarea 继续敲的内容会被截到 `]]` 后(已知行为,记入 dev-notes)。用户敲了闭合 `]]` 也会自动删掉(避免 `[[name]]]]`)。
+- **跨作品跳转 store 字段**:CharactersPanel 用本地 `useState(expandedId)` 管展开,但跨组件跳转需要全局信号;新增 `navigateToCharacter` 字段,CharactersPanel useEffect 监听并消费后清回 null。
+
+### 视觉与样式
+
+- `.wikilink-preview-block` —— textarea 下方预览容器(muted + dashed 顶边 + 紧凑内边距)
+- `.wikilink-resolved` / `.wikilink-global` / `.wikilink-multi` —— 主题色 + hover 下划线
+- `.wikilink-broken` —— 红色虚线下划线 + mono 字体 + `[[]]` 包裹视觉提示
+- `.wikilink-picker-modal` —— picker 模态样式(参考 NextSeasonPicker 紧凑搜索 + 列表模式)
+- `.wikilink-create-modal` —— 创建模态样式
+
+### 数据兼容性
+
+- **完全零迁移**:老 book 文件没有 wikilink 概念,但 `[[...]]` 之前就是普通字符串 —— 现在多了渲染语义,无需任何转换
+- 后端 IPC schema 零变化(`Character` / `EpisodeRecord` / `TimeStamp` 字段不动;只是前端多了一个 view 层)
+- 老作品导入 / 跨机器同步:无影响
+- 跨作品 link 引用被删 book:变 broken(无需清理,因为不在 frontmatter 字段里)
+
+### 工程化
+
+- **测试**:book-tracker vitest 201/201(原 161 + wikilink 40)
+- typecheck 三端全过
+- cargo test book-tracker 40 unit + 5 integration 全过(**零改动**确认)
+
+### 共享范围
+
+- 纯函数 + 测试:`apps/book-tracker/src/shared/`(绑定 Character,留 app)
+- 渲染 / 协调 / 4 处 textarea 集成:全留 `apps/book-tracker/src/renderer/components/`(领域 UI)
+- 后端 / tracker-core / tracker-ui:**全部零改动**
+
+### 标签
+
+- （待发 tag 时）

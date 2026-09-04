@@ -311,6 +311,28 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     - 老数据缺 `lastModified` 字段 → 读回 `None`(向后兼容);`Some(0)` 等同 `None` 不写盘
 27. **v1.5 角色笔记整段 setCharacters IPC(跟 setSeasons / setEpisodeStamps 同款)**:`Book.characters` 数组用 `Vec<Character>`(用户 add 顺序,**不是** BTreeMap —— 跟 EpisodeNotes 的语义区别;`Character` 内部仍带稳定 UUID 用于编辑定位)。UI 在 add / edit / remove character 时**构造新数组整体回写**;**只对"被改的那条"刷 lastModified**,其他角色原值保持。整段 IPC 看起来浪费但实现简单 / 可恢复 / 避免并发冲突(跟 stamp 同款)
 28. **React Rules of Hooks:所有 hook 必须无条件、相同顺序、在 early return 之前调用**(2026-09 修 BookDetail 时踩):v1.6 加「下一季」`useMemo` 时直接放到了 `if (!book) return ...` 之后,导致「未选条目 → 选了条目」时 React hook 计数对不上(57 → 58),整组件报红。修复:所有 `useMemo` / `useState` / `useEffect` 上移到 early return 之前,内部用 `book?.xxx` / `if (!book) return []` 兜底。**审查新增 hook 的位置**是改动 React 组件时的强制 checklist —— 任何「先 early return 再 useMemo」都是反模式。共享层教训见 `docs/dev-notes.md` 2026-09 第 1 条
+29. **v1.6 「上一季」自动反向同步 + EpisodesPanel tabs 简化**:用户约定"联系不同季的方式是设置'下一季'",所以 EpisodesPanel 顶部的季选择器 tabs(S0X 标签 + ◀ ▶ 按钮 + 「+ 季」)整块删掉 —— 季切换走 BookDetail 的「上一季 / 下一季」区块跳转。加新季走"新建 book + 设下一季"路径。同时**新增** `Book.prevSeasonId` 字段(由 service 层在 `set_next_season` 路径**自动维护**,不暴露 IPC 命令)。双向同步策略:
+    - A.nextSeasonId = B → A.next = B, B.prev = A;若 A 之前指向 C → C.prev 清;若 B 之前指向 D → D.next 清;空字符串 normalize 成 None(同 notes / starring)
+    - **self-loop 校验**:A.next = A → Err(防止自指)—— 保持原 set_next_season 行为
+    - **目标 B 不存在(脏引用)**:A.next 照写,B 那边的 prev 不动(无文件可改),前端 UI 兜底"原作品已删除"
+    - **不重定向**:delete_book 清理脏引用时**不**自动把 A→Y→B 拼成 A→B,只把脏引用清掉(用户原意是显式的,不擅自重写)
+    - **写盘策略**:prev_season_id 跟 next_season_id 同款 —— Some(非空)才写 frontmatter,空串 / None 不写;老文件缺字段 → None(向后兼容)
+    - **updated 刷新策略**:A 自己 persist 走 updated = now_iso()(用户主动编辑);B / C / D 的 persist **不刷** updated(结构性维护,不是用户主动编辑)
+30. **测试 fixture 陷阱:`write_book` ID 不自增**:每个 `write_book` 内部 `make_base_id(existing_ids.iter())` 取 max+1,测试里连续 `write_book(... &HashSet::new())` 4 次会得到 4 本 ID 都是 "1" 的 book(因为每次 existing 都是空),断言 `assert_ne!(a.id, b.id)` 失败 / IPC `set_next_season` 触发 self-loop("下一季不能指向自己")。**正确做法**:维护一个 `existing: HashSet<String>`,每次 write_book 后 `existing.insert(book.id)`,再传给下一次。本仓库其他测试 (`make_base_id_then_write_then_read_round_trip` / `second_write_uses_next_id` / `legacy_tv_set_seasons_round_trip`) 都遵守这个规矩,v1.6 新增的 `set_next_season_two_way_sync` / `delete_book_clears_season_chain_references` 第一次踩到了这个坑已修。**通用规则**:测试里**任何** `write_book` 多次调用都得手动维护 existing IDs 链
+31. **v1.5 wikilink `[[角色名]]` 实现要点**(2026-09):
+    - **数据格式不变 + 后端零改动** 是核心设计决策 —— `[[小明]]` 原样存进 frontmatter 字符串,只在渲染层识别。**理由**:让 wikilink 完全可逆(用户随时 grep / 手编辑 frontmatter / 跨机器同步无破坏),跟 Obsidian / Logseq 同款。代价:每次渲染要 parse,但 wikilink 文本量小(单条几 KB),parse 几十次完全够用。如果未来有性能问题再加 links.json 索引。
+    - **大小写敏感 + 精确匹配**(trim 后比对):避免英文作品 `Alice` vs `alice` 误匹配;模糊匹配 / 别名 / 拼音留后续。
+    - **`[[` 重复触发防护**:`useWikilinkTextarea` 检测 `value.slice(cursorPos - 2, cursorPos) === '[['` 时还要检查 `cursorPos - 1` 之前不是 `[`,排除 `[[[`(用户在 `[[` 后又敲 `[`)的中间触发。
+    - **`setTimeout(0)` 重置光标**:React 18 在 onChange 同步调用 setValue 会触发 re-render,直接在 onChange 末尾 `setSelectionRange` 会被覆盖。**正确做法**:包一层 `setTimeout(() => ta.setSelectionRange(...), 0)` 等 React commit 后再设光标,跟 `requestAnimationFrame` 等价但更轻。
+    - **跨组件跳转走 store 字段**:CharactersPanel 用本地 `useState(expandedId)` 管展开,但跨组件跳转需要全局信号。**方案**:store 新增 `navigateToCharacter: { bookId, characterId } | null` 字段,CharactersPanel useEffect 监听并匹配自己 bookId 时展开,**然后清回 null**——避免"同 character 再次点击"无法再次触发。
+    - **断链创建后自动 navigateLocal**:`WikilinkCreateCharacterModal.onCreated` 回调里父组件调 `navigateLocal(bookId, characterId)`,让用户立刻看到新角色已就位(比单纯"modal 关闭 / 渲染刷新"更友好)。
+    - **`splitWikilinkSegments` 边界**:未闭合 `[[` 时,**不要把 `[[` 之前的 plain 段先 flush 再把后续当 plain** —— 这会拆成两个 plain 段(测试失败案例)。**正确做法**:把 buf 跨整段累积,遇到未闭合 `[[` 时直接 `buf += text.slice(open)`,让整段(包括未闭合 `[[`)落在一个 plain 段里。
+    - **localeCompare 平台差异**:`'三体'.localeCompare('百年孤独', 'zh')` 在 Node 默认 ICU 上**按 pinyin 排**(bai < san → 返回 -1,即 `百年孤独 < 三体`),不是按 Unicode codepoint。测试时**不要断言具体顺序**(`['三体', '围城', '百年孤独']`),断言「相邻对相对顺序与 localeCompare 一致」即可 —— 跨平台 / 跨 ICU 版本稳定。
+    - **`RefObject` vs `MutableRefObject`**:useWikilinkTextarea 返回的 `taRef` 类型选 `MutableRefObject<T | null>`,因为 StampRow 这种需要把 hook 的 ref 与自己的 `textareaRef` 合并(callback ref 同时写两个),`RefObject<T>` 的 readonly current 写不进去。
+32. **v1.5 wikilink 已知限制**(2026-09):
+    - **picker 中间输入处理**:picker 打开后用户在 textarea 继续敲的内容会被 `value.slice(cursorPos)` 截到 after 段,最终插入后追加在 `]]` 后面(产生重复)。**解决**:user 打闭合 `]]` 自动删掉(`after.startsWith(']]')` 时 `endTrim = 2`),但用户敲其他字符不处理。这是已知行为,记入 dev-notes;彻底解决需要监听 picker's focus state 让 textarea 在 picker 打开时只读,留后续。
+    - **跨作品跳转不重定向**:删除被引用 book 后 wikilink 变 broken,需要用户手动重新链接。**不**自动扫描 wikilink 改成指向别的同名角色(用户原意是显式的,不擅自重写)。
+    - **TimeStamp.note 单行 textarea 的 picker 高度**:stamp 自动撑高是依赖 `[stamp.note]` useEffect;picker 插入 `[[name]]` 后 useEffect 触发,scrollHeight 重算正常。**边界**:用户连续敲 `[[小明]]`(`[[` 触发 picker → Esc 关闭 → 继续打 `明]]`),新字符 `明]]` 落在 picker 触发位置之后,会被 `after` 段保留;不会有 wikilink 拼写错乱。
 
 ## 十一、已实现功能清单
 
@@ -361,14 +383,47 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - **整段 setCharacters IPC**(跟 setSeasons / setEpisodeStamps 同款),组件在 add/edit/remove character 时构造新数组,**只对"被改的那条"刷 lastModified**
   - 顺序:用户主动 add 顺序(用 `Vec<Character>` 而不是 BTreeMap —— 跟 EpisodeNotes 的语义区别)
 - [x] **进度 +1/-1 联动集笔记**（`books_episode_bump` command）—— `+1` 时线性遍历 seasons,把接下来 N 个未看集标 watched;`-1` 不动 episodes(允许用户保留笔记 / 标记状态)
-- [x] **季选择器**(「上一季 / 下一季」+ tab) —— 用户要求放在集笔记区上方,默认选中第一个未完全看完的季
-- [x] **季结构就地编辑**(v1.4 新增,仅 tv/anime) —— 详情页「集笔记」面板可直接改季结构,**不再退回 BookForm**:
-  - 「+ 季」按钮:在季选择器右端追加新季,number = max+1, episodeCount = 0
+- [x] **季结构就地编辑**(v1.4 新增,仅 tv/anime;v1.6 简化) —— 详情页「集笔记」面板可直接改季结构,**不再退回 BookForm**:
   - 「X 集」inline `<input type="number">`:季标题里改单季集数,失焦/回车写盘(本地 draft 防抖,空串/非法值还原)
   - 「删除此季」按钮:整段 setSeasons 过滤掉当前季,带 confirm 提示,旧 episodes key 按决策 B 保留
   - 不联动改 `book.progress.total`(理由见 §十.25)
+  - **v1.6 移除**:
+    - 顶部季选择器 tabs(S0X 标签 + ◀ ▶ 切换按钮)—— 用户约定"不同季用 nextSeasonId 串成多本 book",每本只追踪一季,季选择器已无意义
+    - 「+ 季」按钮—— 加新季走"新建一本 book + 设下一季"路径
+- [x] **「下一季」关联**（`Book.nextSeasonId`,v1.6 新增;tv/anime 实际使用）—— 把多季剧拆成多本 book 时串成季链
+  - 走专用 IPC `books_set_next_season`(同 seasons / episodes / characters 模式,不进 BookPatch)
+  - self-loop 校验(id === nextSeasonId → Err),目标不存在不拒绝(前端 UI 兜底"原作品已删除")
+  - 候选排除自己,tv/anime 优先,按 title 升序,**不截断**(v1.6 fix:之前 `.slice(0, 12)` 导致搜索 13+ 同名书搜不到)
+- [x] **「上一季」自动反向同步**（`Book.prevSeasonId`,v1.6 新增,与 `nextSeasonId` 配对）—— 在 `set_next_season` 路径**自动维护**,不暴露 IPC 命令
+  - 同步策略:A.next = B → A.next = B, B.prev = A;改链 / 清链自动清理旧关联(C.prev 清 / D.next 清)
+  - delete_book 同时清理指向被删 book 的 next + prev 引用,**不**自动重定向(用户原意不擅自改)
+  - UI:BookDetail 在「下一季」区块**上方**加「上一季」区块(只读跳转,无"设置"按钮 —— 全自动)
 - [x] **RANK 按季拆分**（v1.2 排名细化）—— tv/anime 按季独立排名,rankId = `${bookId}#${seasonNumber}`;其他 kind 保持原 rankId;对比卡片 / 排名列表都加「S0X」徽标
   - 解决:大明王朝(46 集单季) 跟 绝命毒师(7+13+13+13+16 五季) 放一起比不合理
+  - **v1.6 决策**:RankingList / RankingCompare 的「S0X」徽标**保留**(不是季切换 UI,只是"排名时这一行是哪一季"的标识,跟 EpisodesPanel tabs 是不同概念)
+- [x] **作品双链 `[[角色名]]`**（v1.5 新增,所有 4 处自由文本字段都支持）—— Obsidian 风格 wiki-link,笔记里点名词跳到角色笔记
+  - **数据格式不变**:`[[小明]]` 原样存进 frontmatter 字符串(同 Obsidian / Logseq);**后端 / IPC / Rust / 数据层全部零改动**,只在渲染层识别
+  - **支持字段**:Book.notes / Character.notes / EpisodeRecord.note / TimeStamp.note(全部 4 处 textarea 集成)
+  - **写入策略**:
+    - 输入 `[[` 触发全局 picker(候选 = 当前 book 全量 character);↑↓ 选 / Enter 确认 / Esc 关闭;支持搜索过滤 + 「+ 创建新角色」入口
+    - picker 关闭自动插入 `[[name]]`,光标落到 `]]` 之后
+    - 直接打 `[[新名字]]` 不开 picker,文本原样存,渲染时自动标「断链」
+    - 复用 hook `useWikilinkTextarea(book, value, setValue)` 把「`[[` 检测 + 插入 + 光标定位」统一封装
+  - **解析语义**(`resolveWikilink` 纯函数):
+    - **local** —— 当前作品找到该 character;点击 → 滚到 CharactersPanel 并展开
+    - **global-unique** —— 当前没有,跨作品唯一命中;点击 → 切到目标 book + 展开
+    - **global-multi** —— 跨作品多条同名;点击 → 弹跨作品 picker,选完跳转
+    - **broken** —— 哪里都没找到;点击 → 弹「创建角色『xxx』」modal,确认后跳到新角色
+  - **大小写敏感 + 精确匹配**(trim 后比对);避免英文作品大小写误匹配;模糊匹配留后续
+  - **新 store 字段**:`navigateToCharacter: { bookId, characterId } | null` + `setNavigateToCharacter` action —— CharactersPanel 监听并消费后清回 null
+  - **新组件**:
+    - `WikilinkText` —— 渲染层(plain + 可点击 wikilink 段)
+    - `WikilinkPickerModal` —— 紧凑搜索 + 列表 picker(参考 NextSeasonPicker)
+    - `WikilinkCreateCharacterModal` —— 断链创建新角色
+    - `WikilinkContext` (Provider) —— 全局协调层;picker / create 模态全局唯一
+    - `useWikilinkTextarea` —— textarea `[[` 检测 + 插入 hook
+  - **共享边界**:纯函数 + 测试留 `apps/book-tracker/src/shared/`(绑定 Character,留 app);渲染 / 协调 / 集成全留 `apps/book-tracker/src/renderer/components/`(领域 UI);tracker-core / tracker-ui / Rust **零改动**
+  - **测试**:40 个 vitest(`apps/book-tracker/src/shared/__tests__/wikilink.test.ts`):parseWikilinks 12 / splitWikilinkSegments 8 / resolveWikilink 12 / candidates 8
 - [x] 关系图（react-force-graph-2d，500 节点流畅，节点下方画 tag chip）
 - [x] **作品排名**（两两对比 Elo 评分）：TopBar「排」按钮 / 快捷键 `r` → Modal
   - kind 切换（书/动画/电视剧/电影/其他）+ 各 kind 已读数量徽标

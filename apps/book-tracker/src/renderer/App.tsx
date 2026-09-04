@@ -6,6 +6,7 @@ import { BookForm } from './components/BookForm'
 import { GraphModal } from './components/GraphModal'
 import { RankingModal } from './components/RankingModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
@@ -91,21 +92,23 @@ export default function App(): JSX.Element {
   }, [loadBooks])
 
   return (
-    <div className="app-shell">
-      <TopBar
-        onAdd={openAdd}
-        onGraph={() => setGraphOpen(true)}
-        onRanking={() => setRankingOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
-      />
-      <div className="app-body">
-        <EditModeWrapper />
+    <WikilinkProvider>
+      <div className="app-shell">
+        <TopBar
+          onAdd={openAdd}
+          onGraph={() => setGraphOpen(true)}
+          onRanking={() => setRankingOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+        />
+        <div className="app-body">
+          <EditModeWrapper />
+        </div>
+        {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
+        {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
+        {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
+        {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       </div>
-      {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
-      {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
-      {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
-    </div>
+    </WikilinkProvider>
   )
 }
 

@@ -5,6 +5,8 @@ import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { NextSeasonPicker } from './NextSeasonPicker'
+import { WikilinkText } from './WikilinkText'
+import { useWikilinkTextarea } from './useWikilinkTextarea'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
@@ -151,6 +153,12 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     () => (book?.nextSeasonId ? books.find((b) => b.id === book.nextSeasonId) : undefined),
     [books, book?.nextSeasonId]
   )
+  // v1.6 「上一季」—— 当前 book.prevSeasonId 引用的目标 book(可能已被删除 → undefined);
+  // 由 service 层在 set_next_season 路径自动维护(双向同步),前端不主动设 prevSeasonId
+  const prevSeasonBook = useMemo(
+    () => (book?.prevSeasonId ? books.find((b) => b.id === book.prevSeasonId) : undefined),
+    [books, book?.prevSeasonId]
+  )
   // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;
   // **不截断** —— 之前 `.slice(0, 12)` 会让排在第 13+ 的同前缀书名
   // (如「鉴证实录II」在「鉴证实录」之后)进不到 picker,
@@ -170,6 +178,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         return a.title.localeCompare(b.title, 'zh')
       })
   }, [books, book?.id])
+
+  // v1.7 wikilink —— `[[` 触发 picker + 预览
+  // book undefined 时 hook 内部不触发 picker(Rules of Hooks 要求提前调用)
+  const { handleChange: handleNotesChange, taRef: notesTaRef } = useWikilinkTextarea({
+    book,
+    value: notes,
+    setValue: setNotes
+  })
 
   if (!book) {
     return (
@@ -454,12 +470,20 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         <label className="field">
           <span>笔记</span>
           <textarea
+            ref={notesTaRef}
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={handleNotesChange}
             rows={6}
-            placeholder="自由写 —— 心得 / 摘录 / 备忘"
+            placeholder="自由写 —— 心得 / 摘录 / 备忘(输入 [[ 触发角色选择)"
           />
         </label>
+        {/* v1.7 wikilink 预览 —— 解析 notes 里的 [[xxx]] 成可点击链接 */}
+        <WikilinkText
+          text={notes}
+          currentBook={cur}
+          allBooks={books}
+          className="wikilink-preview-block"
+        />
         <label className="field">
           <span>标签</span>
           <input
@@ -476,6 +500,40 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
+
+      {/* 「上一季」关联(v1.6 新增;与「下一季」配对)—— 由 service 层在 set_next_season
+          路径自动维护的反向引用,前端不暴露"设置上一季"按钮(只读跳转)。
+          放在「下一季」上方:视觉上"上下季链"自然对齐,用户从任一端都可跳转。 */}
+      <section className="prev-season-block">
+        <h3 className="prev-season-title">上一季</h3>
+        <div className="prev-season">
+          <span className="prev-season-label">上一季:</span>
+          {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
+            <span className="prev-season-missing">未设置</span>
+          ) : prevSeasonBook ? (
+            <span
+              className="prev-season-link"
+              onClick={() => select(prevSeasonBook.id)}
+              title="点击跳到该作品"
+            >
+              {prevSeasonBook.title}
+            </span>
+          ) : (
+            // 引用了已被删除的作品 —— 优雅降级
+            <>
+              <span className="prev-season-missing">
+                原作品已删除 (id: {cur.prevSeasonId})
+              </span>
+              <span
+                className="prev-season-info"
+                title="service 层会在下次设置该作品的下一季时自动清理失效的反向引用"
+              >
+                × 自愈中
+              </span>
+            </>
+          )}
+        </div>
+      </section>
 
       {/* 「下一季」关联(v1.6 新增;tv/anime 实际使用)—— 单向 Book.nextSeasonId 字段,
           与集笔记 / 角色笔记同级,放在前置依赖之前(让"下一季是另一部作品"的元信息优先可见) */}

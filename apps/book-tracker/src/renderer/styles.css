@@ -2114,6 +2114,60 @@ ul.book-grid {
 
 
 /* ============ v1.6 「下一季」区块(放在 BookDetail 上) ============ */
+/* ============ v1.6 「上一季」(自动反向同步 + 只读跳转) ============ */
+.prev-season-block {
+  margin-top: 18px;
+}
+.prev-season-block .prev-season-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.prev-season {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg, #f7f7f5);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.prev-season-label {
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.prev-season-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prev-season-link:hover { filter: brightness(0.85); }
+.prev-season-missing {
+  color: var(--muted);
+  font-style: italic;
+  flex: 1;
+}
+.prev-season-info {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  cursor: help;
+  flex-shrink: 0;
+}
+
 .next-season-block {
   margin-top: 18px;
 }
@@ -2251,4 +2305,167 @@ ul.book-grid {
   font-size: 11px;
   font-family: var(--font-mono, ui-monospace);
   flex-shrink: 0;
+}
+
+/* ============ v1.7 作品双链 `[[角色名]]` ============ */
+
+/* 预览容器 —— 显示在 textarea 下方,与 textarea 同 column;
+   muted 风格提示用户「这是渲染层而非编辑器」 */
+.wikilink-preview-block {
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg);
+  min-height: 24px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* 通用 wikilink button(已解析 / 断链 共用基础样式) */
+.wikilink {
+  display: inline;
+  font: inherit;
+  background: transparent;
+  border: none;
+  padding: 1px 4px;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 3px;
+  font-family: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+/* 已解析:主题色 + hover 下划线;local / global / multi 共用基础色 */
+.wikilink-resolved {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.12s;
+}
+.wikilink-resolved:hover {
+  text-decoration-color: var(--accent);
+  filter: brightness(1.1);
+}
+
+/* 跨作品 —— 加角标视觉(↗ 在 display 文本里已有) */
+.wikilink-global,
+.wikilink-multi {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* 断链:红色虚线下划线 + 提示「点击创建」 */
+.wikilink-broken {
+  color: #c0392b;
+  text-decoration: underline dashed;
+  text-decoration-color: #c0392b;
+  cursor: pointer;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: 0.95em;
+}
+.wikilink-broken:hover {
+  background: rgba(192, 57, 43, 0.08);
+  filter: brightness(1.05);
+}
+
+/* ============ WikilinkPickerModal 样式(全局 picker 模态) ============ */
+
+.wikilink-picker-modal .wikilink-picker-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.wikilink-picker-modal .wikilink-picker-search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.wikilink-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.wikilink-picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.wikilink-picker-item.hl {
+  background: var(--accent);
+  color: white;
+}
+.wikilink-picker-item.hl .wikilink-picker-item-source {
+  color: rgba(255, 255, 255, 0.85);
+}
+.wikilink-picker-item:not(.hl):hover {
+  background: var(--bg);
+}
+
+.wikilink-picker-item-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.wikilink-picker-item-source {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.wikilink-picker-empty {
+  padding: 16px 12px;
+  text-align: center;
+}
+
+.wikilink-picker-foot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.wikilink-picker-create {
+  width: 100%;
+  padding: 8px 12px;
+  background: white;
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wikilink-picker-create:hover:not(:disabled) {
+  background: var(--accent);
+  color: white;
+}
+.wikilink-picker-create:disabled {
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* ============ WikilinkCreateCharacterModal 样式 ============ */
+
+.wikilink-create-modal .wikilink-create-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.wikilink-create-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }

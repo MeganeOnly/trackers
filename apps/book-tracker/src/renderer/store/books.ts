@@ -7,12 +7,22 @@ interface BooksState {
   broken: { id: string; error: string }[]
   selectedId: string | null
   loading: boolean
+  // v1.7 wikilink —— 跨组件"跳转到角色"用 store 字段携带 bookId + characterId,
+  // 让 CharactersPanel 能监听并自动展开目标角色(本地 useState 改不了跨组件的值)。
+  // 语义:`{ bookId, characterId }` 同时定位"哪本书的哪个 character"。
+  // 只在 WikilinkContext 跳转路径设置;CharactersPanel 内部点击展开仍走本地 useState。
+  navigateToCharacter: { bookId: string; characterId: string } | null
   load: () => Promise<void>
   select: (id: string | null) => void
   create: (input: BookInput) => Promise<Book>
   update: (id: string, patch: Partial<BookInput> & { read_count?: number; tags?: string[]; progress?: BookInput['progress']; notes?: string; starring?: string; screenwriter?: string; seasons?: SeasonInfo[] }) => Promise<Book>
   bumpProgress: (id: string, delta: number) => Promise<Book>
   remove: (id: string) => Promise<void>
+  // -------- v1.7 wikilink actions --------
+  /** 让 CharactersPanel 自动展开指定 character(bookId 用于跨作品跳转后定位)。
+   *  CharactersPanel 监听此字段,匹配 bookId 时把 expandedId 设到 characterId,
+   *  再用 useEffect 把 navigateToCharacter 清回 null(避免二次触发死循环)。 */
+  setNavigateToCharacter: (target: { bookId: string; characterId: string } | null) => void
   // -------- v1.2 集笔记 actions --------
   /** 整段替换季信息。`seasons: []` 等同清空 */
   setSeasons: (id: string, seasons: SeasonInfo[]) => Promise<Book>
@@ -75,6 +85,9 @@ export const useBooksStore = create<BooksState>((set) => ({
   broken: [],
   selectedId: null,
   loading: false,
+  // v1.7 wikilink —— 初始 null;跳转时由 WikilinkContext 写入,
+  // CharactersPanel useEffect 消费完立即清回 null
+  navigateToCharacter: null,
   load: async () => {
     set({ loading: true })
     try {
@@ -156,5 +169,7 @@ export const useBooksStore = create<BooksState>((set) => ({
     const book = await api.books.setNextSeason(id, nextSeasonId)
     upsertBook(set, book)
     return book
-  }
+  },
+  // -------- v1.7 wikilink actions 实现 --------
+  setNavigateToCharacter: (target) => set({ navigateToCharacter: target })
 }))
