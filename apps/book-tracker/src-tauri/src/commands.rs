@@ -8,8 +8,8 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
-use crate::service::{books, config as cfg_svc, data_dir, ranking, relations};
-use crate::types::{Book, BookInput, BookPatch, CharacterNotes, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, TimeStamp};
+use crate::service::{books, config as cfg_svc, data_dir, ranking, relations, series as series_svc};
+use crate::types::{Book, BookInput, BookPatch, CharacterNotes, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -202,6 +202,60 @@ pub fn books_set_next_season(
 ) -> Result<Book, String> {
     let dir = books_dir()?;
     books::set_next_season(&dir, &id, next_season_id).map_err(|e| e.to_string())
+}
+
+// ==================== v1.7 「所属系列」commands ====================
+
+/// 设置 / 清除「所属系列」(v1.7 新增)。
+/// `series_id: None` 或 `Some("")` 等同"清除"(不写 frontmatter)。
+/// 目标 series 不存在时不拒绝写盘,由前端 UI 兜底「该系列已删除」提示
+/// (跟 v1.6 set_next_season 同款精神)。
+#[tauri::command]
+pub fn books_set_series(
+    id: String,
+    series_id: Option<String>,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_series(&dir, &id, series_id).map_err(|e| e.to_string())
+}
+
+// ==================== v1.7 series commands ====================
+
+/// 列出所有 series(按 id 升序)。
+#[tauri::command]
+pub fn series_list() -> Result<Vec<Series>, String> {
+    let dir = data_dir_path()?;
+    series_svc::list_series(&dir).map_err(|e| e.to_string())
+}
+
+/// 读单个 series。id 不存在 → Ok(None)。
+#[tauri::command]
+pub fn series_get(id: String) -> Result<Option<Series>, String> {
+    let dir = data_dir_path()?;
+    series_svc::get_series(&dir, &id).map_err(|e| e.to_string())
+}
+
+/// 创建新 series。name 必填;空 / 纯空白 → Err(InvalidInput → JS 异常)。
+#[tauri::command]
+pub fn series_create(input: SeriesInput) -> Result<Series, String> {
+    let dir = data_dir_path()?;
+    series_svc::create_series(&dir, &input).map_err(|e| e.to_string())
+}
+
+/// 更新 series。id 不存在 → Err(NotFound);name 设为空 → Err(InvalidInput)。
+#[tauri::command]
+pub fn series_update(id: String, patch: SeriesPatch) -> Result<Series, String> {
+    let dir = data_dir_path()?;
+    series_svc::update_series(&dir, &id, &patch).map_err(|e| e.to_string())
+}
+
+/// 删除 series。id 不存在 → Err(NotFound)。
+/// 联动清理所有 book 的 series_id 引用(走 service 层,
+/// 跟 delete_book 清理 nextSeasonId / prevSeasonId 同款)。
+#[tauri::command]
+pub fn series_delete(id: String) -> Result<(), String> {
+    let dir = data_dir_path()?;
+    series_svc::delete_series(&dir, &id).map_err(|e| e.to_string())
 }
 
 // ==================== relations commands ====================

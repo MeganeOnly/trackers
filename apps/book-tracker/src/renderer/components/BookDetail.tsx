@@ -5,6 +5,8 @@ import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { NextSeasonPicker } from './NextSeasonPicker'
+import { SeriesPickerModal } from './SeriesPickerModal'
+import { useSeriesStore } from '../store/series'
 import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
 import { progressPercent } from '@core'
@@ -89,6 +91,11 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const select = useBooksStore((s) => s.select)
   // v1.6 「下一季」action —— 走专用 IPC(同 seasons / episodes / characters 模式)
   const setNextSeason = useBooksStore((s) => s.setNextSeason)
+  // v1.7 「所属系列」action —— 走专用 IPC
+  const setSeries = useBooksStore((s) => s.setSeries)
+  // v1.7 读 series 列表(BookDetail 显示所属系列名 + SeriesPickerModal 候选用)
+  const seriesList = useSeriesStore((s) => s.series)
+  const loadSeries = useSeriesStore((s) => s.load)
   const effectiveId = bookId ?? selectedId
   const book = books.find((b) => b.id === effectiveId)
   const { unlocked, cycles } = useUnlocked()
@@ -117,6 +124,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const [saved, setSaved] = useState(false)
   // v1.6 「下一季」picker 开关(受控传给 NextSeasonPicker)
   const [nextSeasonPickerOpen, setNextSeasonPickerOpen] = useState(false)
+  // v1.7 「所属系列」picker 开关(受控传给 SeriesPickerModal)
+  const [seriesPickerOpen, setSeriesPickerOpen] = useState(false)
 
   // 切换条目时重置草稿（未保存的输入随之丢弃，与旧「弹窗编辑」语义一致）
   useEffect(() => {
@@ -141,6 +150,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setSaved(false)
     // 切换作品时关闭 picker(避免开 picker 状态下切到另一部)
     setNextSeasonPickerOpen(false)
+    setSeriesPickerOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.id])
 
@@ -159,6 +169,18 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     () => (book?.prevSeasonId ? books.find((b) => b.id === book.prevSeasonId) : undefined),
     [books, book?.prevSeasonId]
   )
+  // v1.7 「所属系列」—— 当前 book.seriesId 引用的 series(可能已被删除 → undefined)
+  const currentSeries = useMemo(
+    () => (book?.seriesId ? seriesList.find((s) => s.id === book.seriesId) : undefined),
+    [seriesList, book?.seriesId]
+  )
+  // v1.7 「所属系列」关联下的同系列其他作品 —— 用户从 BookDetail 可跳到同系列
+  // 其他作品(主功能诉求:"几季 + 衍生作品全部摊开很占空间")。
+  // 派生:books 里 seriesId == cur.seriesId 且 id !== cur.id 的所有 books
+  const seriesSiblings = useMemo(() => {
+    if (!book?.seriesId) return []
+    return books.filter((b) => b.seriesId === book.seriesId && b.id !== book.id)
+  }, [books, book?.seriesId, book?.id])
   // picker 候选:排除自己;tv/anime 优先(但不硬约束跨类型);按 title 升序;
   // **不截断** —— 之前 `.slice(0, 12)` 会让排在第 13+ 的同前缀书名
   // (如「鉴证实录II」在「鉴证实录」之后)进不到 picker,
@@ -217,6 +239,32 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     } catch (e) {
       setError((e as Error).message)
     }
+  }
+
+  // v1.7 「所属系列」handlers
+  async function handleSetSeries(seriesId: string): Promise<void> {
+    setSeriesPickerOpen(false)
+    try {
+      await setSeries(cur.id, seriesId)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function handleClearSeries(): Promise<void> {
+    try {
+      await setSeries(cur.id, null)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // v1.7 「所属系列」—— 打开 picker 前确保 series 列表已加载
+  function openSeriesPicker(): void {
+    if (seriesList.length === 0) {
+      void loadSeries()
+    }
+    setSeriesPickerOpen(true)
   }
 
   async function handleBump(delta: number): Promise<void> {
@@ -600,6 +648,97 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           onClose={() => setNextSeasonPickerOpen(false)}
           candidates={nextSeasonCandidates}
           onPick={(id) => void handleSetNextSeason(id)}
+          currentTitle={cur.title}
+        />
+      </section>
+
+      {/* 「所属系列」关联(v1.7 新增;无序收藏夹分组)—— 放在「下一季」区块之后,
+          跟 PrereqEditor 之前;用户核心诉求:"几季 + 衍生作品全部摊开很占空间",
+          在这里汇总同系列的其他作品,方便跨作品跳转 */}
+      <section className="series-block">
+        <h3 className="series-title">所属系列</h3>
+        <div className="series">
+          <span className="series-label">所属系列:</span>
+          {cur.seriesId === undefined || cur.seriesId === '' ? (
+            <>
+              <span className="series-missing">未设置</span>
+              <button
+                type="button"
+                className="series-add"
+                onClick={openSeriesPicker}
+              >
+                + 设置系列
+              </button>
+            </>
+          ) : currentSeries ? (
+            <>
+              <span
+                className="series-link"
+                onClick={() => setSeriesPickerOpen(true)}
+                title="点击切换系列"
+              >
+                {currentSeries.name}
+              </span>
+              <button
+                type="button"
+                className="series-remove"
+                onClick={() => void handleClearSeries()}
+                title="移除所属系列"
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            // 引用了已被删除的系列 —— 优雅降级(同 NextSeasonPicker 同款处理)
+            <>
+              <span className="series-missing">
+                原系列已删除 (id: {cur.seriesId})
+              </span>
+              <button
+                type="button"
+                className="series-remove"
+                onClick={() => void handleClearSeries()}
+                title="清除失效的系列引用"
+              >
+                × 清除
+              </button>
+            </>
+          )}
+        </div>
+        {/* 同系列其他作品(去重,排除自己)—— 用户核心诉求的解决方案。
+            最多展示 8 本 + 「查看全部」展开;数量小,几十以内(几季 + 衍生)。 */}
+        {seriesSiblings.length > 0 && (
+          <div className="series-siblings">
+            <span className="series-siblings-label">
+              同系列还有 {seriesSiblings.length} 本:
+            </span>
+            <ul className="series-siblings-list">
+              {seriesSiblings.slice(0, 8).map((b) => (
+                <li
+                  key={b.id}
+                  className={`kind-${b.kind}`}
+                  onClick={() => select(b.id)}
+                  title="点击查看详情"
+                >
+                  <span className={`kind-tag kind-${b.kind}`}>
+                    {WORK_KIND_LABELS[b.kind]}
+                  </span>
+                  <span className="title">{b.title}</span>
+                  <span className="tracker-id muted">{b.id}</span>
+                </li>
+              ))}
+            </ul>
+            {seriesSiblings.length > 8 && (
+              <p className="muted series-siblings-overflow">
+                还有 {seriesSiblings.length - 8} 本未展示 —— 在 TopBar「系」按钮展开所有系列
+              </p>
+            )}
+          </div>
+        )}
+        <SeriesPickerModal
+          open={seriesPickerOpen}
+          onClose={() => setSeriesPickerOpen(false)}
+          onPick={(id) => void handleSetSeries(id)}
           currentTitle={cur.title}
         />
       </section>

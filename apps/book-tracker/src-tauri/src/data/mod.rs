@@ -6,3 +6,4 @@
 pub mod books;
 pub mod config;
 pub mod ranking;
+pub mod series;

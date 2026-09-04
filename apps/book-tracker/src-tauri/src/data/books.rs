@@ -100,6 +100,13 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
+        // v1.7:series_id —— 字段缺损 / 非字符串 / 空串 → None（向后兼容;老文件无此字段）。
+        // 单向引用,跟 nextSeasonId / prevSeasonId 同款"空串不写盘"策略。
+        series_id: data
+            .get("seriesId")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     }
 }
 
@@ -287,6 +294,8 @@ pub fn write_book(
         next_season_id: None,
         // prev_season_id 同款:新建作品时为空;由 service 层在 set_next_season 路径自动维护
         prev_season_id: None,
+        // series_id(v1.7 起):从 BookInput 透传;新建作品时可为 None(等同"无所属系列")
+        series_id: input.series_id.as_ref().filter(|s| !s.is_empty()).cloned(),
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -392,6 +401,31 @@ pub fn delete_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<()>
         }
         if touched {
             // 不刷 updated —— 清理脏引用是结构性维护,不是用户主动编辑
+            persist(dir, &book)?;
+        }
+    }
+    Ok(())
+}
+
+/// 清理所有 `series_id == series_id` 的 book(把它们的 series_id 置 None)。
+/// v1.7 起 —— series 删除时的脏引用清理。
+///
+/// **不刷 updated**(跟 delete_book 的脏引用清理同款 —— 结构性维护,不是用户主动编辑)。
+/// 容错:read_all_books 失败时静默返回 Ok(避免阻塞 series 删除主流程;坏数据等下次启动再处理)。
+/// 单条 book 的 persist 失败会向上抛错 —— 让上层知晓清理中断。
+pub fn clear_series_references(
+    books_dir: impl AsRef<Path>,
+    series_id: &str,
+) -> std::io::Result<()> {
+    let dir = books_dir.as_ref();
+    let all = match read_all_books(dir) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    for mut book in all.books {
+        if book.series_id.as_deref() == Some(series_id) {
+            book.series_id = None;
+            // 不刷 updated —— 清理脏引用是结构性维护
             persist(dir, &book)?;
         }
     }
@@ -594,6 +628,13 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
             fm.insert("prevSeasonId".into(), serde_json::Value::String(pid.clone()));
         }
     }
+    // series_id(v1.7 新增):仅在 Some(非空) 时写盘;老文件缺字段 → None(向后兼容,serde default 兜底)。
+    // 跟 next_season_id / prev_season_id 同款"空串不写"策略;稀疏写盘避免污染 frontmatter。
+    if let Some(sid) = &book.series_id {
+        if !sid.is_empty() {
+            fm.insert("seriesId".into(), serde_json::Value::String(sid.clone()));
+        }
+    }
 
     let front = serde_json::to_string_pretty(&serde_json::Value::Object(fm))
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -647,6 +688,7 @@ mod tests {
             starring: String::new(),
             screenwriter: String::new(),
             seasons: None,
+            series_id: None,
         }
     }
 

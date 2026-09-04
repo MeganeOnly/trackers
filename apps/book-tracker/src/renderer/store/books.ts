@@ -66,6 +66,15 @@ interface BooksState {
    * - 目标 book 不存在不拒绝,前端 UI 兜底提示「原作品已删除」
    */
   setNextSeason: (id: string, nextSeasonId: string | null) => Promise<Book>
+  // -------- v1.7 「所属系列」actions --------
+  /**
+   * 设置 / 清除「所属系列」(v1.7 新增;无序收藏夹分组)。
+   * - `seriesId: null` 或 `""` → 清空
+   * - 目标 series 不存在不拒绝(Rust 端不校验),前端 UI 兜底提示「该系列已删除」
+   *   (跟 setNextSeason 同款精神)
+   * - 走专用 IPC `books_set_series`(跟 setNextSeason 同款;不进 update() patch 路径)
+   */
+  setSeries: (id: string, seriesId: string | null) => Promise<Book>
 }
 
 /**
@@ -167,6 +176,12 @@ export const useBooksStore = create<BooksState>((set) => ({
   // -------- v1.6 「下一季」actions 实现 --------
   setNextSeason: async (id, nextSeasonId) => {
     const book = await api.books.setNextSeason(id, nextSeasonId)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v1.7 「所属系列」actions 实现 --------
+  setSeries: async (id, seriesId) => {
+    const book = await api.books.setSeries(id, seriesId)
     upsertBook(set, book)
     return book
   },

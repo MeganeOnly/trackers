@@ -65,6 +65,8 @@ src/                              # renderer + shared
 │   ├── RankingList.tsx           # 排名列表视图
 │   ├── RankingCompare.tsx        # 两两对比视图
 │   ├── RankingKindSelect.tsx     # 类型筛选 tab
+│   ├── SeriesModal.tsx           # **v1.7 新增** —— 系列管理 modal(TopBar「系」按钮打开)
+│   ├── SeriesPickerModal.tsx     # **v1.7 新增** —— BookDetail 用,紧凑搜索 + 新建入口
 │   └── Modal.tsx                 # 通用 modal（footer 槽位）
 ├── pages/
 │   ├── EditMode.tsx              # 编辑模式壳（BookList + BookDetail）
@@ -88,23 +90,25 @@ src-tauri/                        # Rust 后端
 └── src/
     ├── main.rs                   # 二进制入口
     ├── lib.rs                    # 模块声明 + #[cfg(not(test))] tauri_app::run() + invoke_handler
-    ├── types.rs                  # Book / Edge / Progress / Config / BookPatch / RankingFile / PairwiseResult serde 镜像
+    ├── types.rs                  # Book / Edge / Progress / Config / BookPatch / RankingFile / PairwiseResult / Series / SeriesFile / SeriesInput / SeriesPatch serde 镜像(v1.7 加 Series 全家)
     ├── progress.rs               # 章节进度纯函数 + 单元测试
     ├── unlock.rs                 # compute_unlocked + 环检测 + 单元测试
     ├── data/                     # 文件 I/O 层
-    │   ├── books.rs              # 每本书一个 .md(JSON frontmatter + 手写 split_frontmatter)
+    │   ├── books.rs              # 每本书一个 .md(JSON frontmatter + 手写 split_frontmatter;v1.7 加 series_id 字段)
     │   ├── relations.rs          # relations.json
-    │   ├── config.rs             # config.json
-    │   ├── ranking.rs            # rankings.json（两两对比历史）
+    │   ├── config.rs             # config.json + paths(books_dir / relations_file / **series_file**)
+    │   ├── ranking.rs            # rankings.json(两两对比历史)
+    │   ├── series.rs             # **v1.7 新增** —— series.json 读写(单文件存所有 series)
     │   ├── files.rs              # atomic_write / ensure_dir / read_json
     │   └── slug.rs               # make_base_id(纯数字 ID)
     ├── service/                  # 业务逻辑层(调用 data/,对 commands 暴露)
-    │   ├── books.rs
+    │   ├── books.rs              # **v1.7 加** set_series()(走专用 IPC,不走 BookPatch)
     │   ├── relations.rs
     │   ├── config.rs             # ConfigPatch(不允许改 data_dir)
-    │   ├── ranking.rs            # ranking 业务封装（get / append，服务端覆盖 ts）
+    │   ├── ranking.rs            # ranking 业务封装( get / append,服务端覆盖 ts)
+    │   ├── series.rs             # **v1.7 新增** —— series 业务逻辑(CRUD + delete 联动清理 book.seriesId 引用)
     │   └── data_dir.rs           # 双仓分离 + Mutex<Option<String>> 全局 cache
-    └── commands.rs               # 12 + 2 = 14 个 #[tauri::command] + 1 个 app_ensure_data_dir
+    └── commands.rs               # 14 + 6 = 20 个 #[tauri::command] + 1 个 app_ensure_data_dir(v1.7 加 series_list/get/create/update/delete + books_set_series)
 
 src/shared/                       # Book 领域类型 + 文案(被 renderer 用,Rust 端有 serde 镜像)
 ├── types.ts                      # Book / BookStatus / Config + re-export core 的 Edge/Progress/RankingFile/PairwiseResult
@@ -333,6 +337,15 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     - **picker 中间输入处理**:picker 打开后用户在 textarea 继续敲的内容会被 `value.slice(cursorPos)` 截到 after 段,最终插入后追加在 `]]` 后面(产生重复)。**解决**:user 打闭合 `]]` 自动删掉(`after.startsWith(']]')` 时 `endTrim = 2`),但用户敲其他字符不处理。这是已知行为,记入 dev-notes;彻底解决需要监听 picker's focus state 让 textarea 在 picker 打开时只读,留后续。
     - **跨作品跳转不重定向**:删除被引用 book 后 wikilink 变 broken,需要用户手动重新链接。**不**自动扫描 wikilink 改成指向别的同名角色(用户原意是显式的,不擅自重写)。
     - **TimeStamp.note 单行 textarea 的 picker 高度**:stamp 自动撑高是依赖 `[stamp.note]` useEffect;picker 插入 `[[name]]` 后 useEffect 触发,scrollHeight 重算正常。**边界**:用户连续敲 `[[小明]]`(`[[` 触发 picker → Esc 关闭 → 继续打 `明]]`),新字符 `明]]` 落在 picker 触发位置之后,会被 `after` 段保留;不会有 wikilink 拼写错乱。
+33. **v1.7 「系列」—— 踩过的 6 个坑**(2026-09 加 series 概念):
+    - **共享边界判定**:v1.7 「系列」是 **book-tracker 领域专属**(life-tracker 没"几季 + 衍生作品"诉求),**整条栈留在 app**:类型 (`Series / SeriesInput / SeriesPatch / SeriesFile`) + 路径 (`data/series.rs` + `data/config.rs::paths::series_file`) + 读写 + IPC (6 个) + service + UI + store。`tracker-core` 不持有任何领域专属概念。判定方法:问"life-tracker 也会需要且语义完全一致吗?"—— 否 → 留 app。
+    - **单向引用 vs 双向维护**:`Book.seriesId` 单向引用 + `Series` 实体**不维护反向数组** `members`。理由:series 是无序收藏夹,无需 prev/next 概念;双向数组会让 series 删除 / 改名时需要级联更新 book 端,复杂且容易脏。renderer 端从 `books` 全量扫一遍聚合即可得到"某系列下所有作品",数据量小(几百本)性能完全够用。**`clear_series_references` 仍需在 delete_series 路径调一次**(单向清理指向已删 series 的脏引用,跟 delete_book 清理 nextSeasonId 同款)。
+    - **不走 BookPatch 的关联字段**:跟 `nextSeasonId` / `prevSeasonId` 同款 —— `seriesId` 不在 `BookPatch` 里。理由:关联字段走专用 IPC (`books_set_series`)便于将来加校验(目标 series 不存在 / 重名 / 自动重定向等策略)+ 系列删除时的反向引用清理集中处理。`BookInput` 可以有 `seriesId`(创建时直接归入),但**不允许**通过 `update(id, patch: { seriesId })` 改 —— 这是约定的边界,`BookPatch` 不加该字段作为类型层兜底。
+    - **写盘稀疏策略统一**:series 的 `name` 空 → **拒绝创建**(前端 + service 双重校验);`notes` 空 → 不写 frontmatter;`Book.seriesId` 空串 / undefined → 不写 Book.frontmatter。这跟 `notes / starring / screenwriter / nextSeasonId / prevSeasonId` 同款"空值不写盘" —— 避免污染 frontmatter,让 git diff 友好。
+    - **`data::series` 容错跟 `ranking` 同款**:走「优先 JSON 解析,坏数据降级为默认值」模式 —— `version=0 / 缺 version / series 数组缺损 / 单条 series id 或 name 缺一不可(否则跳过该条)」,**不抛错**。理由:跟 books.rs 容错策略一致(避免坏数据让整个 series.json 不可读,影响所有 book 的 seriesId 渲染)。
+    - **`SeriesPickerModal` 「新建后自动选中」实现**:用 `useRef<number>` 跟踪 `seriesList.length` 上一次见到值,useEffect 监听 `seriesList.length` 增长(创建成功后自动触发) → 选 `seriesList[seriesList.length - 1]`。**初值要排除「首次打开时列表从 0 → 已有」的初始填充**(否则打开 picker 后立即选第一个);**正确做法**:`lastSeriesCountRef.current` 在 `open` 变化时同步设为当前 length(初始填充算 no-op),只有 length 在已有值基础上增长才算"新建了"。
+    - **PowerShell `Set-Content -Encoding utf8` 在 PS 5.1 写入中文会乱码**:实测 PowerShell 5.1 用 `Set-Content -Encoding utf8` 写 UTF-8 中文会被以系统 ANSI(GBK)写入,中文 mojibake;**正确做法**:**永远不要用 PowerShell 命令截断 / 改写含中文的 UTF-8 文件**。如果需要类似操作,用 `git checkout` 恢复 + 用 edit 工具精确替换。我曾用 `(Get-Content $f) | Select-Object -First 493 | Set-Content` 删一个文件的重复段,结果整个文件中文全部 mojibake(被静默写为 GBK),最后 `git checkout -- file` 恢复。教训:**任何"用 PowerShell 操纵 UTF-8 CJK 文件"的操作都先 git stash 或 backup,做完立刻 diff 看有无乱码**。
+34. **v1.7 `Book.seriesId` 单字段 `rename = "seriesId"` 不整体 `rename_all = "camelCase"`**(`types.rs` 顶层字段):Book 不整体用 camelCase 序列化(会破坏 TS 端 `book.read_count` 等 8 处 snake_case 访问);其他需要 camelCase 的字段(`nextSeasonId` / `prevSeasonId` / `seriesId` / 嵌套 struct 的 `episodeCount` / `lastModified`)用单字段 `rename` 或局部 `#[serde(rename_all = "camelCase")]` 兜底。**新增 camelCase 字段时**:加 `#[serde(rename = "...")]`,在 `normalize_book` + `persist` + `parse_*` 同步加 frontmatter 读写(否则 IPC payload 被 Tauri 2 静默吞,数据丢失),typecheck 不会报(因为默认 serde 字段名 = Rust 字段名 snake_case),需要单元测试覆盖。v1.6 已经踩过这个坑(见 §十.25 末尾),v1.7 seriesId 严格对齐模式。
 
 ## 十一、已实现功能清单
 
@@ -398,6 +411,20 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - 同步策略:A.next = B → A.next = B, B.prev = A;改链 / 清链自动清理旧关联(C.prev 清 / D.next 清)
   - delete_book 同时清理指向被删 book 的 next + prev 引用,**不**自动重定向(用户原意不擅自改)
   - UI:BookDetail 在「下一季」区块**上方**加「上一季」区块(只读跳转,无"设置"按钮 —— 全自动)
+- [x] **「系列」收藏夹**（`Series` 实体，v1.7 新增；无序归组）—— 解决"几季 + 衍生作品全部摊开很占空间"的诉求
+  - 数据层：`<data_dir>/series.json` 单文件存所有 series + 各 book 的 `seriesId` 单向引用（**不**维护反向数组，renderer 端从 books 全量聚合）
+  - `Series = { id: 数字, name: 必填, notes?: 简介, created, updated }` —— 不进 BookPatch（走专用 IPC）
+  - 6 个 IPC：`series_list / series_get / series_create / series_update / series_delete / books_set_series`
+  - **共享边界**：仅进 book-tracker（life-tracker 没这场景）；类型 / 路径 / 读写 / IPC / 业务方法全留 app，tracker-core 不持有任何领域专属概念
+  - **跟「下一季」的关系**：`nextSeasonId` 是"线性季链"（有方向），`seriesId` 是"无序归组"；两者独立可共存（同一部书可既在系列里又指向下一季）
+  - 删除联动清理：删除 series → service 层扫所有 books 把 `seriesId == id` 的清空（跟 delete_book 清理 nextSeasonId 同款单向清理策略；不重定向）
+  - UI：
+    - TopBar 加「系」按钮（快捷键 `s`）→ `SeriesModal`：列表 + CRUD（新建 inline input + 编辑 inline + 删除 confirm + 显示成员数 `(N 本)`）
+    - BookDetail 加「所属系列」区块（在「下一季」区块之后），含：当前系列跳转 + 同系列其他作品 chip 列表（去重自己，最多 8 本 + overflow 提示）
+    - 「设置系列」走 `SeriesPickerModal`（紧凑搜索 + 「+ 新建系列」入口，**新建后自动选中** —— 用 ref 跟踪列表长度变化）
+    - 「原系列已删除」脏引用兜底（同 NextSeasonPicker 同款优雅降级）
+  - **写盘策略**：`name` 空 → 拒绝创建（前端 + service 双重校验）；`notes` 空 → 不写 frontmatter；`seriesId` 空串 / undefined → 不写 Book.frontmatter
+  - **持久化**：`data/series.rs` 自写 read/write（不走 serde），跟 `data/ranking.rs` 同款顶层 JSON 文件模式；稀疏策略 + 容错（缺 id / name 的 series 读时跳过；version=0 → 1）
 - [x] **RANK 按季拆分**（v1.2 排名细化）—— tv/anime 按季独立排名,rankId = `${bookId}#${seasonNumber}`;其他 kind 保持原 rankId;对比卡片 / 排名列表都加「S0X」徽标
   - 解决:大明王朝(46 集单季) 跟 绝命毒师(7+13+13+13+16 五季) 放一起比不合理
   - **v1.6 决策**:RankingList / RankingCompare 的「S0X」徽标**保留**(不是季切换 UI,只是"排名时这一行是哪一季"的标识,跟 EpisodesPanel tabs 是不同概念)

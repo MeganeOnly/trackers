@@ -2307,6 +2307,335 @@ ul.book-grid {
   flex-shrink: 0;
 }
 
+/* ============ v1.7 「所属系列」区块 ============ */
+.series-block {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--bg-soft, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.series-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.series {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.series-label {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.series-missing {
+  color: var(--muted);
+  font-style: italic;
+}
+.series-link {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 120ms ease;
+}
+.series-link:hover {
+  text-decoration-color: var(--accent);
+}
+.series-add,
+.series-remove {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.series-add:hover,
+.series-remove:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 同系列其他作品 —— 用户核心诉求"几季 + 衍生作品"集中收纳 */
+.series-siblings {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.series-siblings-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.series-siblings-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.series-siblings-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 120ms ease;
+}
+.series-siblings-list li:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+.series-siblings-list li .title {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.series-siblings-list li .tracker-id {
+  font-size: 10px;
+  font-family: var(--font-mono, ui-monospace);
+}
+.series-siblings-overflow {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+
+/* ============ v1.7 SeriesPickerModal(弹窗式 inline 选择器) ============ */
+.series-picker {
+  margin-top: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px 10px;
+  box-shadow: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.06));
+}
+.series-picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.series-picker-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.series-picker-close:hover { color: var(--accent); }
+.series-picker-search {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.series-picker-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.series-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.series-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.series-picker-item:hover { background: var(--bg); }
+.series-picker-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.series-picker-item .title {
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.series-picker-item .tracker-id {
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace);
+  flex-shrink: 0;
+}
+.series-picker-create {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.series-picker-new {
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: all 120ms ease;
+}
+.series-picker-new:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  border-style: solid;
+}
+.series-picker-create-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.series-picker-create-form input {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.series-picker-create-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.series-picker-create-form .error {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+}
+
+/* ============ v1.7 SeriesModal(管理 modal) ============ */
+.series-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.series-create {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.series-create input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.series-create input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.series-create .error {
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+  margin-left: 8px;
+}
+.series-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.series-list-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-soft, white);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.series-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+}
+.series-name {
+  font-weight: 500;
+}
+.series-count {
+  font-size: 12px;
+}
+.series-info .tracker-id {
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace);
+  margin-left: auto;
+}
+.series-notes {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.series-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+.series-actions button {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.series-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.series-edit input,
+.series-edit textarea {
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.series-edit input:focus,
+.series-edit textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.series-edit-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+.series-edit-actions button {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.series-edit-actions .error {
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+}
+
 /* ============ v1.7 作品双链 `[[角色名]]` ============ */
 
 /* 预览容器 —— 显示在 textarea 下方,与 textarea 同 column;

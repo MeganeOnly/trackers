@@ -454,3 +454,40 @@ pub fn set_next_season(
     crate::data::books::persist(books_dir, &merged)?;
     Ok(merged)
 }
+
+// ==================== v1.7 「所属系列」业务方法 ====================
+
+/// 设置 / 清除「所属系列」(v1.7 新增;无序收藏夹分组)。
+///
+/// - `series_id: None` → 清空(不写 frontmatter)
+/// - `series_id: Some("")` → 也视为清空(空串语义同 None,跟 notes / starring 同款)
+/// - `series_id: Some("42")` → 写 frontmatter `seriesId: "42"`
+///
+/// 校验:
+/// - 目标 series 是否存在 —— **不在这里硬拒绝**写盘,
+///   允许"目标被删除"的脏数据被存下(跟 v1.6 set_next_season 同款精神:
+///   用户原意是显式的,不擅自重写)。前端 UI 兜底"该系列已删除"提示。
+///
+/// **联动 `updated`**:与 set_next_season 同款 —— 走 `persist` 路径,
+/// 用户编辑关联字段会刷 updated 时间戳(语义对齐 = 用户一致预期)。
+/// 不像 nextSeasonId 的"清理脏引用"那样不刷 updated(那是结构性维护),
+/// 这里用户**主动**调 IPC,本身就是编辑动作。
+///
+/// **实现细节**:`series_id` 不在 BookPatch 里(跟 next_season_id 同款,
+/// 关联字段走专用 IPC),所以不走 update_book patch 路径 —— 直接 read → 改 merged
+/// → 调 `data::books::persist`(pub(crate))。这样保证原子写、所有其他字段不变。
+pub fn set_series(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    series_id: Option<String>,
+) -> std::io::Result<Book> {
+    let books_dir = books_dir.as_ref();
+    let existing = data::read_book(books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+    let normalized: Option<String> = series_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    let mut merged = existing;
+    merged.series_id = normalized;
+    merged.updated = now_iso();
+    crate::data::books::persist(books_dir, &merged)?;
+    Ok(merged)
+}

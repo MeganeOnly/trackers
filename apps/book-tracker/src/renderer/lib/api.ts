@@ -12,7 +12,7 @@
 // invoke 参数约定(Tauri 2 默认):单个对象,key 用 snake_case,匹配 Rust 函数形参名.
 
 import { invoke } from '@tauri-apps/api/core'
-import type { Book, BookInput, Character, Config, Edge, RankingFile, TimeStamp } from '@shared/types'
+import type { Book, BookInput, Character, Config, Edge, RankingFile, Series, SeriesInput, SeriesPatch, TimeStamp } from '@shared/types'
 import type { BrokenEntry, ElectronAPI } from '@shared/api'
 
 export const api: ElectronAPI & {
@@ -44,7 +44,10 @@ export const api: ElectronAPI & {
     charactersSet: (id, characters) => invoke<Book>('books_characters_set', { id, characters }),
     // v1.6 「下一季」
     setNextSeason: (id, nextSeasonId) =>
-      invoke<Book>('books_set_next_season', { id, nextSeasonId })
+      invoke<Book>('books_set_next_season', { id, nextSeasonId }),
+    // v1.7 「所属系列」
+    setSeries: (id, seriesId) =>
+      invoke<Book>('books_set_series', { id, seriesId })
   },
   relations: {
     get: () => invoke<Edge[]>('relations_get'),
@@ -57,6 +60,13 @@ export const api: ElectronAPI & {
   ranking: {
     get: () => invoke<RankingFile>('ranking_get'),
     apply: (result) => invoke<RankingFile>('ranking_apply', { result })
+  },
+  series: {
+    list: () => invoke<Series[]>('series_list'),
+    get: (id) => invoke<Series | null>('series_get', { id }),
+    create: (input) => invoke<Series>('series_create', { input }),
+    update: (id, patch) => invoke<Series>('series_update', { id, patch }),
+    delete: (id) => invoke<void>('series_delete', { id })
   },
   data: {
     pickDir: () => invoke<string | null>('data_pick_dir'),

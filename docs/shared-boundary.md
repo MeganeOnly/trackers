@@ -45,6 +45,7 @@
 - 表单 / 卡片 / 列表 / 详情页 / 页面布局
 - renderer api shim（命令名 books_* / goals_* 不同）
 - 领域 CSS
+- **领域专属实体**(v1.7 book-tracker 的 `Series`):类型 + 路径 + 读写 + IPC + 业务方法全在 `apps/book-tracker`;`tracker-core` 不持有;life-tracker 不需要
 
 ## 待办（UI 基座共享）
 
@@ -55,6 +56,7 @@
 
 ## 变更记录
 
+- v1.7（book-tracker 「系列」概念）：新增 `Series` 领域实体（v1.7 新增）—— 顶层独立 `series.json` + `Book.seriesId` 单向引用 + 6 个 IPC（`series_list / series_get / series_create / series_update / series_delete / books_set_series`）。**仅进 book-tracker**，不进 tracker-core：series 是 book-tracker 领域专属（life-tracker 没有"几季 + 衍生作品"的归组诉求）。跟 v1.6 `nextSeasonId` 的关系：`nextSeasonId` 是"线性季链"（有方向），`seriesId` 是"无序归组"（收藏夹语义），两者独立可共存。共享判定：领域专属实体一律留 app（含类型 + 路径 + 读写 + 业务方法 + IPC + UI），共享层 (`tracker-core`) 不持有任何领域专属概念。
 - v3.1（relations 不变量校验）：新增 `validate` 模块（Rust + TS 1:1），检查「同一个 `to` 只能有一条前置边」——该不变量被 `compute_unlocked` 的 `to → Edge` 索引隐式依赖，破坏时静默丢弃前置条件。**当前只告警不拒绝**（写入路径与读取路径都打警告，不阻断），收紧成硬拒绝只需把 app 层 `set_relations` 的告警改成 validate 闭包的 `Some(msg)`。
 - v3（countable 多次引用）：`GroupSpec.members` 从 `string[]` 升级为 `(string | {id, count?})[]`，支持 per-member count（如 `(B 完成 2 次) OR C 完成`）；旧 `["a","b"]` 形态完全兼容，serde 自定义 visitor 双向兼容。`SimpleSpec` 同 id 可多次添加（不同 count 视为独立实例），`removeRow` 改为按 `(id, count)` 精确匹配。
 - v2（前置规格化）：`Edge` 扩展 `specs: PrereqSpec[]` 与 `excludes: ExcludeSpec[]`，支持『简单 / 二选一组 / 计数 / 互斥』四种前置规格。旧 `rule+threshold+groups` 路径完全兼容（无新字段 → 旧行为）。

@@ -378,6 +378,72 @@ export interface Book {
    * 反之亦然:把 A.nextSeasonId 从 B 改到 C 时,C.prevSeasonId 自动设为 A,B.prevSeasonId 自动清掉。
    */
   prevSeasonId?: string
+  /**
+   * 「所属系列」id(v1.7 新增;无序收藏夹分组)。
+   *
+   * 语义:这部作品属于 `seriesId` 这个 Series 集合(同一系列下可能有电视剧 / 电影 /
+   * 原著小说 / 外传等多本作品)。**与 `nextSeasonId` 区分**:`nextSeasonId` 是
+   * "线性季链"(A 的下一季是 B);`seriesId` 是"无序归组"(A 和 B 都属"大明王朝"
+   * 系列但没有先后关系)。两者可以共存(A 既在"大明王朝"系列里,nextSeasonId
+   * 又指向 S02)。
+   *
+   * **单向字段**:只有"作品 → 系列"方向;系列侧不维护"包含哪些作品"的反向引用
+   * (renderer 端从 books 全量扫一遍聚合即可)。**没有自动双向同步**。
+   *
+   * 写盘策略:同 `nextSeasonId` —— 非空字符串才写 frontmatter,空串 / undefined
+   * 不写;老文件缺字段 → undefined(向后兼容)。
+   *
+   * **不走 `BookPatch`**:改所属系列走专用 IPC `books_set_series`(跟
+   * `books_set_next_season` 同款;关联字段走专用命令便于将来加校验 / 系列
+   * 删除时的反向引用清理)。
+   */
+  seriesId?: string
+}
+
+// ==================== v1.7 系列（Series）类型 ====================
+
+/**
+ * 一个系列（v1.7 新增）—— 把多部相关作品归组（电视剧 + 衍生的电影 / 小说 / 外传等）。
+ *
+ * **设计取舍**:
+ * + 系列本身**只承载元信息**(id / name / notes / 时间戳),成员关系存放在各 book
+ *   的 `seriesId` 字段(单向引用)。renderer 端从 books 全量扫一遍聚合即可获得
+ *   "某系列下所有作品",无需在 Series 实体里维护反向数组,避免双写一致性。
+ * + **没有 `members` / `cover` / `description` 等额外字段**(v1.7 最小可用版);
+ *   `notes` 字段允许用户写系列简介(空串 = "无简介")。后续若需要封面 / 成员顺序 /
+ *   衍生分组,再加 v1.8 字段,不破坏现有数据(空缺字段 → undefined / 空)。
+ *
+ * **与 nextSeasonId 的区别**:`nextSeasonId` 是"线性季链"(有方向、有先后),
+ * `seriesId` 是"无序归组"(只是收藏夹,无顺序、无方向)。两者共存不影响 —— A
+ * 可以在某系列里,同时 nextSeasonId 指向 S02。
+ *
+ * 写盘策略(由 Rust 端 `data::series::write_series_file` 兜底):
+ * + `name` 空串视为"无名称",**拒绝创建**(前端 IPC 前先校验;后端 service 层也兜底)
+ * + `notes` 空串 → 不写 frontmatter(同 Book.notes 策略)
+ * + 老数据缺字段 → undefined(向后兼容)
+ */
+export interface Series {
+  id: string
+  /** 系列名 —— 必填;前端校验非空 */
+  name: string
+  /** 系列简介 —— 可选;空串不写盘 */
+  notes?: string
+  /** 创建时间 ISO 8601 */
+  created: string
+  /** 更新时间 ISO 8601 */
+  updated: string
+}
+
+/** 创建系列的用户输入 —— `name` 必填,`notes` 可选。 */
+export interface SeriesInput {
+  name: string
+  notes?: string
+}
+
+/** 更新系列 patch(全字段可选)。`notes: ""` 用于显式清空。 */
+export interface SeriesPatch {
+  name?: string
+  notes?: string
 }
 
 /** 主题预设（视觉风格）：classic = 当前样式（保留）；library = 深森林绿书架风 */

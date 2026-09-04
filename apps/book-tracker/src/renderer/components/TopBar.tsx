@@ -7,9 +7,10 @@ interface TopBarProps {
   onGraph?: () => void
   onRanking?: () => void
   onSettings?: () => void
+  onSeries?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onRanking, onSettings, onSeries }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -66,6 +67,11 @@ export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): 
         {onRanking && (
           <button className="topbar-icon-btn" onClick={onRanking} title="排名 (r)">
             排
+          </button>
+        )}
+        {onSeries && (
+          <button className="topbar-icon-btn" onClick={onSeries} title="系列 (s)">
+            系
           </button>
         )}
         <div className="mode-toggle" role="tablist" aria-label="模式">

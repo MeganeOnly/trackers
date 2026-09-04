@@ -93,6 +93,14 @@ pub mod paths {
         PathBuf::from(data_dir).join("books")
     }
     pub use tracker_core::config::paths::{config_file, relations_file};
+
+    /// `<data_dir>/series.json` —— 系列清单（v1.7 起）。
+    /// 单文件存所有 series;文件缺失视为"无任何系列"。
+    /// 放在 app 本地（不进 tracker-core）:series 是 book-tracker 领域专属
+    /// （life-tracker 不需要）。
+    pub fn series_file(data_dir: &str) -> PathBuf {
+        PathBuf::from(data_dir).join("series.json")
+    }
 }
 
 // ==================== 单测 ====================

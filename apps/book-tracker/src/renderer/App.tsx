@@ -5,11 +5,13 @@ import { CleanMode } from './pages/CleanMode'
 import { BookForm } from './components/BookForm'
 import { GraphModal } from './components/GraphModal'
 import { RankingModal } from './components/RankingModal'
+import { SeriesModal } from './components/SeriesModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
+import { useSeriesStore } from './store/series'
 import { useSearchStore } from './store/search'
 import { useSettingsStore } from './store/settings'
 import { api } from './lib/api'
@@ -17,6 +19,7 @@ import { api } from './lib/api'
 export default function App(): JSX.Element {
   const loadBooks = useBooksStore((s) => s.load)
   const loadRelations = useRelationsStore((s) => s.load)
+  const loadSeries = useSeriesStore((s) => s.load)
   const select = useBooksStore((s) => s.select)
   const clearSearch = useSearchStore((s) => s.clear)
   const hydrateSettings = useSettingsStore((s) => s.hydrate)
@@ -24,6 +27,7 @@ export default function App(): JSX.Element {
   const [formOpen, setFormOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
+  const [seriesOpen, setSeriesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
@@ -45,7 +49,7 @@ export default function App(): JSX.Element {
         const cfg = await api.config.get()
         useModeStore.getState().hydrate(cfg)
         hydrateSettings(cfg)
-        await Promise.all([loadBooks(), loadRelations()])
+        await Promise.all([loadBooks(), loadRelations(), loadSeries()])
       } catch (e) {
         console.error('init load failed:', e)
       }
@@ -53,7 +57,7 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [loadBooks, loadRelations, hydrateSettings])
+  }, [loadBooks, loadRelations, loadSeries, hydrateSettings])
 
   function openAdd(): void {
     select(null)
@@ -76,6 +80,9 @@ export default function App(): JSX.Element {
       } else if (key === 'r') {
         e.preventDefault()
         setRankingOpen((v) => !v)
+      } else if (key === 's') {
+        e.preventDefault()
+        setSeriesOpen((v) => !v)
       } else if (key === 'e') {
         e.preventDefault()
         useModeStore.getState().setMode('edit')
@@ -98,6 +105,7 @@ export default function App(): JSX.Element {
           onAdd={openAdd}
           onGraph={() => setGraphOpen(true)}
           onRanking={() => setRankingOpen(true)}
+          onSeries={() => setSeriesOpen(true)}
           onSettings={() => setSettingsOpen(true)}
         />
         <div className="app-body">
@@ -106,6 +114,7 @@ export default function App(): JSX.Element {
         {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
         {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
         {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
+        {seriesOpen && <SeriesModal onClose={() => setSeriesOpen(false)} />}
         {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       </div>
     </WikilinkProvider>

@@ -308,9 +308,34 @@ pub struct Book {
     /// 文件格式:persist 手写 `prevSeasonId` 字面量。
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "prevSeasonId")]
     pub prev_season_id: Option<String>,
+    /// 「所属系列」id(v1.7 新增;无序收藏夹分组)。
+    ///
+    /// 语义:这部作品属于 `series_id` 这个 Series 集合(同一系列下可能有电视剧 / 电影 /
+    /// 原著小说 / 外传等多本作品)。**与 `next_season_id` 区分**:`next_season_id` 是
+    /// "线性季链"(A 的下一季是 B);`series_id` 是"无序归组"(A 和 B 都属"大明王朝"
+    /// 系列但没有先后关系)。两者可以共存(A 既在"大明王朝"系列里,next 又指向 S02)。
+    ///
+    /// **单向字段**:只有"作品 → 系列"方向;系列侧不维护"包含哪些作品"的反向引用
+    /// (renderer 端从 books 全量扫一遍聚合即可)。**没有自动双向同步**(理由:系列
+    /// 是无序容器,无需 prev/next 概念)。
+    ///
+    /// **不联动 `updated`**:系列是被动的容器,改了它不该刷作品自身的 updated(用户会
+    /// 觉得"我什么都没改却被动了")。
+    ///
+    /// 写盘策略:同 `next_season_id` —— `Some(非空)` 才写 frontmatter,空串 / None
+    /// 不写;老文件缺字段 → None(向后兼容,`serde(default)`)。
+    ///
+    /// **不走 BookPatch**:改所属系列走专用 IPC `books_set_series`(跟
+    /// `books_set_next_season` 同款;关联字段走专用命令便于将来加校验 / 系列删除时
+    /// 的反向引用清理)。
+    ///
+    /// IPC 字段名:跟 next_season_id 一致用单字段 `rename = "seriesId"` —— Book 顶层
+    /// 不整体 `rename_all = "camelCase"`。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "seriesId")]
+    pub series_id: Option<String>,
 }
 
-/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'>`
+/// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes' | 'series_id'>`
 ///
 /// `episodes` 不在 BookInput 里 —— 单集笔记是详情页独占编辑的,不在加作品表单出现。
 /// `seasons` 保留在 BookInput(季结构是创建作品时确定的)。
@@ -341,6 +366,11 @@ pub struct BookInput {
     /// 季信息数组(可选;tv/anime 用)—— 创建时由表单传入;改 kind 后允许后续 patch 补
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seasons: Option<Vec<SeasonInfo>>,
+    /// 所属系列 id(v1.7 新增)—— 创建时可填,允许直接归入已有系列。
+    /// 缺省 / None / 空串 → 该作品不属于任何系列(等同"没设")。
+    /// IPC 字段名:`#[serde(rename = "seriesId")]` —— 跟 Book.series_id 同款单字段 rename。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "seriesId")]
+    pub series_id: Option<String>,
     // 角色笔记数组(v1.5 起)—— 不在 BookInput 里;BookPatch.characters 由 set_characters 走专用 IPC。
     // 这里保留空缺:创建作品时不需要填角色笔记(详情页独占编辑)。
 }
@@ -403,6 +433,89 @@ pub struct BookPatch {
     // 注意:`next_season_id` 不在 BookPatch 里 —— 改下一季走专用 IPC `books_set_next_season`
     // (跟 seasons / episodes / characters 同款;BookPatch 只承载"基础字段"原子更新,
     // 关联字段走专用命令便于将来加校验 / 反向引用清理 / 关系图联动)。
+    //
+    // 注意:`series_id` 同样不在 BookPatch 里 —— 改所属系列走专用 IPC `books_set_series`
+    // (理由同上)。
+}
+
+// ==================== v1.7 系列（Series）类型 ====================
+
+/// 一个系列（v1.7 新增）—— 把多部相关作品归组（电视剧 + 衍生的电影 / 小说 / 外传等）。
+///
+/// **设计取舍**:
+/// + 系列本身**只承载元信息**(id / name / notes / 时间戳),成员关系存放在各 book
+///   的 `series_id` 字段(单向引用)。renderer 端从 books 全量扫一遍聚合即可获得
+///   "某系列下所有作品",无需在 Series 实体里维护反向数组,避免双写一致性。
+/// + **没有 `members` / `cover` / `description` 等额外字段**(v1.7 最小可用版);
+///   `notes` 字段允许用户写系列简介(空串 = "无简介")。后续若需要封面 / 成员顺序 /
+///   衍生分组,再加 v1.8 字段,不破坏现有数据(空缺字段 → None / 空)。
+///
+/// **与 nextSeasonId 的区别**:`next_season_id` 是"线性季链"(有方向、有先后),
+/// `series_id` 是"无序归组"(只是收藏夹,无顺序、无方向)。两者共存不影响 —— A
+/// 可以在某系列里,同时 nextSeasonId 指向 S02。
+///
+/// 写盘策略(由 `data::series::persist_series_file` 兜底):
+/// + `name` 空串视为"无名称",**拒绝创建**(前端 IPC 前先校验;service 层也兜底)
+/// + `notes` 空串 → 不写 frontmatter(同 Book.notes 策略)
+/// + 老数据缺字段 → `serde(default)` 兜底为 None / 空
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Series {
+    pub id: String,
+    /// 系列名 —— 必填;前端校验非空
+    pub name: String,
+    /// 系列简介 —— 可选;空串不写盘
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// 创建时间 ISO 8601
+    pub created: String,
+    /// 更新时间 ISO 8601
+    pub updated: String,
+}
+
+/// 创建系列的用户输入 —— `name` 必填,`notes` 可选。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeriesInput {
+    pub name: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// 更新系列 patch(全字段可选)。
+/// - `name`: `None` 不改,`Some(s)` 写为 s(service 层校验非空)
+/// - `notes`: `None` 不改,`Some("")` 清空,`Some(s)` 写为 s
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct SeriesPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// `series.json` 文件结构(v1.7 新增)—— 单文件存所有 series。
+///
+/// `version` 字段:`serde(default)` 让老文件(没这字段)也能反序列化;统一为 1。
+/// 字段缺损 / 类型错误 → 容错为默认值,不抛错(同 relations.json 容错策略)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeriesFile {
+    #[serde(default = "default_series_version")]
+    pub version: u32,
+    /// 所有系列 —— 单数组存储(数量小,几百以内,无需分页)
+    #[serde(default)]
+    pub series: Vec<Series>,
+}
+
+fn default_series_version() -> u32 {
+    1
+}
+
+impl Default for SeriesFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            series: Vec::new(),
+        }
+    }
 }
 
 /// 自定义反序列化:让 `Option<Option<T>>` 区分"字段不存在"和"字段为 null"。

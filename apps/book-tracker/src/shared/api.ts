@@ -1,4 +1,4 @@
-import type { Book, BookInput, Character, Config, Edge, PairwiseResult, RankingFile, SeasonInfo, TimeStamp } from './types'
+import type { Book, BookInput, Character, Config, Edge, PairwiseResult, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp } from './types'
 import type { EpisodeNotes } from './types'
 
 export interface BrokenEntry {
@@ -59,6 +59,15 @@ export interface BookAPI {
    * - 目标 book 不存在时不拒绝(Rust 端不校验),由前端 UI 兜底提示「原作品已删除」
    */
   setNextSeason(id: string, nextSeasonId: string | null): Promise<Book>
+  // -------- v1.7 「所属系列」 --------
+  /**
+   * 设置 / 清除「所属系列」关联(v1.7 新增;无序收藏夹分组)。
+   * - `seriesId: null` 或 `""` → 清空(不写 frontmatter)
+   * - 目标 series 不存在时不拒绝(Rust 端不校验),由前端 UI 兜底提示「该系列已删除」
+   *   (跟 setNextSeason 同款精神)
+   * - **不走 update()**:关联字段走专用命令(便于将来加校验 / 系列删除时的反向引用清理)
+   */
+  setSeries(id: string, seriesId: string | null): Promise<Book>
 }
 
 export interface RelationsAPI {
@@ -88,10 +97,28 @@ export interface DataAPI {
   revealInExplorer(): Promise<void>
 }
 
+/**
+ * v1.7 系列 API。
+ *
+ * - `list()` 返回按 id 升序的所有 series
+ * - `get(id)` 读单个 series(id 不存在 → null)
+ * - `create(input)` 创建(name 必填,空串 → Rust 端 Err → JS 异常)
+ * - `update(id, patch)` 更新(name 设为空 → Rust 端 Err;notes 空串显式清空)
+ * - `delete(id)` 删除(联动清理所有 books 的 seriesId 引用,跟 deleteBook 清理 nextSeasonId 同款)
+ */
+export interface SeriesAPI {
+  list(): Promise<Series[]>
+  get(id: string): Promise<Series | null>
+  create(input: SeriesInput): Promise<Series>
+  update(id: string, patch: SeriesPatch): Promise<Series>
+  delete(id: string): Promise<void>
+}
+
 export interface ElectronAPI {
   books: BookAPI
   relations: RelationsAPI
   config: ConfigAPI
   ranking: RankingAPI
+  series: SeriesAPI
   data: DataAPI
 }
