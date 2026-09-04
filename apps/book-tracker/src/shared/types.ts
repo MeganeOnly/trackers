@@ -350,7 +350,8 @@ export interface Book {
    * 语义:把这部作品的"下一季"指向另一部已存在的 book。典型场景:一部剧拆成多个 book 追踪
    * （S01 / S02 / S03+）时,把它们串起来形成连贯线索。
    *
-   * **单向字段**;反向"谁的下季是本季"通过遍历所有 book 的 nextSeasonId 推断。
+   * **单向字段**;反向"谁的下季是本季"通过 `prevSeasonId` 直接读（v1.6 起双向同步,
+   * 由 service 层在 setNextSeason 路径自动维护,前端不需要主动设 prevSeasonId）。
    *
    * 写盘策略:undefined / 空串 → 不写 frontmatter;老文件缺字段 → undefined（向后兼容）。
    * 跟 `notes` / `starring` / `screenwriter` 同款"空值不写盘"语义。
@@ -360,6 +361,23 @@ export interface Book {
    * - 推荐优先显示 tv / anime 类型,但不强约束（允许跨类型,如漫画 → 动画）
    */
   nextSeasonId?: string
+  /**
+   * 「上一季」关联到另一部作品的 id（v1.6 新增;与 `nextSeasonId` 配对）—— 反向引用。
+   *
+   * 语义:「这部作品的上一季是 `prevSeasonId` 那部 book」,等价于"那部 book 的下一季是我"。
+   * 典型场景:一部剧拆成多个 book 追踪时,例如《鉴证实录 S02》有 prevSeasonId = S01 的 id,
+   * 双向可点击跳转形成整条季链。
+   *
+   * **v1.6 决策**：**仅由 service 层自动维护**（set_next_season 路径双向同步）。
+   * 不暴露 `BookPatch` / `setPrevSeason` IPC —— 用户不能也不需要手动设 prevSeasonId。
+   * 老数据:之前没这字段 → undefined（向后兼容）。
+   *
+   * 写盘策略:同 nextSeasonId —— undefined / 空串不写 frontmatter;老文件缺字段 → undefined。
+   *
+   * 例:A.nextSeasonId = B → A.prevSeasonId 还是 None,B.prevSeasonId 自动设为 A.id。
+   * 反之亦然:把 A.nextSeasonId 从 B 改到 C 时,C.prevSeasonId 自动设为 A,B.prevSeasonId 自动清掉。
+   */
+  prevSeasonId?: string
 }
 
 /** 主题预设（视觉风格）：classic = 当前样式（保留）；library = 深森林绿书架风 */

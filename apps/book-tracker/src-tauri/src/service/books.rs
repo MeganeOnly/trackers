@@ -374,9 +374,18 @@ pub fn set_characters(
 /// - next_season_id 引用的目标 book 是否存在 —— **不在这里硬拒绝**写盘,
 ///   允许"目标被删除"的脏数据被存下,由前端 UI 兜底提示「原作品已删除 [× 移除]」。
 ///
+/// **v1.6 双向同步**：设置 A.nextSeasonId = B 时,自动:
+/// 1. 清理 A 旧的 nextSeasonId —— 若之前指向 C(且 C != B),则 C.prevSeasonId 也要清掉(C 不再是 A 的下一季)
+/// 2. 清理 B 旧的 prevSeasonId —— 若之前指向 D(且 D != A),则 D.nextSeasonId 也要清掉(D 不再是 B 的上一季)
+/// 3. 设置 A.nextSeasonId = B
+/// 4. 若 B 实际存在(B 文件能 read),设置 B.prevSeasonId = A
+///
 /// 实现细节:`next_season_id` 不在 BookPatch 里(跟 seasons / episodes / characters 同款,
 /// 关联字段走专用 IPC),所以不走 update_book patch 路径 —— 直接 read → 改 merged → 调
 /// `data::books::persist`(pub(crate))。这样保证 updated 时间戳刷新、原子写、所有其他字段不变。
+///
+/// 清理旧关联用 `persist`,但**不刷新** updated 时间戳 —— 清理脏引用是结构性维护,
+/// 不是用户主动编辑。详细策略见 AGENTS.md §十。<新增条目>v1.6 双向同步。
 pub fn set_next_season(
     books_dir: impl AsRef<Path>,
     id: &str,
@@ -391,12 +400,57 @@ pub fn set_next_season(
             ));
         }
     }
-    let existing = data::read_book(&books_dir, id)?
+    let books_dir = books_dir.as_ref();
+    let existing = data::read_book(books_dir, id)?
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
     let normalized: Option<String> = next_season_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+
+    // ---- 双向同步 ----
+    // 1. 清理 A 旧的 next 关联 —— 若 A 之前指向 C(且 C != 新 next,可能是 None 或别的),
+    //    那么 C 不再是 A 的下一季,C.prev_season_id 要清掉(否则 C.prev 反向指向"不存在的下一季")
+    let old_next = existing.next_season_id.clone();
+    if let Some(old_cid) = &old_next {
+        // "旧 next 是 C" 且 "新 next 不是 C"(即真在改 / 清,不是 no-op)
+        if normalized.as_deref() != Some(old_cid.as_str()) {
+            if let Some(mut c) = data::read_book(books_dir, old_cid)? {
+                // 只在 C.prev == A.id 时清(防御:C 可能已经被别的链路重写过)
+                if c.prev_season_id.as_deref() == Some(id) {
+                    c.prev_season_id = None;
+                    // 清理脏引用,不是用户主动编辑 → 不刷 updated
+                    crate::data::books::persist(books_dir, &c)?;
+                }
+            }
+            // 旧 next 指向不存在的 book → 那边的 prev 反正读不到,不需要清理
+        }
+    }
+
+    // 2. 清理 B 旧的 prev 关联(仅当新 next 是有效 book 时) —— 若 B 之前指向 D(且 D != A),
+    //    那么 D 不再是 B 的上一季,D.next_season_id 要清掉
+    if let Some(new_nid) = &normalized {
+        if let Some(mut b) = data::read_book(books_dir, new_nid)? {
+            let old_prev = b.prev_season_id.clone();
+            if let Some(old_did) = &old_prev {
+                if old_did != id {
+                    // D != A:把 D.next 清掉(D 不再是 B 的上一季)
+                    if let Some(mut d) = data::read_book(books_dir, old_did)? {
+                        if d.next_season_id.as_deref() == Some(new_nid) {
+                            d.next_season_id = None;
+                            crate::data::books::persist(books_dir, &d)?;
+                        }
+                    }
+                }
+            }
+            // 3. 设置 B.prev_season_id = A.id
+            b.prev_season_id = Some(id.to_string());
+            // 同步 prev 是结构性维护 → 不刷 B 的 updated(否则会让用户觉得"我什么都没改却被动了")
+            crate::data::books::persist(books_dir, &b)?;
+        }
+        // B 不存在(被删/脏引用):跳过 prev 设置,前端 UI 兜底提示
+    }
+
     let mut merged = existing;
     merged.next_season_id = normalized;
     merged.updated = now_iso();
-    crate::data::books::persist(&books_dir, &merged)?;
+    crate::data::books::persist(books_dir, &merged)?;
     Ok(merged)
 }

@@ -288,8 +288,26 @@ pub struct Book {
     /// 收到 `nextSeasonId` 自动转回 `next_season_id`),出参 Book 序列化为
     /// `nextSeasonId` 后 TS `book.nextSeasonId` 才有值。文件格式不受影响(persist
     /// 手写 `nextSeasonId` 字面量,见 data/books.rs)。
+    ///
+    /// **v1.6 双向同步**：当 A.nextSeasonId = B 时,service 层会自动设置 B.prevSeasonId = A,
+    /// 并清理 A / B 的旧关联(若 A 之前指向 C,清 C.prevSeasonId;若 B 之前指向 D,清 D.nextSeasonId)。
+    /// 这里只承载"基础字段"原子更新;关联字段走专用命令(`books_set_next_season`)便于
+    /// 集中加校验 / 反向引用清理 / 关系图联动。
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "nextSeasonId")]
     pub next_season_id: Option<String>,
+    /// 「上一季」关联到另一部作品的 id(v1.6 新增;与 `next_season_id` 配对)。
+    /// 语义 = 「这部作品的上一季是 `prev_season_id` 那部 book」,即反向引用
+    /// "谁的下季是本季"。
+    ///
+    /// **v1.6 决策**：本字段由 service 层在 `set_next_season` 路径上**自动维护**,
+    /// 不暴露 BookPatch / 专用 IPC(用户不需要手动设 prevSeasonId,前后端都不让)。
+    /// 老数据:之前没有 prevSeasonId 字段 → 读回 None(向后兼容)。
+    ///
+    /// 写盘策略:跟 `next_season_id` 同款 —— `Some(非空)` 才写,空串 / None 不写。
+    /// IPC 字段名:跟 next_season_id 一致用单字段 `rename = "prevSeasonId"`。
+    /// 文件格式:persist 手写 `prevSeasonId` 字面量。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "prevSeasonId")]
+    pub prev_season_id: Option<String>,
 }
 
 /// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes'>`

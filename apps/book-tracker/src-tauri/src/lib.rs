@@ -15,11 +15,14 @@
 pub mod data;
 pub mod types;
 
-#[cfg(not(test))]
-pub mod commands;
+// service / commands 跟 tauri 无关,可以在 test 时加载 —— 但只在
+// book-tracker 这个 src-tauri 里对 service::books::set_next_season 测
+// 双向同步(v1.6 起)。tauri_app 自身仍 cfg(not(test)) 隔离,避免
+// cargo test 拉 webview2 / wry。
+pub mod service;
 
 #[cfg(not(test))]
-pub mod service;
+pub mod commands;
 
 #[cfg(not(test))]
 mod tauri_app {

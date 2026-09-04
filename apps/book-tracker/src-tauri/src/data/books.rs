@@ -93,6 +93,13 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
+        // v1.6:prev_season_id —— 字段缺损 / 非字符串 / 空串 → None(向后兼容;老文件无此字段)。
+        // 此字段由 service 层在 set_next_season 路径自动维护,前端不主动设。
+        prev_season_id: data
+            .get("prevSeasonId")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     }
 }
 
@@ -278,6 +285,8 @@ pub fn write_book(
         characters: None,
         // next_season_id 新建作品时为空(详情页独占编辑;v1.6 起)
         next_season_id: None,
+        // prev_season_id 同款:新建作品时为空;由 service 层在 set_next_season 路径自动维护
+        prev_season_id: None,
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -349,13 +358,44 @@ pub fn bump_progress(books_dir: impl AsRef<Path>, id: &str, delta: i32) -> std::
 }
 
 /// 删除一本书。
+///
+/// v1.6 起连带清理指向 / 被指向的季链关联:
+/// - 找到所有 `next_season_id == id` 的 book → 清掉它们自己的 next_season_id(不指向已删除的)
+/// - 找到所有 `prev_season_id == id` 的 book → 清掉它们自己的 prev_season_id(无主的反向引用)
+///
+/// 清理是 idempotent —— 老数据没这两字段时也不报错;
+/// 单向清理不做"重定向"(不会把 A→id→B 拼成 A→B),只把脏引用清掉,
+/// 理由:A 用户的设置是显式的,我们不擅自重写他的指向;若 A 真指向已删的 book,让用户重设。
 pub fn delete_book(books_dir: impl AsRef<Path>, id: &str) -> std::io::Result<()> {
     let path = books_dir.as_ref().join(format!("{id}.md"));
     match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e),
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
     }
+    // 清理指向已删 book 的关联 —— 扫所有 book,找到匹配的就 persist 清掉。
+    // 用 read_all_books 走 normal 路径(跳过损坏的),用 persist 走正常写盘。
+    let dir = books_dir.as_ref();
+    let all = match read_all_books(dir) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    for mut book in all.books {
+        let mut touched = false;
+        if book.next_season_id.as_deref() == Some(id) {
+            book.next_season_id = None;
+            touched = true;
+        }
+        if book.prev_season_id.as_deref() == Some(id) {
+            book.prev_season_id = None;
+            touched = true;
+        }
+        if touched {
+            // 不刷 updated —— 清理脏引用是结构性维护,不是用户主动编辑
+            persist(dir, &book)?;
+        }
+    }
+    Ok(())
 }
 
 /// 把 book 的 frontmatter 序列化 + 原子写到 `<id>.md`(覆盖现有文件)。
@@ -545,6 +585,13 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
     if let Some(nid) = &book.next_season_id {
         if !nid.is_empty() {
             fm.insert("nextSeasonId".into(), serde_json::Value::String(nid.clone()));
+        }
+    }
+    // prev_season_id: 仅在 Some(非空) 时写盘(v1.6 新增;跟 next_season_id 同款"空串不写"策略)
+    // 由 service 层在 set_next_season 路径自动维护 —— 老数据缺字段 → None(向后兼容)
+    if let Some(pid) = &book.prev_season_id {
+        if !pid.is_empty() {
+            fm.insert("prevSeasonId".into(), serde_json::Value::String(pid.clone()));
         }
     }
 
@@ -1474,5 +1521,205 @@ mod tests {
         let book2 = read_book(&books_dir, "99").unwrap().unwrap();
         assert_eq!(book2.seasons.as_ref().unwrap().len(), 1);
         assert_eq!(book2.seasons.as_ref().unwrap()[0].episode_count, 25);
+    }
+
+    // ===================================================================
+    // ============= v1.6 prev_season_id + 双向同步测试 ===================
+    // ===================================================================
+
+    /// v1.6 prev_season_id 字段的回归测试(data 层 persist + 读回策略)。
+    /// 不变量(跟 next_season_id 同款):
+    /// - Some(非空) → 写盘到 frontmatter `prevSeasonId`;读回 Some(同值)
+    /// - 空串 / None → 不写盘;读回 None
+    /// - 老文件缺 prevSeasonId 字段 → 读回 None(向后兼容)
+    #[test]
+    fn prev_season_id_round_trip_and_omit() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 新建 book → prev_season_id 默认 None,frontmatter 不写字段
+        let book_a = write_book(&books_dir, &sample_input(), &HashSet::new()).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(!raw.contains("prevSeasonId"), "新建作品默认无 prevSeasonId; raw={raw}");
+
+        // 2) Some(非空) → 写盘
+        let mut book = read_book(&books_dir, &book_a.id).unwrap().unwrap();
+        book.prev_season_id = Some("3".to_string());
+        persist(&books_dir, &book).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(raw.contains("\"prevSeasonId\": \"3\""), "prevSeasonId 应写盘; raw={raw}");
+
+        // 3) None → 不写盘
+        let mut book = read_book(&books_dir, &book_a.id).unwrap().unwrap();
+        book.prev_season_id = None;
+        persist(&books_dir, &book).unwrap();
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book_a.id))).unwrap();
+        assert!(!raw.contains("prevSeasonId"), "None 不应写盘; raw={raw}");
+
+        // 4) 老文件缺 prevSeasonId → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy-prev.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy-prev\",\"title\":\"老剧\",\"status\":\"finished\",\"kind\":\"tv\"}\n---\n# 老剧\n",
+        ).unwrap();
+        let legacy_book = read_book(&books_dir, "legacy-prev").unwrap().unwrap();
+        assert!(legacy_book.prev_season_id.is_none());
+    }
+
+    /// v1.6 双向同步测试:set_next_season 自动维护 prev_season_id 反向字段。
+    /// 不变量:
+    /// - A.nextSeasonId = B → A.next = B, B.prev = A
+    /// - 改链:A.next = C(从 B 改到 C)→ A.next = C, C.prev = A, **B.prev 清掉**
+    /// - 清链:A.next = None → A.next = None, **B.prev 也清掉**(B 不再有"指向我"的反向引用)
+    /// - 重指:B 已有 prev = X,现在让 A.next = B → B.prev = A(X 被踢),X.next 清掉(若 X.next == B)
+    /// - 目标 B 不存在(脏引用)→ A.next 照写,B 那边的 prev 不动(无文件可改),前端 UI 兜底
+    #[test]
+    fn set_next_season_two_way_sync() {
+        use crate::service::books as svc;
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 准备三本书 + 一本 D(测试重指场景)。
+        // 注意:write_book 内部 make_base_id 取 max+1,所以每次新建都得把上一步
+        // 生成的 id 塞进 existing_ids,否则连续 4 次都生成 "1"(测试陷阱)。
+        let mut existing: HashSet<String> = HashSet::new();
+        let a = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(a.id.clone());
+        let b = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(b.id.clone());
+        let c = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(c.id.clone());
+        let d = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        // 让现有 ID 不冲突
+        assert_ne!(a.id, b.id);
+        assert_ne!(a.id, c.id);
+        assert_ne!(b.id, c.id);
+        assert_ne!(a.id, d.id);
+
+        // ---- 1) 设链 A.next = B → A.next = B, B.prev = A ----
+        svc::set_next_season(&books_dir, &a.id, Some(b.id.clone())).unwrap();
+        let a1 = read_book(&books_dir, &a.id).unwrap().unwrap();
+        let b1 = read_book(&books_dir, &b.id).unwrap().unwrap();
+        assert_eq!(a1.next_season_id.as_deref(), Some(b.id.as_str()));
+        assert_eq!(b1.prev_season_id.as_deref(), Some(a.id.as_str()));
+        assert!(a1.prev_season_id.is_none(), "A 自己没有 prev");
+
+        // raw 写盘验证
+        let raw_b = std::fs::read_to_string(books_dir.join(format!("{}.md", b.id))).unwrap();
+        assert!(raw_b.contains("\"prevSeasonId\""), "B 写盘应含 prevSeasonId; raw={raw_b}");
+        let raw_a = std::fs::read_to_string(books_dir.join(format!("{}.md", a.id))).unwrap();
+        assert!(raw_a.contains("\"nextSeasonId\""), "A 写盘应含 nextSeasonId");
+
+        // ---- 2) 改链:A.next = C → B.prev 清掉, C.prev = A ----
+        svc::set_next_season(&books_dir, &a.id, Some(c.id.clone())).unwrap();
+        let a2 = read_book(&books_dir, &a.id).unwrap().unwrap();
+        let b2 = read_book(&books_dir, &b.id).unwrap().unwrap();
+        let c2 = read_book(&books_dir, &c.id).unwrap().unwrap();
+        assert_eq!(a2.next_season_id.as_deref(), Some(c.id.as_str()));
+        assert!(b2.prev_season_id.is_none(), "B 不再是 A 的下一季 → B.prev 清掉");
+        assert_eq!(c2.prev_season_id.as_deref(), Some(a.id.as_str()), "C 接管 → C.prev = A");
+        // B 文件 raw 不应再含 prevSeasonId
+        let raw_b2 = std::fs::read_to_string(books_dir.join(format!("{}.md", b.id))).unwrap();
+        assert!(!raw_b2.contains("prevSeasonId"), "B 的 prevSeasonId 已清 → raw 不应含该字段; raw={raw_b2}");
+
+        // ---- 3) 清链:A.next = None → C.prev 也清掉 ----
+        svc::set_next_season(&books_dir, &a.id, None).unwrap();
+        let c3 = read_book(&books_dir, &c.id).unwrap().unwrap();
+        assert!(c3.prev_season_id.is_none(), "清空 A.next → C 不再被指向 → C.prev 清掉");
+        let raw_c3 = std::fs::read_to_string(books_dir.join(format!("{}.md", c.id))).unwrap();
+        assert!(!raw_c3.contains("prevSeasonId"));
+
+        // ---- 4) 重指场景:B 已有 prev = D,现在让 A.next = B → D.next 清掉 ----
+        // 先手工"模拟" B.prev = D(不通过 service,因为 service 不暴露 setPrevSeason)
+        let mut b_now = read_book(&books_dir, &b.id).unwrap().unwrap();
+        b_now.prev_season_id = Some(d.id.clone());
+        persist(&books_dir, &b_now).unwrap();
+        // 然后让 A.next = B(实际触发 prev 同步)
+        svc::set_next_season(&books_dir, &a.id, Some(b.id.clone())).unwrap();
+        let b_after = read_book(&books_dir, &b.id).unwrap().unwrap();
+        let d_after = read_book(&books_dir, &d.id).unwrap().unwrap();
+        assert_eq!(b_after.prev_season_id.as_deref(), Some(a.id.as_str()), "B.prev 应改为 A");
+        assert!(d_after.next_season_id.is_none(), "D 不再是 B 的上一季 → D.next 清掉");
+
+        // ---- 5) 目标 B 不存在(脏引用)→ A.next 照写,B 那边的 prev 不报错 ----
+        svc::set_next_season(&books_dir, &a.id, Some("nonexistent-book-id".to_string())).unwrap();
+        let a5 = read_book(&books_dir, &a.id).unwrap().unwrap();
+        assert_eq!(a5.next_season_id.as_deref(), Some("nonexistent-book-id"));
+        // D.prev 之前是 None → 没动;不存在 book 也不动(无文件可改)
+        // 这里只检查"不报错"+ A.next 写对
+
+        // ---- 6) 清理后再确认:清空后不残留脏引用 ----
+        svc::set_next_season(&books_dir, &a.id, None).unwrap();
+        let a_final = read_book(&books_dir, &a.id).unwrap().unwrap();
+        assert!(a_final.next_season_id.is_none(), "清空后 A.next = None");
+        assert!(a_final.prev_season_id.is_none(), "A 自己 prev 一直保持 None");
+        let b_final = read_book(&books_dir, &b.id).unwrap().unwrap();
+        assert!(b_final.prev_season_id.is_none(), "清空后 B.prev = None");
+    }
+
+    /// v1.6 删除 book 时清理指向 / 被指向的季链关联。
+    /// 不变量:
+    /// - X.next == Y,Y 被删 → X.next 清掉
+    /// - Y.prev == X,X 被删 → Y.prev 清掉
+    /// - 多本书指向同一本被删 → 都清掉
+    /// - 不重定向(A.next=Y,B.next=Z,Y 被删后 A.next 不自动接到 Z)
+    #[test]
+    fn delete_book_clears_season_chain_references() {
+        use crate::service::books as svc;
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 见上一个测试的注释 —— 每次 write_book 都要把上一步 id 塞进 existing_ids,
+        // 否则所有 id 都是 "1"。
+        let mut existing: HashSet<String> = HashSet::new();
+        let a = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(a.id.clone());
+        let y = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(y.id.clone());
+        let z = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        existing.insert(z.id.clone());
+        let x = write_book(&books_dir, &sample_input(), &existing).unwrap();
+        // 防御:确认 ID 真的不冲突
+        assert_ne!(a.id, y.id);
+        assert_ne!(a.id, x.id);
+        assert_ne!(y.id, x.id);
+
+        // A.next = Y,Y.prev = A(走 service 自动同步)
+        svc::set_next_season(&books_dir, &a.id, Some(y.id.clone())).unwrap();
+        // 再让 X.prev = Y(模拟 Y 是 X 的上一季)
+        let mut y_now = read_book(&books_dir, &y.id).unwrap().unwrap();
+        y_now.prev_season_id = Some(x.id.clone());
+        persist(&books_dir, &y_now).unwrap();
+        // X.next 也指向 Y(双向都有)
+        let mut x_now = read_book(&books_dir, &x.id).unwrap().unwrap();
+        x_now.next_season_id = Some(y.id.clone());
+        persist(&books_dir, &x_now).unwrap();
+
+        // 删除 Y
+        delete_book(&books_dir, &y.id).unwrap();
+
+        // 1) A.next = None(原指向 Y)
+        let a_after = read_book(&books_dir, &a.id).unwrap().unwrap();
+        assert!(a_after.next_season_id.is_none(), "A.next 原指 Y,Y 被删 → 清掉; got={:?}", a_after.next_season_id);
+        // 2) X.next = None(原指向 Y)
+        let x_after = read_book(&books_dir, &x.id).unwrap().unwrap();
+        assert!(x_after.next_season_id.is_none(), "X.next 原指 Y,Y 被删 → 清掉; got={:?}", x_after.next_season_id);
+        // 3) X.prev 之前是 None → 没动(测试不残留脏字段)
+        assert!(x_after.prev_season_id.is_none());
+
+        // 4) 不重定向:即使 A.next 被清,Z 也没"自动"被接到 A.next
+        let a_final = read_book(&books_dir, &a.id).unwrap().unwrap();
+        assert!(a_final.next_season_id.is_none());
+
+        // 5) raw 写盘确认
+        let raw_a = std::fs::read_to_string(books_dir.join(format!("{}.md", a.id))).unwrap();
+        assert!(!raw_a.contains("nextSeasonId"), "A 的 nextSeasonId 已清 → raw 不应含该字段");
+        let raw_x = std::fs::read_to_string(books_dir.join(format!("{}.md", x.id))).unwrap();
+        assert!(!raw_x.contains("nextSeasonId"), "X 的 nextSeasonId 已清 → raw 不应含该字段");
+
+        // 6) Z 完全没被动过(本来就没参与链)
+        let z_after = read_book(&books_dir, &z.id).unwrap().unwrap();
+        assert!(z_after.next_season_id.is_none());
+        assert!(z_after.prev_season_id.is_none());
     }
 }

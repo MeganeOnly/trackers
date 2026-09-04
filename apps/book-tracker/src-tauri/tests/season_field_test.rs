@@ -77,7 +77,7 @@ pub struct TimeStamp {
 }
 
 // 镜像 types.rs 的 `Book`（仅字段对齐 serde 行为，类型用占位；本测试只关心
-// `next_season_id` ↔ `nextSeasonId` 这一个字段的 rename）。
+// `next_season_id` ↔ `nextSeasonId` 和 `prev_season_id` ↔ `prevSeasonId` 这两个字段的 rename）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct BookLite {
@@ -85,6 +85,8 @@ pub struct BookLite {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "nextSeasonId")]
     pub next_season_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "prevSeasonId")]
+    pub prev_season_id: Option<String>,
 }
 
 /// 1. renderer payload（TS 风格 camelCase）反序列化进 `Vec<SeasonInfo>` 应该成功。
@@ -162,6 +164,7 @@ fn book_next_season_id_serializes_as_camel_case() {
         id: "1".to_string(),
         title: "鉴证实录".to_string(),
         next_season_id: Some("5".to_string()),
+        prev_season_id: None, // v1.6 起 BookLite 多了 prev_season_id 字段
     };
     let json = serde_json::to_string(&book).unwrap();
     assert!(
@@ -177,4 +180,48 @@ fn book_next_season_id_serializes_as_camel_case() {
     let payload = r#"{"id":"1","title":"X","nextSeasonId":"5"}"#;
     let parsed: BookLite = serde_json::from_str(payload).unwrap();
     assert_eq!(parsed.next_season_id.as_deref(), Some("5"));
+}
+
+/// 5. `Book.prev_season_id` 应该序列化为 `prevSeasonId`(v1.6 新增,与 next_season_id 同款)。
+///
+/// 双向同步策略:`prev_season_id` 由 service 层在 set_next_season 路径自动维护,
+/// 不暴露 IPC 命令。BookDetail「上一季」区块直接从 book.prevSeasonId 读,
+/// 渲染时跟 nextSeasonId 对称。
+/// 修前:Rust 出参 Book 里 `prev_season_id` 是 snake_case,TS `book.prevSeasonId` 永远是 undefined,
+/// BookDetail 的「上一季」字段永远显示"未设置"(即使数据层已正确双向同步)。
+#[test]
+fn book_prev_season_id_serializes_as_camel_case() {
+    let book = BookLite {
+        id: "2".to_string(),
+        title: "鉴证实录 S02".to_string(),
+        next_season_id: None,
+        prev_season_id: Some("1".to_string()),
+    };
+    let json = serde_json::to_string(&book).unwrap();
+    assert!(
+        json.contains("\"prevSeasonId\":\"1\""),
+        "Book 出参应含 camelCase `prevSeasonId`; got: {json}"
+    );
+    assert!(
+        !json.contains("prev_season_id"),
+        "Book 出参**不应**含 snake_case `prev_season_id`; got: {json}"
+    );
+
+    // 镜像反向:TS 风格入参 `prevSeasonId` 应当能反序列化进 `BookLite`。
+    let payload = r#"{"id":"2","title":"X","prevSeasonId":"1"}"#;
+    let parsed: BookLite = serde_json::from_str(payload).unwrap();
+    assert_eq!(parsed.prev_season_id.as_deref(), Some("1"));
+
+    // 同时含 next + prev(完整季链节点)→ 都序列化
+    let full = BookLite {
+        id: "2".to_string(),
+        title: "Y".to_string(),
+        next_season_id: Some("3".to_string()),
+        prev_season_id: Some("1".to_string()),
+    };
+    let full_json = serde_json::to_string(&full).unwrap();
+    assert!(full_json.contains("\"nextSeasonId\":\"3\""));
+    assert!(full_json.contains("\"prevSeasonId\":\"1\""));
+    assert!(!full_json.contains("next_season_id"));
+    assert!(!full_json.contains("prev_season_id"));
 }
