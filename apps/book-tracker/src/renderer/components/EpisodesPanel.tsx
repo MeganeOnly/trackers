@@ -185,7 +185,9 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
               setCountDraft(e.target.value)
               // v1.6 起:每次输入触发 debounce 实时写盘(默认 500ms 内连续输入只发一次 IPC)
               // —— 解决"用户改了 input 没失焦就切换作品 / 关闭 app 导致修改丢失"的场景
-              // (BookForm 的季设置区块已经走 onBlur 实时写盘,这里补齐 EpisodesPanel 的一致行为)
+              // (BookForm v1.6 起季设置区块已走 onBlur 实时写盘,这里补齐 EpisodesPanel 的一致行为。
+              //  v1.8 起 BookForm 被拆为 BookFormFields(只做加作品,提交即关),此处参考的是
+              //  v1.6~v1.7 的 BookForm 编辑模式 onBlur 实时写盘设计)
               scheduleCountFlush()
             }}
             onBlur={flushSeasonCount}

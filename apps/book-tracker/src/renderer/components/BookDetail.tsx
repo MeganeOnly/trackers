@@ -730,7 +730,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             </ul>
             {seriesSiblings.length > 8 && (
               <p className="muted series-siblings-overflow">
-                还有 {seriesSiblings.length - 8} 本未展示 —— 在 TopBar「系」按钮展开所有系列
+                还有 {seriesSiblings.length - 8} 本未展示 —— 在「+ 添加」→「系列」tab 查看全部系列
               </p>
             )}
           </div>

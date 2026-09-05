@@ -385,3 +385,57 @@
 ### 标签
 
 - （待发 tag 时）
+
+---
+
+## v1.8 (2026-09): 统一「+ 添加」入口 —— 系列 tab 收口到加作品按钮
+
+**把 TopBar「系」按钮搬进「+ 添加」modal**。v1.7 加 series 概念时,在 TopBar 紧挨「+ 加作品」按钮右侧多塞了一个「系」按钮 + `s` 快捷键 —— 用户体验反馈:"想要统一在加作品按钮里,但条目内容不一样"。本次重构把加作品 / 加系列 / 管理系列收口到**单一 modal + tabs**,TopBar 回到「+」一个按钮,UI 更克制,意图也更清晰。
+
+### 新增能力
+
+- **`AddModal`(统一添加 modal,v1.8 新增)** —— TopBar「+ 添加」按钮(快捷键 `n`)→ 单一 Modal,tabs 在 [+ 作品] / [+ 系列] 之间切换
+  - **tab 切换 + 内容差异化**:同款 tab 组件 + 不同 body(BookFormFields / SeriesView),用户能感知「都是『+ 添加』但加的内容不一样」
+  - **footer 按 tab 动态化**:`<button form="book-form">` 触发 BookFormFields 内部 form 提交;「系列」tab 不需要 footer(自身有 CRUD 按钮 + 右上 × 关闭)
+  - **共享 Modal 原则**:AddModal 是唯一 Modal,所有 tab 内容都是纯 body —— 避免 Modal 内嵌 Modal 的不可控行为(backdrop 双重叠加、Esc 关闭竞态)
+- **`BookFormFields`**(原 `BookForm` form body 抽出) —— 加作品表单的 `<form>` 内容,不再自带 Modal 包装
+- **`SeriesView`**(原 `SeriesModal` body 抽出) —— 系列列表 + CRUD 的 `<div>` 内容,不再自带 Modal 包装
+- **TopBar 收口**:`+ 加作品` 按钮名 → `+ 添加`(语义更宽,涵盖两个 tab);移除 `onSeries` prop 和「系」按钮;移除 `s` 快捷键
+- **BookDetail overflow 提示更新**:同系列 9 本以上时提示文案从「TopBar『系』按钮展开所有系列」改为「在『+ 添加』→『系列』tab 查看全部系列」
+
+### 重构路径
+
+- **Modal-in-Modal 反模式 → 拆「*Fields / *View」**:原 BookForm / SeriesModal 都自带 `<Modal>` 包装;要让它们塞进 AddModal 必须先**剥掉 Modal 包装**,只留纯 body。BookForm 不再被任何 caller 直接用,直接删除(原本只被 App.tsx 在「+ 加作品」路径调用,总是 `book=null`)。
+- **BookForm 编辑模式移除路径**:v1.6 起 BookDetail 走内联编辑,BookForm 只剩「加作品」单一用途。v1.8 拆 BookFormFields 时**彻底删除 `book: Book | null` 参数**(无 caller 引用,无意义保留)。后续若需要「编辑作品弹窗」由新组件承载,不复用 BookFormFields。
+
+### 共享边界
+
+- 整条栈留 app:`AddModal` / `BookFormFields` / `SeriesView` 都是纯 UI 抽象,无领域字段;通过 zustand store 调用领域 IPC(`useBooksStore.create` / `useSeriesStore.create` / `load`)
+- 后端 / IPC / Rust / tracker-core / tracker-ui:**全部零改动**(纯 renderer 端 UI 重构)
+- 数据格式 / 持久化 / 系列实体:**全部不动**(只是 entry point 改了)
+
+### 用户体验变化
+
+| 旧路径 (v1.7) | 新路径 (v1.8) |
+|---|---|
+| TopBar 「+ 加作品」按钮 → 加作品表单 | TopBar 「+ 添加」按钮 → AddModal「+ 作品」tab |
+| TopBar 「系」按钮 / 快捷键 `s` → SeriesModal | 「+ 添加」modal → 「+ 系列」tab |
+| BookDetail 「设置系列」按钮 → SeriesPickerModal | 不变(BookDetail「设置系列」仍可用) |
+
+### 工程化
+
+- **typecheck 三端全过**:book-tracker / life-tracker / tracker-core 都跑过 `npm run typecheck`
+- **book-tracker vitest 201/201 通过**(无新增/删除测试 —— 纯 UI 重构)
+- **book-tracker cargo test 67/67 通过**(纯 renderer 端改动,Rust 不动)
+- **book-tracker vite build 466 KB / 70 KB CSS**(跟 v1.7 持平)
+- **Tab 复用 `.mode-toggle` class**:复用了 TopBar 日常模式 / 编辑模式 tab 切换的样式,无新 CSS(只有 `.add-modal-tabs` 14px 间距)
+
+### 数据兼容性
+
+- **完全零迁移**:book / series / relations / rankings 文件结构无变化;series.json 持久化路径不变
+- **TopBar 入口变化是纯 UX**,用户已建好的 series 完全保留,只需从「+ 添加」→「+ 系列」tab 进入管理
+- **快捷键变化**:移除 `s` 快捷键(原 SeriesModal 开关);保留 `n`(开 AddModal);`g` / `r` / `e` / `c` / `Esc` 不变
+
+### 标签
+
+- （待发 tag 时）

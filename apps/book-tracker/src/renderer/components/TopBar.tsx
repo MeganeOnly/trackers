@@ -7,10 +7,9 @@ interface TopBarProps {
   onGraph?: () => void
   onRanking?: () => void
   onSettings?: () => void
-  onSeries?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onRanking, onSettings, onSeries }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -69,11 +68,6 @@ export function TopBar({ onAdd, onGraph, onRanking, onSettings, onSeries }: TopB
             排
           </button>
         )}
-        {onSeries && (
-          <button className="topbar-icon-btn" onClick={onSeries} title="系列 (s)">
-            系
-          </button>
-        )}
         <div className="mode-toggle" role="tablist" aria-label="模式">
           <button
             role="tab"
@@ -92,8 +86,8 @@ export function TopBar({ onAdd, onGraph, onRanking, onSettings, onSeries }: TopB
             编辑模式
           </button>
         </div>
-        <button className="add-btn" onClick={onAdd} title="加作品 (n)">
-          + 加作品
+        <button className="add-btn" onClick={onAdd} title="加作品 / 系列 (n)">
+          + 添加
         </button>
       </div>
     </header>

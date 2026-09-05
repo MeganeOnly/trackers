@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import { TopBar } from './components/TopBar'
 import { EditMode } from './pages/EditMode'
 import { CleanMode } from './pages/CleanMode'
-import { BookForm } from './components/BookForm'
+import { AddModal } from './components/AddModal'
 import { GraphModal } from './components/GraphModal'
 import { RankingModal } from './components/RankingModal'
-import { SeriesModal } from './components/SeriesModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
@@ -24,10 +23,9 @@ export default function App(): JSX.Element {
   const clearSearch = useSearchStore((s) => s.clear)
   const hydrateSettings = useSettingsStore((s) => s.hydrate)
 
-  const [formOpen, setFormOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
-  const [seriesOpen, setSeriesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
@@ -61,7 +59,7 @@ export default function App(): JSX.Element {
 
   function openAdd(): void {
     select(null)
-    setFormOpen(true)
+    setAddOpen(true)
   }
 
   // 全局快捷键（input/textarea 焦点时不触发）
@@ -80,9 +78,6 @@ export default function App(): JSX.Element {
       } else if (key === 'r') {
         e.preventDefault()
         setRankingOpen((v) => !v)
-      } else if (key === 's') {
-        e.preventDefault()
-        setSeriesOpen((v) => !v)
       } else if (key === 'e') {
         e.preventDefault()
         useModeStore.getState().setMode('edit')
@@ -105,16 +100,14 @@ export default function App(): JSX.Element {
           onAdd={openAdd}
           onGraph={() => setGraphOpen(true)}
           onRanking={() => setRankingOpen(true)}
-          onSeries={() => setSeriesOpen(true)}
           onSettings={() => setSettingsOpen(true)}
         />
         <div className="app-body">
           <EditModeWrapper />
         </div>
-        {formOpen && <BookForm book={null} onClose={() => setFormOpen(false)} />}
+        {addOpen && <AddModal onClose={() => setAddOpen(false)} />}
         {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
         {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
-        {seriesOpen && <SeriesModal onClose={() => setSeriesOpen(false)} />}
         {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       </div>
     </WikilinkProvider>

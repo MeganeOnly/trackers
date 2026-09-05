@@ -12,7 +12,7 @@ import type { Series, SeriesInput, SeriesPatch } from '@shared/types'
 interface SeriesState {
   series: Series[]
   loading: boolean
-  /** 读所有 series。首启 + SeriesModal 打开时调 */
+  /** 读所有 series。首启 + AddModal「系列」tab 打开时调(SeriesView 内部 useEffect) */
   load: () => Promise<void>
   /** 创建新 series。name 必填 —— 前端先校验,后端 service 再兜底 */
   create: (input: SeriesInput) => Promise<Series>

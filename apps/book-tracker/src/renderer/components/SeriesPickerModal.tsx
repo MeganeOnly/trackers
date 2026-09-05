@@ -1,15 +1,15 @@
 // 「所属系列」选择器 —— BookDetail 加"设置系列"按钮触发(v1.7 新增)。
 //
 // 职责:弹一个紧凑的选择器,列出所有 series,让用户选一个作为所属系列。
-// 候选规则(在 SeriesModal 父组件的 useSeriesStore.getState().series):
+// 候选规则(在 SeriesView 父组件的 useSeriesStore.getState().series):
 // - 已存在的所有 series(按 id 升序)
 // - 支持按 name 模糊搜索
 // - **不在父组件截断** —— picker 自带搜索框过滤,列表 max-height + overflow-y 处理滚动
 //
 // **关键设计**:picker 选完不直接关,**提供「+ 新建系列」入口** —
-// 用户选不到合适系列时,可以一键新建(走 SeriesCreateModal 流程),无需先关
-// SeriesPickerModal → 打开 TopBar SeriesModal → 新建 → 关闭 → 再开 SeriesPickerModal
-// 才能选到自己刚建的。**新建后自动选中** —— 用 useEffect 监听 series 列表长度变化
+// 用户选不到合适系列时,可以一键新建,无需先关 SeriesPickerModal → 打开
+// AddModal「+ 系列」tab → 新建 → 关闭 → 再开 SeriesPickerModal 才能选到自己刚建的。
+// **新建后自动选中** —— 用 useEffect 监听 series 列表长度变化
 // 自动选最新一个 series。
 
 import { useEffect, useRef, useState } from 'react'
