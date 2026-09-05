@@ -1,29 +1,36 @@
 // 集笔记面板 —— BookDetail 的「集笔记」区块
 //
 // 仅当 book.kind === 'tv' | 'anime' 时渲染(由 BookDetail 决定是否引入)。
-// 职责(v1.6 简化):
+// 职责(v1.6 简化 + 进一步收敛):
 // - 当前唯一季的集网格(点击格子展开 / 双击切换 watched)
 //   —— **v1.6 起不再有季选择器 tabs**:用户约定"不同季用 nextSeasonId 串成多个 book",
 //   每本 book 只追踪一季;季切换 UI 已删,改用 BookDetail「上一季 / 下一季」区块跳转。
 //   季结构(seasons[])仍保留 —— 一本书可能因历史遗留 / 误填仍有多个 seasons,
 //   这里取 `seasons[0]` 显示(简化逻辑,不再维护 selectedSeason 状态)。
 // - 展开区:标题输入 / watched toggle / 笔记 textarea / 时间戳笔记 stamps / 删除按钮
-// - 顶部操作栏:已看统计 / +1 / -1 / 清空
-// - 季标题里"X 集"是 inline 可编辑 input:用户就地改单季集数,失焦写盘
+// - 顶部 stats 行:「已看 X / [Y] · N 条笔记」+ 快速操作(+1 / -1 / 清空),**Y 用 InlineField
+//   inline 模式紧贴「/」**(必须跟「/」在同一 <span> 内,否则被 .episodes-stats 的 10px gap 撑开,
+//   视觉上变成「11 / [ 40 ]」离得太远;现在「/ 40」紧贴对齐老版「20/20」纯文本形态)。
+//   preview / control 按钮 padding 缩到 0 4px,看起来跟普通数字一样;点上去才出白框 input。
+//   Enter / 失焦 / Esc 都提交并退出编辑。
+//   S01 前缀 + 「本季集数」label 已删 —— 每本只追踪一季,「已看 X /」已经隐含语义,无需再标。
 //
 // 状态:
 // - expandedEpisode: 当前展开的集号(单选,互斥)
+// - editingField: 当前编辑中的 InlineField 字段 id(目前只有 'seasonCount';null = 预览态)
 // - 笔记/标题本地 draft:失焦 / debounce 500ms 写盘
 // - 时间戳笔记:本地即时态(无 debounce),按 start 升序自动排列,逐条 add/edit/delete 都整体回写
-// - 季集数本地 draft:失焦 / Enter 写盘,避免每输入一位就触发 IPC
+// - 季集数本地 draft:失焦 / Enter / Esc 写盘,避免每输入一位就触发 IPC
 //
 // 数据:
 // - 季信息 / 集笔记通过 selectors 取(useSeasonsForBook / useEpisodesForBook / useEpisodeStats)
 // - 所有变更走 store action(setEpisode* / episodeBump / clearEpisodes / setSeasons / setEpisodeStamps)
 //
-// 季结构编辑(v1.4 保留 v1.6 部分):
-// - 「X 集」inline input:仅改当前季的 episodeCount,其他季不动
-// - 「删除此季」按钮:整段 setSeasons 过滤掉当前季;保留旧 episodes key 不清理(决策 B)
+// 季结构编辑(v1.4 保留 v1.6 + 进一步简化):
+// - 季集数 InlineField(在 stats 行内联):仅改当前季的 episodeCount,其他季不动
+// - **移除「删除此季」按钮**:用户约定"引入下一季的方式是通过直接链接(下一季关联)",
+//   新季走"新建 book + 设下一季"路径,本季需要删除的场景改为删除整个 book ——
+//   留一个孤立的"删除此季"按钮会破坏季链语义。
 // - **v1.6 移除 「+ 季」按钮 + tabs 切换**:用户加新季的路径改为"新建一本 book + 设下一季"。
 // - 同步策略:**不**联动改 book.progress.total / progress.current;理由见 AGENTS.md §十.24
 
@@ -34,6 +41,7 @@ import { episodeKey, formatLastModified, formatStamp, parseEpisodeKey, parseStam
 import type { Book, TimeStamp } from '@shared/types'
 import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
+import { InlineField } from './InlineField'
 
 interface EpisodesPanelProps {
   book: Book
@@ -51,11 +59,16 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
   const setEpisodeStamps = useBooksStore((s) => s.setEpisodeStamps)
   const episodeBump = useBooksStore((s) => s.episodeBump)
   const clearEpisodes = useBooksStore((s) => s.clearEpisodes)
-  // v1.4 季结构就地编辑 —— 整段替换 seasons(v1.6 起只用于"X 集"inline + 删除此季,
-  // 不再有「+ 季」和季切换 —— 加新季走"新建 book + 设下一季"路径)
+  // v1.4 季结构就地编辑 —— 整段替换 seasons(v1.6 起只用于"X 集"inline,
+  // 不再有「+ 季」和季切换 / 「删除此季」—— 加新季走"新建 book + 设下一季"路径,
+  // 删季等于删除整本 book,因为下一季通过 BookDetail「下一季」关联直接跳转)
   const setSeasons = useBooksStore((s) => s.setSeasons)
 
   const [expandedEpisode, setExpandedEpisode] = useState<number | null>(null)
+  // 季集数 inline 编辑态 —— InlineField 的「预览 ↔ 编辑」二态:
+  // 现在 InlineField 直接嵌在「已看 X /」后面(替换 Y),用 inline 模式不渲染 label,
+  // 跟 BookDetail 的「作品类型」同款「看起来跟普通文字一样,点上去才出白框」。
+  const [editingField, setEditingField] = useState<string | null>(null)
 
   // book.id 切换时收起展开的格子(v1.6 简化:不再有 selectedSeason state)
   useEffect(() => {
@@ -65,7 +78,7 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
 
   // 当前季的元信息 —— v1.6 简化:不再维护 selectedSeason 状态,直接取 seasons[0]
   // (用户约定不同季用 nextSeasonId 串成多本 book,每本只追踪一季;若某本 book 历史
-  // 遗留多季,这里只显示 seasons[0];仍保留 seasons[] 以便"X 集"和"删除此季"还能用)
+  // 遗留多季,这里只显示 seasons[0];仍保留 seasons[] 以便"X 集"inline 编辑还能用)
   const currentSeason = useMemo(
     () => seasons[0] ?? null,
     [seasons]
@@ -81,7 +94,7 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     setExpandedEpisode(null)
   }
 
-  // v1.4 季结构就地编辑 —— v1.6 起只剩"X 集"和"删除此季"(无 "+ 季" / 切换季)
+  // v1.4 季结构就地编辑 —— 进一步简化后只剩"X 集" inline input(无 "+ 季" / 切换季 / 「删除此季」)
   // ---- 单季集数 draft state + flush ----
   const [countDraft, setCountDraft] = useState<string>(() => String(currentSeason?.episodeCount ?? 0))
   // currentSeason 变化 → 同步本地 draft(避免覆盖用户正在敲的内容)
@@ -119,18 +132,6 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
     countTimerRef.current = setTimeout(flushSeasonCount, DEBOUNCE_MS)
   }
 
-  async function handleDeleteSeason(): Promise<void> {
-    if (!currentSeason) return
-    const msg =
-      seasons.length <= 1
-        ? `这是最后只剩的一季(S${pad2(currentSeason.number)})。删除后这部作品就没有季结构了(已有集笔记保留)。继续?`
-        : `删除 S${pad2(currentSeason.number)}?这一季的集笔记会保留在文件里但不再显示。`
-    if (!confirm(msg)) return
-    const next = seasons.filter((s) => s.number !== currentSeason.number)
-    await setSeasons(book.id, next)
-    // v1.6 简化:不再维护 selectedSeason,删完后自然回到"无季"分支
-  }
-
   if (!currentSeason) {
     return (
       <section className="episodes-panel">
@@ -141,15 +142,41 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
   }
 
   const seasonEps = collectSeasonEpisodes(currentSeason.number, currentSeason.episodeCount, episodes)
-  const watchedThisSeason = seasonEps.filter((e) => e.record?.watched).length
 
   return (
     <section className="episodes-panel">
       <h3 className="episodes-panel-title">集笔记</h3>
-      {/* 顶部统计 + 快速操作 */}
+      {/* 顶部统计 + 快速操作 —— 「已看 X / Y」中的 Y 用 InlineField 内联替换,
+          点上去改本季集数;空值/非法值 blur 自动还原。
+          Enter / 失焦 → flushSeasonCount(即时写盘);onChange → scheduleCountFlush(500ms debounce)。
+          **关键**:InlineField 必须跟「/」在同一个 <span> 里,避免被 .episodes-stats 的 10px flex gap
+          撑开 —— 否则「11 / 40」视觉上变成「11 / [ 40 ]」,40 离 / 太远,不像老版的「20/20」紧贴。 */}
       <div className="episodes-stats">
         <span>
-          已看 <b>{stats.watchedCount}</b> / {stats.totalEpisodes || '?'}
+          已看 <b>{stats.watchedCount}</b> /{' '}
+          <InlineField
+            fieldId="seasonCount"
+            label=""
+            inline
+            display={String(currentSeason.episodeCount)}
+            value={countDraft}
+            onChange={(v) => {
+              setCountDraft(v)
+              // 每次输入触发 debounce 实时写盘(500ms 内连续输入只发一次 IPC)——
+              // 解决"用户改了 input 没失焦就切换作品 / 关闭 app 导致修改丢失"的场景
+              scheduleCountFlush()
+            }}
+            editing={editingField === 'seasonCount'}
+            onActivate={() => setEditingField('seasonCount')}
+            onDeactivate={() => {
+              setEditingField(null)
+              // 失焦 / Esc / Enter → flushSeasonCount;flushSeasonCount 内部判空 / 非法 / 未变,自动还原或跳过 IPC
+              flushSeasonCount()
+            }}
+            kind="number"
+            emptyPlaceholder="?"
+            min={0}
+          />
         </span>
         <span className="dot">·</span>
         <span>
@@ -170,48 +197,11 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
 
       {/* v1.6 起删除季选择器 tabs(S01/S02/... + 上一季/下一季 + 「+ 季」)——
           用户约定用 BookDetail「下一季」关联把不同季拆成不同 book,每本只追踪一季。
-          季结构(seasons[])就地编辑只剩"X 集"inline + 「删除此季」两处。 */}
-
-      {/* 当前季标题 + 集数就地编辑 + 删除季 —— v1.4 季结构下沉到 EpisodesPanel */}
-      <div className="season-summary">
-        <span className="season-summary-main">
-          S{pad2(currentSeason.number)} ·{' '}
-          <input
-            className="season-count-input"
-            type="number"
-            min="0"
-            value={countDraft}
-            onChange={(e) => {
-              setCountDraft(e.target.value)
-              // v1.6 起:每次输入触发 debounce 实时写盘(默认 500ms 内连续输入只发一次 IPC)
-              // —— 解决"用户改了 input 没失焦就切换作品 / 关闭 app 导致修改丢失"的场景
-              // (BookForm v1.6 起季设置区块已走 onBlur 实时写盘,这里补齐 EpisodesPanel 的一致行为。
-              //  v1.8 起 BookForm 被拆为 BookFormFields(只做加作品,提交即关),此处参考的是
-              //  v1.6~v1.7 的 BookForm 编辑模式 onBlur 实时写盘设计)
-              scheduleCountFlush()
-            }}
-            onBlur={flushSeasonCount}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                e.currentTarget.blur()
-              }
-            }}
-            title="修改本季集数(失焦 / 回车 / 停 500ms 自动保存)"
-            aria-label={`S${pad2(currentSeason.number)} 集数`}
-          />
-          <span className="season-count-unit">集</span>
-          <span className="season-count-sep">· 已看 {watchedThisSeason}/{currentSeason.episodeCount}</span>
-        </span>
-        <button
-          type="button"
-          className="season-delete-btn"
-          onClick={() => void handleDeleteSeason()}
-          title={`删除 S${pad2(currentSeason.number)}`}
-        >
-          删除此季
-        </button>
-      </div>
+          「删除此季」按钮也已移除 —— 引入下一季通过 BookDetail「下一季」关联,删除本季
+          等于删除整本 book(走 BookDetail 详情页的删除按钮),留孤立「删除此季」按钮
+          会破坏季链语义(下一季 → 上一季的反向链找不到本季,但本季还在原地)。
+          季集数编辑已上移到 stats 行(InlineField inline 模式替换"已看 X / Y"的 Y),
+          S01 前缀随之删除 —— 每本只追踪一季,不需要再标 S0X 区分。 */}
 
       {/* 集网格 */}
       <div className="episodes-grid">

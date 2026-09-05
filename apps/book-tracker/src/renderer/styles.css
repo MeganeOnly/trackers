@@ -264,6 +264,20 @@ button:focus-visible {
 .inline-field.is-editing .inline-field-label {
   color: var(--accent);
 }
+/* inline 模式 —— 外层改用 inline-flex,不抢占父 flex 容器剩余空间,
+ * 适合"嵌在一行文本中间"的场景(如 EpisodesPanel 的「已看 X / [20]」)。
+ * preview / control 按钮额外收缩 padding + flex: none,让「/ 40」紧贴不撑开,
+ * 视觉上对齐老版「20/20」纯文本形态。 */
+.inline-field--inline {
+  display: inline-flex;
+  flex: 0 0 auto;
+  vertical-align: baseline;
+}
+.inline-field--inline .inline-field-preview,
+.inline-field--inline .inline-field-control {
+  flex: none;
+  padding: 0 4px;
+}
 .form-error {
   margin: 0; padding: 8px 12px;
   background: #f7dfd8; color: var(--danger);
@@ -659,47 +673,9 @@ button:focus-visible {
   font-weight: 600;
 }
 
-.season-summary {
-  display: flex; align-items: center; gap: 10px; justify-content: space-between;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.season-summary-main { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.season-count-input {
-  width: 56px;
-  padding: 2px 6px;
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: white;
-  color: var(--fg, inherit);
-  text-align: center;
-}
-.season-count-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.season-count-unit { margin-right: 4px; }
-.season-count-sep { color: var(--muted); }
-.season-nav-add {
-  margin-left: 4px;
-  border-style: dashed;
-}
-.season-delete-btn {
-  padding: 3px 10px;
-  font-size: 11px;
-  color: var(--muted);
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-.season-delete-btn:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-}
+/* InlineField 内嵌在 .episodes-stats 这一行时(替换"已看 X / Y"的 Y),
+ * 跟相邻 <span> 文字基线对齐;preview / input 按钮的 padding 已经够小,
+ * 不会撑高整行。 */
 
 /* ============ Characters Panel (BookDetail: 所有类型) ============ */
 .characters-panel {

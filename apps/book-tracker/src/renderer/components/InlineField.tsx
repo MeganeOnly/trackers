@@ -15,6 +15,15 @@
  * - 'select' → <select> + options
  *
  * normalize 钩子：number 类型可以包一层（如 read_count 强制 ≥ 1）
+ *
+ * 两种使用形态：
+ * - 默认（label + value 二列栅格,如 BookDetail 的「作品类型」）：父组件传 label,InlineField
+ *   渲染 `<span class="inline-field-label">{label}</span>` + `<button/input>`;外层 `flex: 1`,
+ *   适合占满一行的两列布局
+ * - **inline 模式**（inline=true,无 label）：用于"内联在文本流中替换单个值"的场景
+ *   （如 EpisodesPanel 把"已看 X / Y"的 Y 换成 InlineField）。外层改用 `display: inline-flex`
+ *   + `flex: none`,不抢占父 flex 空间的剩余部分;**Enter 也提交并退出编辑**（默认模式
+ *   留给 form 的 onSubmit 处理;inline 模式没有 form 上下文,Enter 必须自处理）
  */
 import { useEffect, useRef } from 'react'
 
@@ -51,6 +60,16 @@ export interface InlineFieldProps {
   normalize?: (raw: string) => string
   /** 用于父组件 editingField 字段标识（也用于测试定位） */
   fieldId: string
+  /**
+   * inline 模式 —— 适合"内联在文本流中替换单个值"的场景(无 label / Enter 也提交)
+   * - **不渲染** `<span class="inline-field-label">` —— 上下文(如「已看 X /」)已隐含语义
+   * - 外层 `.inline-field--inline` 改用 `display: inline-flex; flex: none`,
+   *   不抢占父 flex 容器的剩余空间(适合跟 `<span>` 文字同行排列)
+   * - **Enter 也提交并退出编辑**:默认模式下 Enter 由父 form 的 onSubmit 接(form submit
+   *   心智,见 BookDetail);inline 模式没有 form 上下文,Enter 必须自处理才能保留
+   *   "按 Enter 提交并退出编辑"的旧心智
+   */
+  inline?: boolean
 }
 
 export function InlineField({
@@ -67,7 +86,8 @@ export function InlineField({
   min,
   max,
   normalize,
-  fieldId
+  fieldId,
+  inline = false
 }: InlineFieldProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null)
 
@@ -98,14 +118,19 @@ export function InlineField({
       onDeactivate()
       // blur 避免再次触发 onBlur 关闭（其实 idempotent,主要是清残留 focus）
       ;(e.currentTarget as HTMLInputElement | HTMLSelectElement).blur()
+    } else if (inline && e.key === 'Enter') {
+      // inline 模式下 Enter 也提交并退出编辑(默认模式留给 form onSubmit 处理)
+      e.preventDefault()
+      onDeactivate()
+      ;(e.currentTarget as HTMLInputElement | HTMLSelectElement).blur()
     }
-    // 回车对单行 input/select 无副作用(textarea 才会换行);
-    // 这里故意不响应 Enter,保持简单
+    // 默认模式回车对单行 input/select 无副作用(textarea 才会换行);
+    // 父表单的 onSubmit 接 Enter(form submit 心智,见 BookDetail)
   }
 
   return (
-    <div className={`inline-field${editing ? ' is-editing' : ''}${showEmptyPlaceholder && !editing ? ' is-empty' : ''}`}>
-      <span className="inline-field-label">{label}</span>
+    <div className={`inline-field${inline ? ' inline-field--inline' : ''}${editing ? ' is-editing' : ''}${showEmptyPlaceholder && !editing ? ' is-empty' : ''}`}>
+      {inline ? null : <span className="inline-field-label">{label}</span>}
       {editing ? (
         kind === 'select' ? (
           <select

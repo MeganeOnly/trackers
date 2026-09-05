@@ -6,6 +6,114 @@
 
 ---
 
+## 2026-09：[共享/book-tracker] 视觉微调开关 —— 用 CSS data-attr 做「可逆视觉实验」(v2.1)
+
+### 1. 背景 / 需求
+
+用户想"稍微好看一点点"，但又不想承担"改坏了回不去"的风险。解决：把任何视觉改进做成**默认关闭的可逆开关** —— 用户主动 ON 才生效，不满意随时 OFF 回到现状。
+
+本轮落地的两个开关：
+- 「外观 · 字体加载」：`CDN`（默认 = Google Fonts）/ `本地`（offline ttf）
+- 「外观 · 视觉舒适`：`标准`（默认 = 原 token）/ `柔和`（圆角 +1）
+
+### 2. 关键设计决策
+
+#### 2.1 用 `data-*` 属性做开关，而不是 class
+
+```css
+:root[data-font-source="local"] { ... }
+:root[data-cozy-tokens="on"] { ... }
+```
+
+**为什么不用 class**：
+- `data-*` 是字符串枚举（`"local"` / `"remote"`），跟现有 `data-theme` / `data-format` 模式同款 —— CSS 选择器 + JS `dataset` 一致体验
+- class 适合"是/否"二元，但视觉开关常常有"未设置 = 默认"的隐式语义；attribute 强制显式 `local|remote` 字符串，CSS 选择器更可预测
+- 现有 `applyTheme` / `applyFormat` 已经在用 `dataset`，新增 `applyFontSource` / `applyCozyTokens` 走同一通道，零学习成本
+
+#### 2.2 默认 OFF 也写 attribute（不要依赖"未设置 = 默认"）
+
+```ts
+applyFontSource(false)  // 写 data-font-source="remote"，不删 attribute
+applyCozyTokens(false)  // 写 data-cozy-tokens="off"
+```
+
+**反直觉但更稳**：关掉时也写 attribute 字符串，让 CSS 选择器永远命中（`[data-font-source="remote"]` 也合法）。避免 renderer 反复判断"attribute 是否存在"。
+
+#### 2.3 `@font-face` 用独立 font-family 名避免和 CDN 冲突
+
+```css
+@font-face {
+  font-family: 'Fraunces Local';   /* 跟 'Fraunces' 独立 */
+  src: url('./fonts/Fraunces-400-normal.ttf') format('truetype');
+  ...
+}
+```
+
+**为什么必须独立**：浏览器对**同一 font-family 多个 @font-face**会按 `unicode-range` / `font-weight` 合并 src；如果都用 `'Fraunces'`，开本地时会同时下载 CDN + 本地（CDN src 不会被替换）。**独立名 `'Fraunces Local'`**只在 CSS 显式引用时才下载，对开关 OFF 时**完全 0 字节下载**。
+
+#### 2.4 CSS 切换走 var 变量层
+
+```css
+:root {
+  --font-display-loaded: var(--font-display);   /* 默认走 preset 的 --font-display */
+}
+:root[data-font-source="local"] {
+  --font-display-loaded: 'Fraunces Local', var(--font-display);
+}
+```
+
+```css
+/* preset 内部引用 --font-display-loaded 而非 'Fraunces' */
+:root[data-theme="library"] .topbar-left .app-title {
+  font-family: var(--font-display-loaded);
+}
+```
+
+**理由**：把"字体加载源"维度从 preset 维度解耦出来。新加 "woff2 子集加载" / "子集 A / B" 等第三维度时只需再加一层 var，无需改 preset。
+
+#### 2.5 不做 FOUC 预防（font/tokens 切换不闪）
+
+跟 `theme` / `format` 不同，本轮两个开关**不需要**在 `index.html` 内联预加载 localStorage：
+- **字体**：swap 渐进加载，切本地/切回都不闪（font-display: swap）
+- **token**：CSS 重算无动画，切换瞬时
+
+仅在 `settings store.hydrate(cfg)` 时同步 DOM 即可。无视觉剧烈变化就不必为微优化牺牲代码简洁度。
+
+#### 2.6 加 Config 字段的完整四步（参考 dev-notes 2026-09 §v2.0 inline-row 段）
+
+1. `apps/book-tracker/src/shared/types.ts` Config 加字段（`use_local_fonts?: boolean`）
+2. `apps/book-tracker/src-tauri/src/types.rs` Config 加 `#[serde(default)] pub use_local_fonts: bool`
+3. `data/config.rs::normalize` 加兜底（垃圾值 fallback）+ `default_config` 加默认值
+4. `service/config.rs::ConfigPatch` 加 `Option<bool>` 字段 + 单测覆盖**缺字段 / 垃圾值**两条路径
+
+### 3. 字体下载踩坑
+
+- **Google Fonts CSS API 现在只吐 ttf，不吐 woff2**（实测 2026-09）—— `Accept` 头无关，给 woff2 子集的优化暂时没拿到
+- **woff2 总大小约 460KB**（6 个 ttf），vite build 进 dist/`assets/`，浏览器后续请求命中 disk cache
+- **TTF magic bytes 验证**：`00-01-00-00` = TTF，下载完用 `[System.IO.File]::ReadAllBytes(...)[0..3]` 转 hex 比对，HTML 重定向页 / 错误页会立刻暴露（避免部署到生产才发现是错误页）
+
+### 4. 共享边界判定（v2.1 跟 v1.1 Theme system 同款）
+
+- **CSS / @font-face / apply 函数 / 字体文件** → `packages/tracker-ui/`（共享基座）
+- **Config 字段 + ConfigPatch + normalize + 单测 + SettingsPanel UI** → book-tracker（SettingsPanel 只在 book-tracker）
+- **life-tracker 不暴露开关**：共享 CSS 始终听 renderer 的 data-attr，life 端永远不设 → 默认 off → 原版一致；token 切换**就绪但未激活**，将来 life-tracker 加 SettingsPanel 时镜像开关即可
+
+### 5. 回归验证
+
+- **typecheck 三端全过**（book-tracker / life-tracker / tracker-core）
+- **book-tracker cargo test 89/89 通过**（85 原有 + 4 新增）
+- **vitest 不变**：纯 UI / CSS / 数据层改动，无新逻辑需要单测
+- **Vite 构建**：book-tracker + life-tracker 都能正确把 `packages/tracker-ui/src/fonts/*.ttf` 打包到 `dist/`
+
+### 6. 教训（共享 + 单 app）
+
+- **[共享]** 任何视觉改进都可以包成"默认 OFF 的开关"，让用户在承担零风险的前提下试用 —— 「不满意也能用现在的这样」是可逆视觉实验的核心约束
+- **[共享]** `@font-face` 必须用独立 font-family 名，避免和已有 CDN 字体冲突；同时让"开关 OFF"等同于"零 src 下载"
+- **[共享]** 视觉开关默认 OFF 时也写 attribute 字符串，比依赖"未设置 = 默认"更可预测（CSS 选择器永远命中）
+- **[共享]** CSS 切换走 var 变量层（如 `--font-display-loaded`）比直接 override preset 内的 font-family 更好维护 —— 维度解耦便于将来扩展
+
+---
+
 ## 2026-09：[book-tracker] 日常模式点击作品 → 打开作品笔记 Modal（聚合主笔记 / 集笔记 / 角色笔记）
 
 ### 1. 现象 / 需求
@@ -3192,6 +3300,91 @@ UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert �
 **判断"实时写盘 vs form 提交"**:v1.6 我以为「实时写盘 + 删除 patch.seasons 防双写」是正确做法,但忽略了**用户不一定会失焦**。"双写同一个值"在 IPC 层面只是浪费一次调用,**不丢数据**——所以 patch.seasons 兜底是安全的。"删除 patch.seasons 防竞态"是过度防御,真正的修复是:**onBlur 实时写盘 + handleSubmit 兜底带 patch.seasons + debounce 实时写盘**三条防线一起上,而不是"删掉 patch.seasons 一了百了"。
 
 **回归**:新增 `legacy_tv_set_seasons_round_trip`(模拟老 tv 文件无 seasons → 写 → 读);book-tracker cargo 36 → 37 + vitest 156 全绿;typecheck 3 端全过。
+
+---
+
+## 2026-09：[book-tracker] 移除「删除此季」按钮 + 季标题内重复的「已看 x/y」—— 季结构进一步收敛(v1.6+ 体验闭环)
+
+承接 v1.6「不同季用 `nextSeasonId` 串成多本 book」的设计,EpisodesPanel 还残留两处 v1.4 季内编辑的产物,本轮清理。
+
+### 1. 现象
+
+`EpisodesPanel.tsx` 在 v1.6 已删掉季选择器 tabs + 「+ 季」按钮,但还留着两样东西:
+
+- 「删除此季」按钮 + `handleDeleteSeason` 处理器
+- 季标题里 `<span className="season-count-sep">· 已看 {watchedThisSeason}/{currentSeason.episodeCount}</span>`
+
+「已看 x/y」同时出现在两处(顶部 stats + 季标题),且 `watchedThisSeason === stats.watchedCount`(每本只追踪一季)。
+
+### 2. 为什么「删除此季」不应该保留
+
+走「下一季」关联后,季结构(seasons)退化为「单季标记容器」—— 一本 book 内只剩一个 season,删除它就是「这本书没有季结构」。三个具体问题:
+
+- **季链断裂**:A 的「下一季」是 B,删 A 的「季」按钮让 A 没有 seasons,但 A 还指向 B,BookDetail 的「下一季」区块仍然显示「B」—— 季链语义不一致(A 没了 S01 却还有 S02 关联)。
+- **替代路径已存在**:用户要「不要这季了」,语义就是「这本书不要了」,直接走 BookDetail 删除整本 book 比「留个空壳 book 但内容清空」更直观。
+- **历史数据容错**:若某 book 因历史遗留仍有 `seasons.length > 1`,删除单季会让用户失去「我打算怎么组织这本书」的线索;且旧 episodes key 按决策 B 保留,删季后用户看到「没季结构但 episodes map 还在」更困惑。
+
+### 3. 「已看 x/y」只保留一处
+
+每本 book 只追踪一季后,`watchedThisSeason === stats.watchedCount`,两个展示位重复信息。统一在顶部 stats 显示,季标题只剩「S0X · [24] 集」的纯结构信息(集数 inline 可编辑)。
+
+### 4. 实现要点
+
+- 删除 `handleDeleteSeason` 整个函数(11 行)+ `watchedThisSeason` 变量(2 行)。
+- 删 `<button className="season-delete-btn">删除此季</button>`(8 行 JSX)。
+- 删 `<span className="season-count-sep">· 已看 ...</span>`(2 行 JSX)。
+- `styles.css` 同步删 `.season-delete-btn` / `.season-delete-btn:hover` / `.season-count-sep`(共 18 行)。
+- 顶部文件注释 + 行内注释更新到 v1.6+ 新语义,说明「为什么删除此季按钮不应保留」。
+- **`setSeasons` store action 保留**:「X 集」inline 编辑仍走 `setSeasons(book.id, seasons.map(改 episodeCount))`,所以 `setSeasons` 还用,只是不再有"过滤掉某季"的调用。
+
+### 5. 关键决策 & 教训
+
+**「上一个版本遗留 UI」的清理时机**:v1.6 删了季选择器 tabs + 「+ 季」,本轮再删「删除此季」+ 重复「已看 x/y」—— 不是一次性删完,而是用户真实用 v1.6 跑了一阵后,才暴露「下一季是直接链接」+「单季语义」让「删除此季」和「重复统计」显得多余。**判断标准**:UI 与新数据流(季链关联 + 单季语义)是否矛盾?是 → 该删;用户是否还有诉求要它?否 → 该删。
+
+**「已看 x/y」放在哪里**:倾向放在「集合操作的顶部 stats」(跟 +1/-1/清空 同侧),因为这是「当前进度」,跟「集合编辑按钮」语义同组;季标题只放「结构信息」(集数 inline 编辑)。**判据**:数字(进度)和按钮(操作)放一起,结构(集数)单放。
+
+### 6. 回归
+
+- book-tracker typecheck 干净(`EpisodesPanel.tsx` / `styles.css` 0 错);vitest 230 全过;`EpisodesPanel` 不在任何测试中 mount,改动纯 UI 层。
+- 无新增单测(改的是「删除什么」而不是「添加什么行为」,回归靠既有 230 个测试守住)。
+
+### 7. 后续小调整:季集数编辑器升级为 InlineField 二态(跟 BookDetail「作品类型」同款)
+
+承接第 6 节删完"删除此季"和重复"已看 x/y"后,季集数编辑入口还保留着 v1.4 的「裸 `<input type=number>` + 圆角白框 + S01 前缀」。用户反馈"看起来跟其他字段不一致"——BookDetail 的字段(作品类型 / 首播年份 / 状态等)全是 InlineField「预览 ↔ 编辑」二态,默认看起来像普通文字、点上去才出白框。
+
+#### 7.1 第一轮(本节上半):InlineField 整体替换 + 独立行
+
+- **S01 前缀删除**:每本只追踪一季,「S01」前缀冗余;InlineField label「本季集数」已经足够定位。
+- **位置下移到 stats 下方一行**:原 `season-summary` div 跟 stats 同块(`flex` 同行),现在拆成独立 `.season-count-inline` 一行,跟 stats 上下分块,符合「数字(进度)和按钮(操作)放一起,结构(集数)单放」的判据。
+- **编辑器换成 InlineField**:`<InlineField fieldId="seasonCount" label="本季集数" kind="number" />`,视觉跟 BookDetail 的「作品类型」完全一致。
+- **Enter → 提交并退出**:InlineField 自身不响应 Enter,这里在 wrapper `<div onKeyDown>` 兜底——保留 v1.4 旧版"按 Enter 提交并退出编辑"的心智。
+
+#### 7.2 第二轮(本节下半):InlineField inline 模式 —— 替换「已看 X / Y」中的 Y
+
+用户反馈 7.1 改造后:InlineField 独立成行虽然视觉统一,但跟 stats 行的「已看 X / Y」语义重复(「Y」已经是本季集数,「本季集数 N」又展示一次本季集数)。要求:InlineField 直接嵌进 stats 行替换 Y,**「本季集数」label 删除**(上下文「已看 X /」已经隐含语义),全部一行。
+
+**实现路径**:给 InlineField 加 `inline?: boolean` prop,新行为:
+- **不渲染** `<span class="inline-field-label">` —— 上下文已隐含语义
+- 外层加 modifier class `.inline-field--inline`,CSS `display: inline-flex; flex: 0 0 auto; vertical-align: baseline;` —— 不抢占父 flex 容器的剩余空间
+- **Enter 也提交并退出编辑**(默认模式留给 form onSubmit;inline 模式没有 form 上下文必须自处理)
+
+**BookDetail 兼容性**:新增 prop 完全向后兼容,BookDetail 7+ 处 `<InlineField ... />` 都没传 `inline`,行为不变。
+
+**EpisodesPanel 改动**:
+- 删 `<div className="season-count-inline">` 整块(本季集数独立行)
+- stats 行内联 InlineField:
+  ```jsx
+  <span>已看 <b>{watchedCount}</b> / </span>
+  <InlineField fieldId="seasonCount" label="" inline ... />
+  ```
+- 删 wrapper `<div onKeyDown>` 的 Enter 兜底(InlineField 在 inline 模式下自处理 Enter)
+- CSS 删 `.season-count-inline`(dead);InlineField 内的 `.inline-field--inline` 接管
+
+**判据(InlineField 加 inline 模式 vs 内联 JSX 复制)**:复用现成组件,继承 autofocus + select-all + blur → onDeactivate 等全部基础设施;EpisodesPanel 不需要重新实现预览/编辑二态。InlineField 增加 ~15 行(interface + render 分支 + handleKeyDown 分支 + CSS 7 行),换 EpisodesPanel 砍掉 ~20 行(原 input + state + handler + 独立行 CSS),净收益是统一视觉语言长期价值。
+
+**判据(InlineField 改 Enter 而不是 wrapper 兜底)**:第一轮用 wrapper 是为了"改动最小爆炸半径";第二轮把 InlineField 改成自己处理 Enter(仅 inline 模式),是因为 InlineField 已经支持 Escape,加 Enter 是对称扩展;wrapper 方案在 InlineField 内联后会跟其他 stats 行 `<span>` 元素混在一起,onKeyDown 边界不清。**对称性 > 副作用最小化**。
+
+**回归**:book-tracker typecheck / vitest 230 全过;InlineField 被 BookDetail 7+ 处复用,新 prop 默认 false 不影响现有用法;EpisodesPanel 不在任何测试中 mount,改动纯 UI 层。
 
 ---
 
