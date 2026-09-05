@@ -6,6 +6,7 @@ import { AddModal } from './components/AddModal'
 import { GraphModal } from './components/GraphModal'
 import { RankingModal } from './components/RankingModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { BookNotesModal } from './components/BookNotesModal'
 import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
@@ -27,6 +28,9 @@ export default function App(): JSX.Element {
   const [graphOpen, setGraphOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // v2.x:日常模式点击作品 → 打开作品笔记 Modal(主笔记 + 集笔记 + 角色笔记)
+  // 而非切到编辑模式;由 CleanMode 通过 onOpenNotes prop 回调写入
+  const [notesBookId, setNotesBookId] = useState<string | null>(null)
 
   useEffect(() => {
     // 首启流程:ensureDataDir → 若失败弹 picker → 选完再 load。
@@ -103,18 +107,29 @@ export default function App(): JSX.Element {
           onSettings={() => setSettingsOpen(true)}
         />
         <div className="app-body">
-          <EditModeWrapper />
+          <EditModeWrapper onOpenNotes={setNotesBookId} />
         </div>
         {addOpen && <AddModal onClose={() => setAddOpen(false)} />}
         {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
         {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
         {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+        {notesBookId && (
+          <BookNotesModal
+            bookId={notesBookId}
+            onClose={() => setNotesBookId(null)}
+          />
+        )}
       </div>
     </WikilinkProvider>
   )
 }
 
-function EditModeWrapper(): JSX.Element {
+interface EditModeWrapperProps {
+  /** v2.x:CleanMode 点击作品 → 打开笔记 modal(取代旧版「切到编辑模式 + 选中」) */
+  onOpenNotes: (id: string) => void
+}
+
+function EditModeWrapper({ onOpenNotes }: EditModeWrapperProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
-  return mode === 'edit' ? <EditMode /> : <CleanMode />
+  return mode === 'edit' ? <EditMode /> : <CleanMode onOpenNotes={onOpenNotes} />
 }

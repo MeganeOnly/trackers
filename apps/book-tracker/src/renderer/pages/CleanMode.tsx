@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
-import { useModeStore } from '../store/mode'
 import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
 import { useSearchStore, matchBook } from '../store/search'
@@ -29,11 +28,17 @@ const RESTORE_TO: Record<BookStatus, BookStatus> = {
   abandoned: 'want'
 }
 
-export function CleanMode(): JSX.Element {
+interface CleanModeProps {
+  /**
+   * v2.x:日常模式点击作品 → 打开 BookNotesModal(聚合 主笔记 + 集笔记 + 角色笔记)
+   * 而非切到编辑模式。`e` 快捷键仍直接进编辑模式,行为不变。
+   */
+  onOpenNotes: (id: string) => void
+}
+
+export function CleanMode({ onOpenNotes }: CleanModeProps): JSX.Element {
   const books = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
-  const select = useBooksStore((s) => s.select)
-  const setMode = useModeStore((s) => s.setMode)
   const edges = useRelationsStore((s) => s.edges)
   const { unlocked } = useUnlocked()
   const query = useSearchStore((s) => s.query)
@@ -95,16 +100,26 @@ export function CleanMode(): JSX.Element {
   }
 
   /**
-   * 日常模式点击作品 → 切到编辑模式 + 选中该书(v1.6 新增):
-   * 用户在 CleanMode 列表点作品后,自动跳到 EditMode,右侧 BookDetail 显示完整的
-   * 集笔记面板(EpisodesPanel) + 进度条 + 笔记区 + 角色笔记 + 前置依赖。
-   * 这是"集中笔记 + 选看到哪了"的一站式入口。
+   * 日常模式点击作品 → 打开作品笔记 modal(v2.x 起)
    *
-   * 不走 modal / drawer —— 复用现有 BookDetail,避免重复组件 + 状态同步复杂度。
+   * v2.x 之前是「切到编辑模式 + 选中该书」:跳到 EditMode,BookDetail 显示完整
+   * 集笔记 + 进度条 + 笔记区 + 角色笔记 + 前置依赖。但用户日常在 CleanMode 只是
+   * 想翻一翻笔记 / 看集数 / 加角色,不需要前置依赖 / 状态切换 / 进度调整等
+   * 「管理操作」 —— 走 EditMode 反而要等大组件 mount,且跟 CleanMode「轻量浏览」
+   * 心智错位。
+   *
+   * v2.x 改造:点作品 → 打开 BookNotesModal,只聚合「主笔记 + 集笔记 + 角色笔记」
+   * 三块笔记相关面板(都是 EpisodesPanel / CharactersPanel / 主笔记 textarea),
+   * **不**切到编辑模式。`e` 快捷键仍直接进编辑模式 —— 想完整管理作品再按 e。
+   *
+   * 理由:
+   * - 「轻量浏览」vs「完整管理」是两种心智,分两个入口更清晰
+   * - 主笔记通过 booksStore.update patch notes 单字段保存,**不**触发 BookDetail
+   *   的整本保存,避免覆盖编辑模式中可能存在的未保存草稿(详见 BookNotesModal 注释)
+   * - 不再切模式,CleanMode 视觉上下文保留(返回 modal 关闭后仍是日常模式)
    */
-  function openInEdit(id: string): void {
-    select(id)
-    setMode('edit')
+  function openNotes(id: string): void {
+    onOpenNotes(id)
   }
 
   function toggle(key: BookStatus): void {
@@ -151,7 +166,7 @@ export function CleanMode(): JSX.Element {
           byFilter={byFilter}
           onFinish={markFinished}
           onShelve={shelve}
-          onOpenInEdit={openInEdit}
+          onOpenNotes={openNotes}
         />
       ) : (
         <>
@@ -165,14 +180,14 @@ export function CleanMode(): JSX.Element {
                 <li key={book.id} className={`clean-item kind-${book.kind}`}>
                   <div
                     className="clean-item-left"
-                    onClick={() => openInEdit(book.id)}
-                    title="点击进入编辑模式(查看集笔记 / 笔记 / 进度)"
+                    onClick={() => openNotes(book.id)}
+                    title="点击查看笔记(主笔记 / 集笔记 / 角色笔记)"
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        openInEdit(book.id)
+                        openNotes(book.id)
                       }
                     }}
                   >
@@ -232,14 +247,14 @@ export function CleanMode(): JSX.Element {
                       <li
                         key={b.id}
                         className="collapsed-item"
-                        onClick={() => openInEdit(b.id)}
-                        title="点击进入编辑模式"
+                        onClick={() => openNotes(b.id)}
+                        title="点击查看笔记"
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault()
-                            openInEdit(b.id)
+                            openNotes(b.id)
                           }
                         }}
                       >
@@ -281,8 +296,8 @@ interface FocusStackViewProps {
   byFilter: (b: Book) => boolean
   onFinish: (id: string) => Promise<void>
   onShelve: (id: string) => Promise<void>
-  /** v1.6 起:点击作品切到 EditMode + 选中(复用 CleanMode 的 openInEdit) */
-  onOpenInEdit: (id: string) => void
+  /** v2.x 起:点击作品打开 BookNotesModal(取代 v1.6 的「切到编辑模式 + 选中」) */
+  onOpenNotes: (id: string) => void
 }
 
 function FocusStackView({
@@ -293,7 +308,7 @@ function FocusStackView({
   byFilter,
   onFinish,
   onShelve,
-  onOpenInEdit
+  onOpenNotes
 }: FocusStackViewProps): JSX.Element {
   return (
     <div className="focus-stack">
@@ -302,14 +317,14 @@ function FocusStackView({
         <section
           className="focal-card"
           style={{ '--item-stripe': `var(--kind-${focalBook.kind})` } as React.CSSProperties}
-          onClick={() => onOpenInEdit(focalBook.id)}
-          title="点击进入编辑模式(查看集笔记 / 笔记 / 进度)"
+          onClick={() => onOpenNotes(focalBook.id)}
+          title="点击查看笔记(主笔记 / 集笔记 / 角色笔记)"
           role="button"
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
-              onOpenInEdit(focalBook.id)
+              onOpenNotes(focalBook.id)
             }
           }}
         >
@@ -351,14 +366,14 @@ function FocusStackView({
                 key={book.id}
                 className="compact-item"
                 style={{ '--item-stripe': `var(--kind-${book.kind})` } as React.CSSProperties}
-                onClick={() => onOpenInEdit(book.id)}
-                title="点击进入编辑模式"
+                onClick={() => onOpenNotes(book.id)}
+                title="点击查看笔记"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    onOpenInEdit(book.id)
+                    onOpenNotes(book.id)
                   }
                 }}
               >
@@ -401,14 +416,14 @@ function FocusStackView({
                 key={b.id}
                 className="stamp-card"
                 style={{ '--item-stripe': `var(--kind-${b.kind})` } as React.CSSProperties}
-                onClick={() => onOpenInEdit(b.id)}
-                title="点击进入编辑模式"
+                onClick={() => onOpenNotes(b.id)}
+                title="点击查看笔记"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    onOpenInEdit(b.id)
+                    onOpenNotes(b.id)
                   }
                 }}
               >

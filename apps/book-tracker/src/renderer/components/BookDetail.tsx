@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
@@ -116,6 +116,16 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   )
   const [collapsed, setCollapsed] = useState<boolean>(book?.collapsed ?? false)
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
+  // 笔记「预览 ↔ 编辑」二态 —— 默认预览(WikilinkText),点「笔记」标题切到 textarea;
+  // textarea blur 切回预览。切换作品时重置回预览。
+  const [noteEditing, setNoteEditing] = useState(false)
+  // v2.x:notesDirty 标记 —— 用户是否在 BookDetail 端改过主笔记(未保存)。
+  // BookNotesModal 可独立保存主笔记(booksStore.update patch notes),
+  // 当 store 里的 book.notes 被外部更新时:
+  // - dirty=false:本地草稿未动 → 同步刷新到本地(用户能看到 modal 的最新结果)
+  // - dirty=true :本地有用户未保存输入 → 不覆盖,保留本地草稿(避免 modal 的
+  //   保存动作把用户的输入吞掉)
+  const [notesDirty, setNotesDirty] = useState(false)
   const [starring, setStarring] = useState<string>(book?.starring ?? '')
   const [screenwriter, setScreenwriter] = useState<string>(book?.screenwriter ?? '')
   const [tagsText, setTagsText] = useState<string>((book?.tags ?? []).join(', '))
@@ -143,6 +153,9 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     )
     setCollapsed(book?.collapsed ?? false)
     setNotes(book?.notes ?? '')
+    setNoteEditing(false)
+    // 切换作品 → 重置 dirty(新作品的本地 draft 等于它的 book.notes)
+    setNotesDirty(false)
     setStarring(book?.starring ?? '')
     setScreenwriter(book?.screenwriter ?? '')
     setTagsText((book?.tags ?? []).join(', '))
@@ -153,6 +166,18 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setSeriesPickerOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.id])
+
+  // v2.x:外部 notes 更新(典型来源:BookNotesModal 独立保存)同步到本地 draft。
+  // 仅在「本地未编辑」时同步,避免覆盖用户正在编辑的草稿。
+  // BookDetail 自己保存触发的 book.notes 变化也走这里 —— 此时 notesDirty 仍为
+  // true(用户刚保存,本地与 store 暂时同步),effect 不写入(无害:本地 draft
+  // 等于新 store 值),紧跟 handleSave 里的 setNotesDirty(false) 让后续外部
+  // 更新能正常同步。
+  useEffect(() => {
+    if (notesDirty) return
+    setNotes(book?.notes ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book?.notes])
 
   // ★ hooks 必须无条件调用 —— useMemo 必须在 early return 之前。
   // 否则切换「未选条目 → 选了条目」时 React 看到 hook 数量变化,直接抛
@@ -203,10 +228,15 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
   // v1.7 wikilink —— `[[` 触发 picker + 预览
   // book undefined 时 hook 内部不触发 picker(Rules of Hooks 要求提前调用)
+  // v2.x:setValue 包一层,顺便把 notesDirty 设为 true(用户主动改本地草稿)
+  const setNotesWithDirty = useCallback((v: string): void => {
+    setNotes(v)
+    setNotesDirty(true)
+  }, [])
   const { handleChange: handleNotesChange, taRef: notesTaRef } = useWikilinkTextarea({
     book,
     value: notes,
-    setValue: setNotes
+    setValue: setNotesWithDirty
   })
 
   if (!book) {
@@ -330,6 +360,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         screenwriter
       }
       await update(cur.id, patch)
+      // v2.x:本地 draft 已写盘 → 重置 dirty 标志,允许后续外部 notes 更新同步回来
+      setNotesDirty(false)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 1500)
     } catch (err) {
@@ -515,23 +547,52 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           />
           <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
         </label>
-        <label className="field">
-          <span>笔记</span>
-          <textarea
-            ref={notesTaRef}
-            value={notes}
-            onChange={handleNotesChange}
-            rows={6}
-            placeholder="自由写 —— 心得 / 摘录 / 备忘(输入 [[ 触发角色选择)"
-          />
-        </label>
-        {/* v1.7 wikilink 预览 —— 解析 notes 里的 [[xxx]] 成可点击链接 */}
-        <WikilinkText
-          text={notes}
-          currentBook={cur}
-          allBooks={books}
-          className="wikilink-preview-block"
-        />
+        {/* 笔记 —— 默认预览(WikilinkText),点「笔记」标题切到 textarea 编辑;
+            textarea blur 切回预览。预览/编辑二态互斥,符合"非编辑就是只读"心智。 */}
+        <div className="field note-field">
+          <span
+            className={`note-field-toggle${noteEditing ? ' is-editing' : ''}`}
+            role="button"
+            tabIndex={0}
+            title={noteEditing ? '编辑中 —— 点外部或失焦返回预览' : '点击进入编辑'}
+            onClick={() => setNoteEditing(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setNoteEditing(true)
+              }
+            }}
+          >
+            笔记{!noteEditing && <span className="note-field-edit-hint">点击编辑</span>}
+          </span>
+          {noteEditing ? (
+            <textarea
+              ref={notesTaRef}
+              value={notes}
+              onChange={handleNotesChange}
+              onBlur={() => setNoteEditing(false)}
+              onKeyDown={(e) => {
+                // Esc 也切回预览(避免用户点 textarea 外部只能依赖鼠标 blur)
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setNoteEditing(false)
+                  ;(e.currentTarget as HTMLTextAreaElement).blur()
+                }
+              }}
+              rows={6}
+              autoFocus
+              placeholder="自由写 —— 心得 / 摘录 / 备忘(输入 [[ 触发角色选择)"
+            />
+          ) : (
+            /* v1.7 wikilink 预览 —— 解析 notes 里的 [[xxx]] 成可点击链接 */
+            <WikilinkText
+              text={notes}
+              currentBook={cur}
+              allBooks={books}
+              className="wikilink-preview-block"
+            />
+          )}
+        </div>
         <label className="field">
           <span>标签</span>
           <input

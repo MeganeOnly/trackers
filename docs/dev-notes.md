@@ -6,6 +6,107 @@
 
 ---
 
+## 2026-09：[book-tracker] 日常模式点击作品 → 打开作品笔记 Modal（聚合主笔记 / 集笔记 / 角色笔记）
+
+### 1. 现象 / 需求
+
+用户诉求：日常模式（CleanMode）点作品时的体验重塑。
+- **旧行为**：点击 → 切到编辑模式 + 选中该书，BookDetail 渲染完整表单（前置依赖 / 状态切换 / 进度调整 / 笔记 / 集笔记 / 角色笔记 / 上一季下一季 / 所属系列）。
+- **问题**：日常翻笔记只需要看 / 加笔记相关面板，不需要前置依赖、状态切换、进度调整等「管理操作」。EditMode 入口重，组件 mount 慢，且跟「轻量浏览」心智错位。
+- **新行为**：点击 → 打开 `BookNotesModal`，只聚合「主笔记 + 集笔记 + 角色笔记」三块笔记相关面板。`e` 快捷键仍直接进编辑模式（保留完整管理入口）。
+
+### 2. 关键设计决策
+
+#### 2.1 「轻量浏览」与「完整管理」是两个入口
+
+两个入口并存而非二选一：
+
+| 入口 | 路径 | 内容 | 何时用 |
+|---|---|---|---|
+| **笔记 Modal**（新） | CleanMode 点作品 / 按 `Esc` 关闭 | 主笔记 + 集笔记 + 角色笔记 | 翻笔记、加集笔记、加角色 |
+| **编辑模式** | CleanMode 按 `e` / TopBar 切换 | 完整 BookDetail（含前置依赖 / 状态切换 / 进度调整 / 上一季下一季 / 所属系列 / 删除） | 改作品元信息、调进度、删作品 |
+
+`e` 快捷键保留不动——已习惯「按 e 进编辑模式」的用户无感知断裂。
+
+#### 2.2 主笔记独立保存（patch notes 单字段）
+
+Modal 内主笔记走 `booksStore.update(bookId, { notes })` 单字段 patch，**不**复用 BookDetail 的「整本保存」逻辑（后者 patch 包含全部字段）。
+
+理由：
+- BookDetail 端用户在编辑时可能有「其它字段的未保存草稿」（标题 / 状态 / 进度等）。如果 Modal 复用整本保存，会把这些未保存字段一起写盘 —— 风险大。
+- Modal 只 patch `notes` 一项，Rust 端 IPC payload 也只含一项，后端只动一项字段，前端不会触发其它面板的 reload。
+- Modal 与 BookDetail 的「保存笔记」语义一致：用户改动哪块就保存哪块。
+
+#### 2.3 避免 Modal 保存覆盖 BookDetail 的未保存草稿
+
+Modal 保存时，store 里的 `book.notes` 更新。但 BookDetail 端的本地 `notes` state（受控 textarea）不一定会刷新——这要看 useEffect 依赖。
+
+**问题**：原 BookDetail 的 `notes` state 同步逻辑只在 `[book?.id]` 变化时触发（即切换作品时），不会因 `book.notes` 变化而刷新本地草稿。如果 Modal 保存 → BookDetail 的预览 textarea 不会更新（显示旧值）。
+
+**修复**：BookDetail 加 `notesDirty` 标志 + 同步 useEffect：
+- 用户在 BookDetail 改过 textarea → `notesDirty = true`（通过包一层 `setNotesWithDirty` 把 `setNotes` 注入到 wikilink hook 的 `setValue`）
+- `book.notes` 从外部更新时：`notesDirty === false` → 同步刷新本地；`notesDirty === true` → 不覆盖本地草稿
+- `handleSave` 成功后 `setNotesDirty(false)`，让后续外部更新能正常同步
+
+**判定**：任何「本地 state 与 store 字段有镜像关系 + store 可能被外部路径更新」的场景都要决定"本地是否跟随同步"——跟则覆盖用户未保存草稿（坏），不跟则预览失同步（坏）。`dirty` 标志是两边都兼顾的标准解。
+
+#### 2.4 Modal 复用现有面板而非自己实现
+
+`BookNotesModal` **不**自己实现「集笔记 / 角色笔记」UI——直接复用 `<EpisodesPanel />` 和 `<CharactersPanel />`。
+
+理由：
+- 这两个面板已经接好 store action / wikilink / 时间戳笔记 / lastModified 等全部能力
+- 自己实现会分叉行为（比如 Modal 里 wikilink 跳转不联动 CharactersPanel 的展开）
+- Modal 仅做三件事：① 头部确认作品信息（kind / title / author / id）② 主笔记预览/编辑独立区块 ③ 把 EpisodesPanel / CharactersPanel 包起来
+
+#### 2.5 标题与宽度
+
+- 标题：`笔记 · {book.title}` —— 用户最关心的"打开的是哪本"
+- 宽度：`920px`，高度 `85vh` —— 与 GraphModal / RankingModal 同款，宽度适合笔记编辑（多 textarea 并排）
+- Esc / 点 backdrop / × 按钮三处都能关闭（Modal 组件原生支持）
+
+### 3. 实施清单
+
+| 文件 | 改动 |
+|---|---|
+| `apps/book-tracker/src/renderer/components/BookNotesModal.tsx` | **新增** —— Modal 容器 + 主笔记预览/编辑 + 包 EpisodesPanel / CharactersPanel |
+| `apps/book-tracker/src/renderer/App.tsx` | 加 `notesBookId` state + 渲染 `<BookNotesModal bookId onClose />`；`EditModeWrapper` 透传 `onOpenNotes` 给 CleanMode |
+| `apps/book-tracker/src/renderer/pages/CleanMode.tsx` | 接 `onOpenNotes` prop；所有点击入口（readableList / focal-card / compact-list / stamp-card / collapsed-item）改为调用 `openNotes(id)`；`e` 快捷键路径不动（仍在 App.tsx） |
+| `apps/book-tracker/src/renderer/components/BookDetail.tsx` | 加 `notesDirty` 标志 + `setNotesWithDirty` 包装 + `book.notes` 外部更新同步 useEffect + `handleSave` 后重置 dirty |
+| `apps/book-tracker/src/renderer/styles.css` | 加 `.modal-card--notes` / `.book-notes-header` / `.book-notes-section` / `.book-notes-section-head` / `.book-notes-textarea` 等样式（高度 85vh，跟 GraphModal 同款） |
+| `docs/dev-notes.md` | 本条目 |
+
+### 4. 关键判定
+
+| 问题 | 旧实现 | 新实现 |
+|---|---|---|
+| 日常点作品心智 | 重：进编辑模式 | 轻：弹笔记 Modal |
+| 主笔记保存粒度 | 整本保存（含其它字段） | patch notes 单字段 |
+| Modal 保存 → BookDetail 预览 | 不刷新（旧 useEffect 只看 `book.id`） | `notesDirty` 标志保护，未编辑时刷新 |
+| Modal 关闭 | 不切模式 | 不切模式（仍是 CleanMode） |
+| `e` 快捷键 | 进编辑模式 | **不变**（App.tsx `else if (key === 'e')` 路径不动） |
+
+### 5. 回归验证
+
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 三端全过
+- `npm run test:book` —— book-tracker 现有 vitest 全过（无新增/删除，纯 UI 改造 + 新组件）
+- `cargo test -p book-tracker` —— Rust 端零改动，无需跑
+- 手测流程（待你重启 app 验证）：
+  1. 日常模式点任意作品 → 弹笔记 Modal，标题为「笔记 · {作品名}」
+  2. Modal 内：主笔记预览（WikilinkText 解析 `[[]]`）→ 点「主笔记」标题切到 textarea → 改 → 「保存笔记」按钮变可点 → 点击 → 显示「已保存」并切回预览
+  3. Modal 内：tv/anime 显示集笔记面板（EpisodesPanel 全部能力）；所有类型显示角色笔记面板
+  4. Modal 关闭：× 按钮 / Esc / 点 backdrop 三处都能关
+  5. 编辑模式（按 `e`）→ 选作品 → 改主笔记 → 不点保存 → 关编辑器 → 用 `BookNotesModal` 打开同一作品 → 改主笔记保存 → 关 Modal → 回到编辑模式，BookDetail 预览应显示 Modal 的最新结果（`notesDirty=false` 路径）
+  6. 编辑模式 → 改主笔记 → **不保存**（notesDirty=true）→ 切到 CleanMode（按 `c`）→ 点同一作品打开 Modal → 改主笔记保存 → 关 Modal → 回到编辑模式，BookDetail 本地草稿应保留用户未保存的输入（`notesDirty=true` 保护路径）
+
+### 6. 教训（共享 + 单 app）
+
+- **「轻量 vs 完整」入口分离**：当一个 UI 入口承载「多种心智」时（浏览 / 管理 / 配置），考虑拆成两个入口而非一个万能界面。本仓库的 Modal 体系（GraphModal / RankingModal / SettingsPanel / BookNotesModal）天然适配「按心智分 Modal」的模式。
+- **「本地 draft + dirty 标志 + 外部同步」三件套**：跨 Modal / Tab 共享同一 store 字段时，本地 draft 必须显式区分"用户改过" vs "用户没改"。`dirty` 标志 + `[field]` 依赖的 sync useEffect 是这套语义的最简实现（CharactersPanel 已经走过同款 pattern，可参考）。
+- **Modal 不复写面板 = 不分叉行为**：聚合 Modal 的最简实现是「直接包现有面板」，不是「重新实现一套类似 UI」。一旦重写，状态同步、wikilink 联动、滚动行为等都会偷偷分叉。
+
+---
+
 ## 2026-09：[book-tracker] 「系列」侧栏入口(inline-row 模式 + 搜索去重)(v2.x)
 
 ### 1. 现象 / 需求

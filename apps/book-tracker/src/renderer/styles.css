@@ -272,7 +272,7 @@ button:focus-visible {
   font-weight: 500;
 }
 
-/* 作品类型小标签 */
+/* 作品类型小标签 —— 统一宽度 + 文字居中 */
 .kind-tag {
   font-size: 10px;
   padding: 1px 6px;
@@ -283,6 +283,14 @@ button:focus-visible {
   flex-shrink: 0;
   white-space: nowrap;
   line-height: 1.4;
+  /* 统一宽度:「电视剧」(3 字)中文 ≈ 30px(1em),加 12px padding + 2px border = 44px;
+     设 4.5em (45px) 略紧 1px 缓冲,所有 tag 缩到 45px 框内居中(从 5em 50px 收窄 5px)。
+     **box-sizing: border-box + width** 锁死总外宽(否则 content-box + min-width 会被
+     中文字符实际渲染宽度撑开,各 tag 总外宽仍不齐)。 */
+  box-sizing: border-box;
+  width: 4.5em;
+  display: inline-block;
+  text-align: center;
 }
 .kind-tag.kind-book { color: #4a6a8a; border-color: #c9d8e4; background: #eef4f9; }
 .kind-tag.kind-anime { color: #8a5aa0; border-color: #dcc9e6; background: #f6eff9; }
@@ -3118,6 +3126,37 @@ ul.book-grid {
   word-wrap: break-word;
 }
 
+/* 笔记「预览 ↔ 编辑」二态切换 —— 默认渲染 WikilinkText 预览,
+   点「笔记」标题切到 textarea 编辑;textarea blur 切回预览。
+   标题做成可点击 affordance + hover/focus 反馈,is-editing 时取消
+   点击反馈(已在编辑态),同时弱化「点击编辑」hint。 */
+.note-field {
+  /* 沿用 .field 布局,这里只覆盖专属样式 */
+}
+.note-field-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s;
+}
+.note-field-toggle:hover,
+.note-field-toggle:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+.note-field-toggle.is-editing {
+  cursor: default;
+  color: var(--accent);
+}
+.note-field-edit-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: normal;
+  opacity: 0.7;
+}
+
 /* 通用 wikilink button(已解析 / 断链 共用基础样式) */
 .wikilink {
   display: inline;
@@ -3263,4 +3302,98 @@ ul.book-grid {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* ============ BookNotesModal (v2.x) ============ */
+/* 跟 GraphModal 同款 —— 高度用 85vh,内部 modal-body 走 overflow-y: auto;
+   让「主笔记 + 集笔记 + 角色笔记」三块自然纵向堆叠 + 内部滚动 */
+
+/* 笔记 modal —— 与 GraphModal 同高度(85vh),容纳三块笔记面板 */
+.modal-card--notes {
+  height: 85vh;
+  display: flex; flex-direction: column;
+}
+
+/* 顶部作品头:kind tag + 标题 + 作者 + id —— 只读,确认打开的是哪本 */
+.book-notes-header {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.book-notes-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.book-notes-author {
+  font-size: 13px;
+  /* muted 颜色从 .muted 拿,这里只调字号 */
+}
+.book-notes-id {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  align-self: center;
+}
+
+/* 三块笔记 section 之间的间距;每块用上边框分隔(跟 BookDetail 内嵌 EpisodesPanel
+   / CharactersPanel 的视觉一致) */
+.book-notes-section {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* 第一块不要顶部分隔线(顶部已有 header 边界) */
+.book-notes-section.book-notes-main {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+/* 各 section 顶部行:左 = section 标题(可点击进入编辑),右 = 操作按钮 */
+.book-notes-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.book-notes-section-actions {
+  display: flex; align-items: center; gap: 8px;
+}
+.book-notes-dirty {
+  font-size: 11px;
+  color: var(--muted);
+}
+.book-notes-save {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+/* 主笔记 textarea —— 复用 .field textarea 的 monospace 风格,这里只覆盖高度 */
+.book-notes-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  background: white;
+  resize: vertical;
+  min-height: 140px;
+}
+.book-notes-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.book-notes-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+/* 「作品已被删除」降级提示 */
+.book-notes-missing {
+  padding: 40px 16px;
+  text-align: center;
 }
