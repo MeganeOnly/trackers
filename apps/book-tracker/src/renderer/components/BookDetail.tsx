@@ -710,7 +710,10 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
 
-      {/* v2.x 「上一季 / 下一季」合并为一条两列 grid(左=上一季,右=下一季,中间 1px 分隔线)。
+      {/* v2.x 「上一季 / 下一季」合并为一条两列 grid(左=上一季,右=下一季,无中间分隔线 —— 用户嫌细线多余)。
+          - 镜像布局:左半边整体靠左(label 在最左 = "上一季" 自身最左);
+            右半边镜像(整组靠右,label 在最右 = "下一季" 自身最右)——
+            用 flex-direction: row-reverse + justify-content: flex-end 实现
           - 镜像布局:左半边整体靠左(label 在最左 = "上一季" 自身最左);
             右半边镜像(整组靠右,label 在最右 = "下一季" 自身最右)——
             用 flex-direction: row-reverse + justify-content: flex-end 实现
@@ -773,9 +776,6 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
               </button>
             )}
           </div>
-
-          {/* 中间 1px 分隔线 —— 视觉上把"上一季"和"下一季"切成两半 */}
-          <div className="season-pair-divider" aria-hidden="true" />
 
           {/* 右侧:下一季 —— 镜像布局(label 在最右,整组靠右) */}
           <div className="next-season">

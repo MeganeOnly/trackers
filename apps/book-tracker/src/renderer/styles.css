@@ -2348,16 +2348,12 @@ ul.book-grid {
 }
 .season-pair {
   display: grid;
-  grid-template-columns: 1fr 1px 1fr;
-  gap: 0;
+  grid-template-columns: 1fr 1fr; /* 去掉中间 1px 分隔线,两侧靠 padding/gap 区分 */
+  gap: 12px;
   background: var(--bg, #f7f7f5);
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
-}
-.season-pair-divider {
-  background: var(--border);
-  align-self: stretch;
 }
 /* 每侧一行 flex —— 左半(prev)整体靠左,label 在最左;右半(next)镜像布局
  * (flex-direction: row-reverse + justify-content: flex-end)让 label "下一季"
