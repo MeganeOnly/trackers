@@ -862,6 +862,46 @@ button:focus-visible {
   /* v1.6 起:与 textarea 顶部对齐(不再 center) */
   padding-top: 2px;
 }
+/* v2025-09 起:单击时间戳可进入 inline 编辑态 */
+/* 展示态:鼠标 hover 显示「可点」反馈 */
+.stamp-row-time-clickable {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin: 0 -4px;
+}
+.stamp-row-time-clickable:hover {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+}
+/* 编辑态:多个 inline input + 固定 ":" 与 "→" 分隔符 */
+.stamp-row-time-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  /* v2025-09 起:编辑态整体宽度固定,跟展示态 "MM:SS → MM:SS" 等宽,
+     避免输入时整行 textarea 抖动(参考 EpisodesPanel 顶部「X 集」inline input 模式) */
+  min-width: 180px;
+}
+.stamp-row-time-edit .stamp-edit-mm,
+.stamp-row-time-edit .stamp-edit-ss {
+  width: 28px;
+  padding: 1px 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+  outline: none;
+}
+.stamp-row-time-edit .stamp-edit-mm:focus,
+.stamp-row-time-edit .stamp-edit-ss:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 .stamp-row-note {
   /* v1.6 起:textarea 多行 —— 显示全部内容,不再被单行截断。
      height 由 JS useEffect / onChange 写 `ta.scrollHeight` 撑开;

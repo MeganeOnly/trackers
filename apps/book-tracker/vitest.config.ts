@@ -16,7 +16,9 @@ export default defineConfig({
       '../../packages/tracker-core/src/__tests__/**/*.test.ts',
       // Book 领域专属纯函数测试(stamp 工具函数等 v1.3+ —— EpisodeRecord.stamps 是 Book 字段,
       // tracker-core 不应包含领域逻辑;留 book-tracker 内,与 v1.2 episodeKey 思路一致)
-      'src/shared/__tests__/**/*.test.ts'
+      'src/shared/__tests__/**/*.test.ts',
+      // renderer 组件/hook 行为测试（jsdom 环境；测试文件顶部加 `// @vitest-environment jsdom`）
+      'src/renderer/**/*.test.{ts,tsx}'
     ]
   },
   resolve: {

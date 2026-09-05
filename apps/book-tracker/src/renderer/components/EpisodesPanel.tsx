@@ -566,39 +566,25 @@ function StampList({ book, allBooks, stamps, onChange }: StampListProps): JSX.El
     onChange(sortStamps(sortedStamps.filter((s) => s.id !== id)))
   }
 
-  function handleEditStart(id: string, raw: string): void {
-    const parsed = parseStamp(raw)
-    if (parsed === null) return // 解析失败静默不写(避免覆盖合法数据);用户撤销 / 重新输入
+  /** v2025-09 起:start inline 编辑 —— StampRow blur / 回车时直接传 number */
+  function handleEditStart(id: string, start: number): void {
     const now = Date.now()
     onChange(
       sortStamps(
         sortedStamps.map((s) =>
-          s.id === id ? { ...s, start: parsed, lastModified: now } : s
+          s.id === id ? { ...s, start, lastModified: now } : s
         )
       )
     )
   }
 
-  function handleEditEnd(id: string, raw: string): void {
-    const trimmed = raw.trim()
+  /** v2025-09 起:end inline 编辑 —— undefined 表示清除 end(单时间点) */
+  function handleEditEnd(id: string, end: number | undefined): void {
     const now = Date.now()
-    if (trimmed === '') {
-      // 空串 → 清除 end(回到单时间点);同样刷该 stamp 的 lastModified
-      onChange(
-        sortStamps(
-          sortedStamps.map((s) =>
-            s.id === id ? { ...s, end: undefined, lastModified: now } : s
-          )
-        )
-      )
-      return
-    }
-    const parsed = parseStamp(trimmed)
-    if (parsed === null) return
     onChange(
       sortStamps(
         sortedStamps.map((s) =>
-          s.id === id ? { ...s, end: parsed, lastModified: now } : s
+          s.id === id ? { ...s, end, lastModified: now } : s
         )
       )
     )
@@ -631,6 +617,8 @@ function StampList({ book, allBooks, stamps, onChange }: StampListProps): JSX.El
               book={book}
               allBooks={allBooks}
               onEditNote={(raw) => handleEditNote(s.id, raw)}
+              onEditStart={(start) => handleEditStart(s.id, start)}
+              onEditEnd={(end) => handleEditEnd(s.id, end)}
               onDelete={() => handleDelete(s.id)}
             />
           ))}
@@ -741,25 +729,62 @@ interface StampRowProps {
   /** v1.7 wikilink —— 全作品列表(预览跨作品解析用) */
   allBooks: Book[]
   onEditNote: (raw: string) => void
+  /** v2025-09 修:start 时间戳 inline 编辑(单击时间戳进入编辑模式);失焦/回车 flush */
+  onEditStart: (start: number) => void
+  /** v2025-09 修:end 时间戳 inline 编辑;传 undefined 表示清除 end(单时间点) */
+  onEditEnd: (end: number | undefined) => void
   onDelete: () => void
 }
 
 /**
  * 单条 stamp 行 —— 用户最关心的"该片段讲什么"用 textarea 多行展示全部内容。
  *
- * 设计要点(v1.6 起):
+ * 设计要点(v1.6 起,v2025-09 修):
  * - **多行展示**:`<textarea>` 替代原先 `<input>`;用户写长笔记不再被截断,
  *   Enter 创建换行(与 episode-level note / character note 的 textarea 体验一致)
+ * - **本地 draft + debounce flush**(v2025-09 修):之前直接 `value={stamp.note}` + 每次 keystroke
+ *   同步触发整 stamps 数组重建 + IPC,React 18 controlled input 会重置 DOM 把用户的
+ *   第二次 keystroke 吞掉,导致 `[[` 检测错过 → picker 不打开。改成跟 EpisodeEditor /
+ *   CharacterEditor 同款的"本地 noteDraft + debounce 500ms flush"模式,React 状态机
+ *   稳定,`[[` 检测可靠
  * - **自动撑高**:用 useEffect + scrollHeight 把高度自动撑到内容;max-height
  *   兜底避免一条超长笔记把整个 episode 编辑器撑爆(超出滚动)
  * - **per-row lastModified**:沿用 v1.6 决定,行级显示 + 不影响 EpisodeRecord.lastModified
  * - **v1.7 wikilink**:textarea 集成 `[[` 触发 picker;选完插入 `[[name]]` 后,
- *   useEffect 监听 stamp.note 变化会自动重算高度,无需手工 resize。
+ *   useEffect 监听 stamp.note 变化会自动重算高度,无需手工 resize
+ * - **v2025-09 加 start/end inline 编辑**:单击时间戳文字 → 切换到 inline 编辑态(模仿
+ *   「X 集」inplace input + StampList 添加区 MM:SS 分段 input 的混合风格);
+ *   编辑态 start / end 各 2 段 input(MM / SS),end 可留空表示单时间点;
+ *   blur / 回车 → 解析 + onEditStart / onEditEnd 写 store;Esc / 取消 → 还原
  */
-function StampRow({ stamp, book, allBooks, onEditNote, onDelete }: StampRowProps): JSX.Element {
+function StampRowInner({ stamp, book, allBooks, onEditNote, onEditStart, onEditEnd, onDelete }: StampRowProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
-  // 自动撑高:mount + stamp.note 变化时(外部 store 更新或本组件 onChange)
+  // v2025-09 修:本地 noteDraft —— 跟 CharacterEditor 同款,解决 React 18 controlled
+  // input 吞连续 keystroke 的问题(详见组件注释)
+  const [noteDraft, setNoteDraft] = useState<string>(stamp.note)
+  const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 外部 store 更新(IPC flush 回来 / wikilink 插入 / 其他 stamp 改动)→ 同步本地 draft;
+  // 配合下面 flushNote 的判断("draft 跟当前 stamp.note 一致 → 跳过 IPC")避免覆盖用户
+  // 正在敲的内容
+  useEffect(() => {
+    setNoteDraft(stamp.note)
+  }, [stamp.note])
+
+  function flushNote(): void {
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+    // 没改 → 不发 IPC(避免无谓 IPC;跟 CharacterEditor 的"什么都没改,老时间不变"语义一致)
+    if (noteDraft === stamp.note) return
+    onEditNote(noteDraft)
+  }
+  function scheduleNoteFlush(): void {
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+    noteTimerRef.current = setTimeout(flushNote, DEBOUNCE_MS)
+  }
+
+  // 自动撑高:mount + stamp.note 变化时(外部 store 更新)重算;onChange 时手工
+  // 撑高不等 React re-render(用户敲键时高度跟随)
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
@@ -769,12 +794,15 @@ function StampRow({ stamp, book, allBooks, onEditNote, onDelete }: StampRowProps
     ta.style.height = `${ta.scrollHeight}px`
   }, [stamp.note])
 
-  // v1.7 wikilink —— `[[` 触发 picker;note 是 stamp.note(每条 stamp 独立 note)。
-  // 选完 name 后 setValue 写入 stamp.note(通过 onEditNote 上抛给 StampList → onChange)
+  // v1.7 wikilink —— `[[` 触发 picker。setValue 走 setNoteDraft + scheduleFlush,
+  // 跟 CharacterEditor 同款;不直接 onEditNote 避免 React 18 controlled input 吞 keystroke
   const { handleChange: handleNoteChange, taRef: wikilinkTaRef } = useWikilinkTextarea({
     book,
-    value: stamp.note,
-    setValue: (v) => onEditNote(v)
+    value: noteDraft,
+    setValue: (v) => {
+      setNoteDraft(v)
+      scheduleNoteFlush()
+    }
   })
 
   // 合并两个 ref —— 撑高需要 textareaRef,wikilink hook 也需要 ref。
@@ -784,30 +812,239 @@ function StampRow({ stamp, book, allBooks, onEditNote, onDelete }: StampRowProps
     wikilinkTaRef.current = el
   }
 
+  // ============= v2025-09 加:start / end inline 编辑状态 =============
+  const [editingTime, setEditingTime] = useState<boolean>(false)
+  // 编辑态本地 draft —— mm / ss 各一段,跟 StampList 添加区同款
+  const [startMin, setStartMin] = useState<string>('')
+  const [startSec, setStartSec] = useState<string>('')
+  const [endMin, setEndMin] = useState<string>('')
+  const [endSec, setEndSec] = useState<string>('')
+  const startMinRef = useRef<HTMLInputElement | null>(null)
+  const startSecRef = useRef<HTMLInputElement | null>(null)
+  const endMinRef = useRef<HTMLInputElement | null>(null)
+  const endSecRef = useRef<HTMLInputElement | null>(null)
+  // v2025-09:用 ref 标记"用户主动取消",避免 Esc 后 onBlur 仍触发 flushEditTime 把数据写出去
+  const cancelledRef = useRef<boolean>(false)
+
+  /** 把秒数拆成 mm / ss 两段(用于进入编辑态时回填) */
+  function secondsToPair(totalSec: number): { min: string; sec: string } {
+    const m = Math.floor(totalSec / 60)
+    const s = totalSec % 60
+    return { min: String(m).padStart(2, '0'), sec: String(s).padStart(2, '0') }
+  }
+
+  function beginEditTime(): void {
+    cancelledRef.current = false
+    const sp = secondsToPair(stamp.start)
+    setStartMin(sp.min)
+    setStartSec(sp.sec)
+    if (stamp.end !== undefined) {
+      const ep = secondsToPair(stamp.end)
+      setEndMin(ep.min)
+      setEndSec(ep.sec)
+    } else {
+      setEndMin('')
+      setEndSec('')
+    }
+    setEditingTime(true)
+    // 自动聚焦到 start 的 mm 输入(下一 tick 让 React 先 commit)
+    setTimeout(() => startMinRef.current?.focus(), 0)
+  }
+
+  function cancelEditTime(): void {
+    // 用 ref 标记"取消"——setEditingTime 是 React state 异步生效,
+    // flushEditTime 在 onBlur 时被调时还没拿到新 editingTime,会走"写入"分支误保存。
+    cancelledRef.current = true
+    setEditingTime(false)
+  }
+
+  function flushEditTime(): void {
+    // v2025-09:用户主动取消(Esc)→ 不写 store,直接还原
+    if (cancelledRef.current) {
+      cancelledRef.current = false
+      setEditingTime(false)
+      return
+    }
+    // start 必填(MM / SS 都空才算空,但至少 SS 不空才能 parseStamp;同 StampList 添加区校验)
+    if (startMin === '' && startSec === '') {
+      // 没改 → 切回展示
+      setEditingTime(false)
+      return
+    }
+    const startStr = `${startMin}:${startSec}`
+    const startSecNum = parseStamp(startStr)
+    if (startSecNum === null) {
+      // 解析失败 → 还原(不写 store,保留原 stamp)
+      setEditingTime(false)
+      return
+    }
+    let endSecNum: number | undefined = undefined
+    const endHasContent = endMin !== '' || endSec !== ''
+    if (endHasContent) {
+      const endStr = `${endMin}:${endSec}`
+      const parsed = parseStamp(endStr)
+      if (parsed === null) {
+        // end 解析失败 → 仅写 start,保留原 end
+        setEditingTime(false)
+        if (startSecNum !== stamp.start) onEditStart(startSecNum)
+        return
+      }
+      endSecNum = parsed
+    }
+    // end < start → 静默不写(同 StampList 添加区校验,避免脏数据)
+    if (endSecNum !== undefined && endSecNum < startSecNum) {
+      setEditingTime(false)
+      return
+    }
+    setEditingTime(false)
+    // 什么都没改 → 不写(避免"什么都没改但 IPC + lastModified 刷新" —— 跟
+    // CharacterEditor.flushNote("draft 跟当前 stamp.note 一致 → 跳过")同款语义)
+    const startChanged = startSecNum !== stamp.start
+    const endChanged = endSecNum !== stamp.end
+    if (!startChanged && !endChanged) return
+    if (startChanged) onEditStart(startSecNum)
+    if (endChanged) onEditEnd(endSecNum)
+  }
+
+  function digitsOnly(raw: string, maxLen: number): string {
+    return raw.replace(/\D/g, '').slice(0, maxLen)
+  }
+
   return (
     <li className="stamp-row">
-      <span className="stamp-row-time">
-        {formatStamp(stamp.start)}
-        {stamp.end !== undefined && (
-          <>
-            {' → '}
-            {formatStamp(stamp.end)}
-          </>
-        )}
-      </span>
+      {editingTime ? (
+        // 编辑态:start mm + ss,→,end mm + ss(end 可空)
+        <span className="stamp-row-time stamp-row-time-edit">
+          <input
+            ref={startMinRef}
+            className="stamp-edit-mm"
+            value={startMin}
+            onChange={(e) => {
+              const v = digitsOnly(e.target.value, 2)
+              setStartMin(v)
+              if (v.length === 2) startSecRef.current?.focus()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                flushEditTime()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelEditTime()
+              }
+            }}
+            onBlur={() => {
+              // blur → 自动 flush(让用户点别处也能保存)
+              flushEditTime()
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="00"
+            aria-label="开始 分钟"
+            data-testid="stamp-row-start-min"
+          />
+          <span className="stamp-add-colon">:</span>
+          <input
+            ref={startSecRef}
+            className="stamp-edit-ss"
+            value={startSec}
+            onChange={(e) => setStartSec(digitsOnly(e.target.value, 2))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                flushEditTime()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelEditTime()
+              }
+            }}
+            onBlur={flushEditTime}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="00"
+            aria-label="开始 秒钟"
+            data-testid="stamp-row-start-sec"
+          />
+          <span className="stamp-add-sep">→</span>
+          <input
+            ref={endMinRef}
+            className="stamp-edit-mm"
+            value={endMin}
+            onChange={(e) => {
+              const v = digitsOnly(e.target.value, 2)
+              setEndMin(v)
+              if (v.length === 2) endSecRef.current?.focus()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                flushEditTime()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelEditTime()
+              }
+            }}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="--"
+            aria-label="结束 分钟"
+            data-testid="stamp-row-end-min"
+          />
+          <span className="stamp-add-colon">:</span>
+          <input
+            ref={endSecRef}
+            className="stamp-edit-ss"
+            value={endSec}
+            onChange={(e) => setEndSec(digitsOnly(e.target.value, 2))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                flushEditTime()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelEditTime()
+              }
+            }}
+            onBlur={flushEditTime}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="--"
+            aria-label="结束 秒钟"
+            data-testid="stamp-row-end-sec"
+          />
+        </span>
+      ) : (
+        // 展示态:单击进入编辑
+        <span
+          className="stamp-row-time stamp-row-time-clickable"
+          onClick={beginEditTime}
+          title="单击修改开始 / 结束时间"
+          data-testid="stamp-row-time-display"
+        >
+          {formatStamp(stamp.start)}
+          {stamp.end !== undefined && (
+            <>
+              {' → '}
+              {formatStamp(stamp.end)}
+            </>
+          )}
+        </span>
+      )}
       <textarea
         ref={setCombinedRef}
         className="stamp-row-note"
-        value={stamp.note}
+        value={noteDraft}
         rows={1}
         onChange={(e) => {
-          // 先让 wikilink hook 处理(透传 value + 检测 [[)
+          // 先让 wikilink hook 处理(透传 value + 检测 [[);setValue 走 setNoteDraft + scheduleFlush
           handleNoteChange(e)
           // 然后立即撑高(不等 React re-render)—— 用户敲键时高度跟随
           e.currentTarget.style.height = 'auto'
           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`
         }}
+        onBlur={flushNote}
         placeholder="(无笔记;Enter 换行)"
+        data-testid="stamp-row-note-input"
       />
       {/* per-row lastModified —— 显示"该条"最后修改时间
           (与 EpisodeRecord.lastModified 解耦,后者只反映 note / title) */}
@@ -832,6 +1069,12 @@ function StampRow({ stamp, book, allBooks, onEditNote, onDelete }: StampRowProps
     </li>
   )
 }
+
+/**
+ * 公开的 StampRow —— 仅供 __tests__ 直接 mount 真实产品组件用。
+ * 生产代码仍然通过 <StampList> 的内部 StampRow 渲染(走 onEditStart / onEditEnd 等 prop)。
+ */
+export const StampRow = StampRowInner
 
 /** 生成稳定 UUID;优先 `crypto.randomUUID()`(浏览器原生),降级到时间戳 + 随机数。 */
 function makeStampId(): string {
