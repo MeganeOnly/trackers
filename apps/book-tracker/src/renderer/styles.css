@@ -2359,10 +2359,19 @@ ul.book-grid {
   background: var(--border);
   align-self: stretch;
 }
-/* 每侧一行 flex —— label 在最外侧(左=prev 在左,右=next 在右),内容 flex:1 居中 */
-.prev-season,
+/* 每侧一行 flex —— 左半(prev)整体靠左,label 在最左;右半(next)镜像布局
+ * (flex-direction: row-reverse + justify-content: flex-end)让 label "下一季"
+ * 出现在最右。视觉上整条像 "上一季  XXX  ×    |    ×  XXX  下一季" */
+.prev-season {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  min-width: 0;
+}
 .next-season {
   display: flex;
+  flex-direction: row-reverse; /* 元素从右往左排,label 出现在最右 */
   align-items: center;
   gap: 8px;
   padding: 8px 12px;

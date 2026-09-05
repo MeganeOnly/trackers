@@ -573,8 +573,11 @@ pub fn set_prev_season(
 
     let mut merged = existing;
     merged.prev_season_id = normalized;
-    // prev 是用户主动设的 → 粘性标记设 true(只有非空才有意义,但设了也没副作用,前端读时已检查)
-    merged.prev_season_explicit = merged.prev_season_id.is_some();
+    // 任何 set_prev_season 调用都代表"用户主动表达" —— 不管值是 Some(id) 还是 None
+    // (「没有上一季」)。粘性标记始终设 true,service 层 set_next_season 反向清 prev
+    // 路径会看到该标记并跳过。clear(传 None)跟「主动选某个 prev」同样标记为 explicit,
+    // 跟 auto-sync 路径默认 false 区分开。
+    merged.prev_season_explicit = true;
     merged.updated = now_iso();
     crate::data::books::persist(books_dir, &merged)?;
     Ok(merged)
@@ -654,24 +657,46 @@ mod tests {
         assert!(b_read.next_season_id.is_none(), "set_prev_season 不联动 next 方向");
     }
 
-    /// v2.x:清空 prev → prev_season_explicit 重置为 false(便于日后再次被 service 自动同步)
+    /// v2.x:「没有上一季」语义 —— clear(prev_season_id = None) 时 prev_season_explicit
+    /// 保持 true(用户主动表达"没有",不是 auto-sync 路径)。UI 跟"已设 prev"一致(label + ×),
+    /// 但 prevSeasonId 字段是 None,frontmatter 只写 `prevSeasonExplicit: true` 不写 prevSeasonId。
+    /// 跟"未设置"(prevSeasonExplicit=false 且 prevSeasonId=None)在数据层明确区分。
     #[test]
-    fn set_prev_season_clear_resets_explicit_flag() {
+    fn set_prev_season_no_prev_keeps_explicit_flag() {
         let dir = temp_books_dir();
         let books_dir = dir.path().join("books");
         let mut existing = HashSet::new();
         let a = write_sample(&books_dir, "a", &mut existing);
         let b = write_sample(&books_dir, "b", &mut existing);
 
-        // 1) 主动设 A.prev = B
+        // 1) 主动设 A.prev = B(explicit = true)
         set_prev_season(&books_dir, &a.id, Some(b.id.clone())).unwrap();
-        // 2) 清空
+        // 2) 主动选"没有上一季"(传 None) → explicit 仍为 true
         let cleared = set_prev_season(&books_dir, &a.id, None).unwrap();
         assert!(cleared.prev_season_id.is_none());
-        assert!(!cleared.prev_season_explicit, "清空后 explicit 重置为 false");
-        // 3) 写盘验证 explicit 字段不出现
+        assert!(
+            cleared.prev_season_explicit,
+            "「没有上一季」也属用户主动表达,explicit 保持 true"
+        );
+        // 3) 写盘:frontmatter 含 prevSeasonExplicit: true 但不含 prevSeasonId
         let raw = std::fs::read_to_string(book_path(&books_dir, &a.id)).unwrap();
-        assert!(!raw.contains("prevSeasonExplicit"), "false 不应写盘");
+        assert!(
+            raw.contains("\"prevSeasonExplicit\": true"),
+            "explicit=true 应写盘; raw={raw}"
+        );
+        assert!(
+            !raw.contains("\"prevSeasonId\""),
+            "None 不应写 prevSeasonId; raw={raw}"
+        );
+
+        // 4) 对照:从未 set_prev_season 过的 book(纯 service auto-sync 路径)→ explicit=false
+        let d = write_sample(&books_dir, "d", &mut existing);
+        let _ = d; // 不调 set_prev_season
+        let d_read = crate::data::books::read_book(&books_dir, &d.id).unwrap().unwrap();
+        assert!(
+            !d_read.prev_season_explicit,
+            "没碰过 prev 的 book → explicit=false(向后兼容老数据)"
+        );
     }
 
     /// v2.x:self-loop 拒绝(同 set_next_season)
