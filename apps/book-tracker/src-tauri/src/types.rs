@@ -566,3 +566,56 @@ pub enum DefaultMode {
     Clean,
     Edit,
 }
+
+// ==================== v2.x 候选剧集（Candidates）类型 ====================
+
+/// 候选剧集条目（v2.x 新增）—— 用户感兴趣 / skill 推荐了但还没决定看的剧。
+///
+/// 数据存 `<data_dir>/candidates.json`，与 `books/` `series.json` 平级。
+///
+/// 与 `Series`（v1.7，无序归组）语义不同：
+/// - `Series` 是"已确定归属的归组"
+/// - `Candidate` 是"还没决定是否进入作品库的待选池"
+///
+/// 字段跟 TS 端 `Candidate` 1:1 对应；用 `serde(rename_all = "camelCase")`
+/// 让 IPC payload 走 camelCase（tags / addedAt 等）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Candidate {
+    pub id: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    pub added_at: String,
+}
+
+/// `candidates.json` 文件结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidatesFile {
+    #[serde(default = "default_candidates_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub items: Vec<Candidate>,
+}
+
+fn default_candidates_version() -> u32 {
+    1
+}
+
+impl Default for CandidatesFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            items: Vec::new(),
+        }
+    }
+}
+
+/// promote 操作的目标状态。`'want' | 'finished'`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromoteStatus {
+    Want,
+    Finished,
+}

@@ -4,6 +4,7 @@
 //! `crates/tracker-core`，本模块只保留 Book 专属的 frontmatter 读写。
 
 pub mod books;
+pub mod candidates;
 pub mod config;
 pub mod ranking;
 pub mod series;

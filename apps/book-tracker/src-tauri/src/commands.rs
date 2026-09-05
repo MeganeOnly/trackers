@@ -8,8 +8,8 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::data::books::{BrokenEntry as DataBrokenEntry, BookListResult};
-use crate::service::{books, config as cfg_svc, data_dir, ranking, relations, series as series_svc};
-use crate::types::{Book, BookInput, BookPatch, CharacterNotes, Config, Edge, EpisodeNotes, PairwiseResult, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp};
+use crate::service::{books, candidates, config as cfg_svc, data_dir, ranking, relations, series as series_svc};
+use crate::types::{Book, BookInput, BookPatch, Candidate, CharacterNotes, Config, Edge, EpisodeNotes, PairwiseResult, PromoteStatus, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp};
 
 /// 把 data 层的 BrokenEntry 转换成 renderer 期望的格式(plain struct)。
 fn to_broken(b: DataBrokenEntry) -> HashMap<String, String> {
@@ -347,4 +347,36 @@ pub fn data_reveal_in_explorer<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     app.opener()
         .open_path(dir, None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+// ==================== candidates commands ====================
+
+#[tauri::command]
+pub fn candidates_list() -> Result<Vec<Candidate>, String> {
+    let dir = data_dir_path()?;
+    candidates::list(&dir)
+        .map(|f| f.items)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn candidates_add(
+    title: String,
+    tags: Vec<String>,
+    note: Option<String>,
+) -> Result<Candidate, String> {
+    let dir = data_dir_path()?;
+    candidates::add(&dir, &title, &tags, note.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn candidates_remove(id: String) -> Result<(), String> {
+    let dir = data_dir_path()?;
+    candidates::remove(&dir, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn candidates_promote(id: String, status: PromoteStatus) -> Result<Book, String> {
+    let dir = data_dir_path()?;
+    candidates::promote(&dir, &id, status).map_err(|e| e.to_string())
 }

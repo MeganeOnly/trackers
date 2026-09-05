@@ -1,4 +1,4 @@
-import type { Book, BookInput, Character, Config, Edge, PairwiseResult, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp } from './types'
+import type { Book, BookInput, Candidate, CandidatesFile, Character, Config, Edge, PairwiseResult, PromoteStatus, RankingFile, SeasonInfo, Series, SeriesInput, SeriesPatch, TimeStamp } from './types'
 import type { EpisodeNotes } from './types'
 
 export interface BrokenEntry {
@@ -114,11 +114,28 @@ export interface SeriesAPI {
   delete(id: string): Promise<void>
 }
 
+/**
+ * v2.x 候选剧集 API。
+ *
+ * - `list()` 返回所有候选（按 addedAt 倒序）
+ * - `add(title, tags, note?)` 新增。同 title 不重复加（service 层去重，返回已有）
+ * - `remove(id)` 删除
+ * - `promote(id, status)` 把候选转为 books 条目（kind='tv'），完成后从 candidates 删除；
+ *   返回新建的 Book。country/year/author 等元数据由用户后续在 book-tracker 补全
+ */
+export interface CandidatesAPI {
+  list(): Promise<Candidate[]>
+  add(title: string, tags: string[], note?: string): Promise<Candidate>
+  remove(id: string): Promise<void>
+  promote(id: string, status: PromoteStatus): Promise<Book>
+}
+
 export interface ElectronAPI {
   books: BookAPI
   relations: RelationsAPI
   config: ConfigAPI
   ranking: RankingAPI
   series: SeriesAPI
+  candidates: CandidatesAPI
   data: DataAPI
 }

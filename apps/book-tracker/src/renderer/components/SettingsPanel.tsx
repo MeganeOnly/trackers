@@ -1,5 +1,5 @@
-import { Modal } from './Modal'
 import { useSettingsStore } from '../store/settings'
+import { Modal } from './Modal'
 import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
 import type { SidebarSeriesEntryMode, WorkKind } from '@shared/types'
 import { ALL_THEMES, ALL_FORMATS, THEME_META, FORMAT_META } from '@ui/useTheme'
@@ -53,14 +53,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
   const setSidebarSeriesEntryMode = useSettingsStore((s) => s.setSidebarSeriesEntryMode)
 
   return (
-    <Modal
-      title="设置"
-      onClose={onClose}
-      width={560}
-      className="settings-modal"
-    >
+    <Modal title="设置" onClose={onClose} width={560} className="settings-modal">
       <div className="settings-panel">
-        {/* 第一行：两列紧凑布局 —— 新建默认类型 + 展示筛选 */}
+        {/* v2.x 候选剧集已拆为独立 modal(顶栏「待选」按钮),不再嵌在设置里。
+            设置面板回归单栏;第一行两列紧凑布局:新建默认类型 + 展示筛选。 */}
         <div className="settings-row">
           <label className="field">
             <span className="field-label">
@@ -141,7 +137,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
         <div className="field">
           <span className="field-label">
             外观 · 格式风格
-            <InfoTip tip="信息呈现方式（列表 / 网格 / 聚焦栈）。与「样式风格」正交，可任意组合。" />
+            <InfoTip tip="信息呈现方式(列表 / 网格 / 聚焦栈)。与「样式风格」正交,可任意组合。" />
           </span>
           <div className="format-picker" role="radiogroup" aria-label="格式风格">
             {ALL_FORMATS.map((id) => {

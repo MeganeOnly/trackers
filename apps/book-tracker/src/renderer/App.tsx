@@ -6,6 +6,7 @@ import { AddModal } from './components/AddModal'
 import { GraphModal } from './components/GraphModal'
 import { RankingModal } from './components/RankingModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { CandidatesModal } from './components/CandidatesModal'
 import { BookNotesModal } from './components/BookNotesModal'
 import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
@@ -28,6 +29,8 @@ export default function App(): JSX.Element {
   const [graphOpen, setGraphOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // v2.x:候选剧集独立 modal(原嵌在 SettingsPanel 左栏,现拆出)
+  const [candidatesOpen, setCandidatesOpen] = useState(false)
   // v2.x:日常模式点击作品 → 打开作品笔记 Modal(主笔记 + 集笔记 + 角色笔记)
   // 而非切到编辑模式;由 CleanMode 通过 onOpenNotes prop 回调写入
   const [notesBookId, setNotesBookId] = useState<string | null>(null)
@@ -105,6 +108,7 @@ export default function App(): JSX.Element {
           onGraph={() => setGraphOpen(true)}
           onRanking={() => setRankingOpen(true)}
           onSettings={() => setSettingsOpen(true)}
+          onCandidates={() => setCandidatesOpen(true)}
         />
         <div className="app-body">
           <EditModeWrapper onOpenNotes={setNotesBookId} />
@@ -113,6 +117,7 @@ export default function App(): JSX.Element {
         {graphOpen && <GraphModal onClose={() => setGraphOpen(false)} />}
         {rankingOpen && <RankingModal onClose={() => setRankingOpen(false)} />}
         {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+        {candidatesOpen && <CandidatesModal onClose={() => setCandidatesOpen(false)} />}
         {notesBookId && (
           <BookNotesModal
             bookId={notesBookId}

@@ -92,6 +92,10 @@ mod tauri_app {
                 commands::ranking_apply,
                 commands::data_pick_dir,
                 commands::data_reveal_in_explorer,
+                commands::candidates_list,
+                commands::candidates_add,
+                commands::candidates_remove,
+                commands::candidates_promote,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

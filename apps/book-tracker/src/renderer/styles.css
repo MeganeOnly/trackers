@@ -1392,6 +1392,9 @@ button:focus-visible {
 
 .settings-panel { display: flex; flex-direction: column; gap: 14px; }
 .settings-panel .field small { display: block; margin-top: 4px; }
+
+/* v2.x 候选剧集已拆为独立 modal（顶栏「待选」按钮），设置面板回归单栏。
+   保留 .settings-row（首行两列紧凑布局）和 .field-label 样式。 */
 /* 第一行两列:新建默认类型 + 展示筛选 紧凑并排 */
 .settings-row {
   display: grid;
@@ -1530,6 +1533,105 @@ button:focus-visible {
 }
 /* .graph-view / .graph-legend / .lg-* 在 packages/tracker-ui/src/GraphView.css
  * 由 main.tsx 显式 import —— commit 0 重构下沉 */
+
+/* ============ Candidates Section（CandidatesModal body：密集列表） ============ */
+/* 密集策略（v2025-09 调密度）：
+ *   - item 垂直 padding 从 8/10 → 3/4
+ *   - 字号 title 13→12,tag/btn 11→10
+ *   - tag 圆角胶囊更扁（padding 1/6 → 0/5）
+ *   - btn 文字更短（加/看/删）+ padding 收紧
+ *   - max-height 540 → 640（modal 高度允许下塞得更多）
+ *   - sticky field-label：滚动时标题 + 计数始终可见
+ */
+.candidates-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.candidates-section > .field-label {
+  margin-bottom: 6px;
+  position: sticky;
+  top: 0;
+  background: white;
+  padding-bottom: 4px;
+  z-index: 1;
+}
+.candidates-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 640px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+}
+.candidate-item {
+  padding: 3px 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.candidate-item:last-child { border-bottom: none; }
+.candidate-row1 { margin-bottom: 1px; }
+.candidate-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.candidate-row2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 2px;
+}
+.candidate-tag {
+  display: inline-block;
+  padding: 0 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.candidate-note {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-style: italic;
+}
+.candidate-actions {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+.candidate-btn {
+  padding: 1px 6px;
+  font-size: 10px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+.candidate-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.candidate-btn-danger {
+  color: var(--danger);
+}
+.candidate-btn-danger:hover {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
 
 /* ============ BookCard（关系图右侧的书详情卡片） ============ */
 .book-card {

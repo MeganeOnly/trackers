@@ -400,6 +400,42 @@ export interface Book {
   seriesId?: string
 }
 
+// ==================== v2.x 候选剧集（Candidates）类型 ====================
+
+/**
+ * 候选剧集条目：用户感兴趣 / skill 推荐了但还没决定看的剧。
+ * 与 Series（v1.7，无序归组）语义不同：
+ * - Series 是"已确定归属的归组"
+ * - Candidate 是"还没决定是否进入作品库的待选池"
+ *
+ * 数据存 `<data_dir>/candidates.json`，与 `books/` `series.json` 平级。
+ *
+ * 写盘策略：
+ * - `tags` 空数组保留语义 = "暂无分类"
+ * - `note` 空串不写盘
+ * - 老数据缺字段 → undefined（向后兼容）
+ */
+export interface Candidate {
+  id: string
+  /** 剧名（必填；空串 → 拒绝创建） */
+  title: string
+  /** 分类标签（如 ["古装", "断案", "单元剧"]）—— 空数组保留语义 */
+  tags: string[]
+  /** 短注（可选；空串不写盘） */
+  note?: string
+  /** ISO 8601 字符串 */
+  addedAt: string
+}
+
+/** candidates.json 文件结构 */
+export interface CandidatesFile {
+  version: 1
+  items: Candidate[]
+}
+
+/** promote 操作的目标状态：'want' / 'finished' */
+export type PromoteStatus = 'want' | 'finished'
+
 // ==================== v1.7 系列（Series）类型 ====================
 
 /**

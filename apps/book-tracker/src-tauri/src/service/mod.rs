@@ -12,6 +12,7 @@
 //! 实时读避免 cache 失效问题)。
 
 pub mod books;
+pub mod candidates;
 pub mod config;
 pub mod data_dir;
 pub mod ranking;

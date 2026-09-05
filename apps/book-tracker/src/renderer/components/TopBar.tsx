@@ -7,9 +7,11 @@ interface TopBarProps {
   onGraph?: () => void
   onRanking?: () => void
   onSettings?: () => void
+  /** v2.x：候选剧集 modal 入口（独立于设置面板） */
+  onCandidates?: () => void
 }
 
-export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): JSX.Element {
+export function TopBar({ onAdd, onGraph, onRanking, onSettings, onCandidates }: TopBarProps): JSX.Element {
   const mode = useModeStore((s) => s.mode)
   const setMode = useModeStore((s) => s.setMode)
   const query = useSearchStore((s) => s.query)
@@ -56,6 +58,12 @@ export function TopBar({ onAdd, onGraph, onRanking, onSettings }: TopBarProps): 
         {onSettings && (
           <button className="topbar-icon-btn" onClick={onSettings} title="设置">
             设置
+          </button>
+        )}
+        {onCandidates && (
+          // v2.x：候选剧集入口放在「设置」右边 —— 不再嵌在设置面板内
+          <button className="topbar-icon-btn" onClick={onCandidates} title="待选剧集">
+            待选
           </button>
         )}
         {onGraph && (
