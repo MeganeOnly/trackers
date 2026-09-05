@@ -2435,21 +2435,26 @@ ul.book-grid {
   color: var(--accent);
   border-color: var(--accent);
 }
+/* v2.x × 按钮 —— 极简版:小尺寸 + 无背景 + 靠上对齐,跟整个 row 顶部对齐
+ * (override 父级 align-items: center,让按钮"飘"在行顶,不跟 label/content 垂直居中) */
 .prev-season-remove,
 .next-season-remove {
-  font-size: 12px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: white;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
   flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: -2px; /* 视觉上往 row 顶部再挪一点 */
 }
 .prev-season-remove:hover,
 .next-season-remove:hover {
   color: var(--accent);
-  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.04); /* 极淡 hover 反馈,没白底 */
 }
 
 .next-season-block {
