@@ -179,7 +179,13 @@ button:focus-visible {
   outline: none; border-color: var(--accent);
 }
 .field textarea { font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace; font-size: 13px; resize: vertical; }
-.field-row { display: flex; gap: 12px; }
+/* v2.x 统一 2 列 grid —— 每行固定 2 个 cell,缺失位用 .field-row-placeholder 撑满。
+ * grid 1fr 1fr (vs 之前 flex 1fr)让 cell 宽度精确相等,row 间对齐更整齐。
+ * 缺失 cell 用 aria-hidden 空 span 视觉不可见但占 grid 列,保持行高一致。*/
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-placeholder {
+  min-height: 1.5em; /* 跟 InlineField 行高匹配,撑满 grid 行高 */
+}
 
 /* ============ v2.x InlineField —— 默认预览 + 点击白框编辑 ============ */
 /* 设计目标（跟笔记的「preview ↔ edit」二态对齐）：

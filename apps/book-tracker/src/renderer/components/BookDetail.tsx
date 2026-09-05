@@ -502,6 +502,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             max={9999}
           />
         </div>
+        {/* v2.x row 重排 —— 每行 2 列 grid,缺失位用 .field-row-placeholder 撑列:
+         *   row 1: 作品类型 | 首播年份
+         *   row 2: 原作/主创 | 译者(仅 book)/主演(影视)/编剧(影视) [可能 + 编剧凑 2 个,或 + placeholder]
+         *   row 3: 原产国/地区 | 状态
+         *   row 4 (reading/watching): 第N次看 | 当前进度
+         *   row 5 (reading/watching): 总进度 | 标签
+         *   row 4 (其他): 标签 | placeholder
+         *   — 标签在 reading/watching 时挪到 row 5 跟"总进度"配对,非 reading/watching 时独立成 row 4 */}
         <div className="field-row">
           <InlineField
             fieldId="author"
@@ -515,7 +523,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             onDeactivate={() => setEditingField(null)}
             emptyPlaceholder="未设置"
           />
-          {translatorLabelFor(kind) && (
+          {translatorLabelFor(kind) ? (
             <InlineField
               fieldId="translator"
               label={translatorLabelFor(kind)!}
@@ -528,22 +536,47 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
               onDeactivate={() => setEditingField(null)}
               emptyPlaceholder="未设置"
             />
+          ) : starringLabelFor(kind) ? (
+            starringLabelFor(kind) && screenwriterLabelFor(kind) ? (
+              // movie 既有主演又有编剧 —— row 2 放主演,编剧挪到 row 2.5? 简化:主演在 row 2,编剧塞到哪?
+              // 决策:主演在 row 2,编剧单独一行(单独一个 field + placeholder)
+              <>
+                <InlineField
+                  fieldId="starring"
+                  label={starringLabelFor(kind)!}
+                  display={starring}
+                  value={starring}
+                  onChange={setStarring}
+                  kind="text"
+                  editing={editingField === 'starring'}
+                  onActivate={() => setEditingField('starring')}
+                  onDeactivate={() => setEditingField(null)}
+                  emptyPlaceholder="未设置"
+                />
+                {/* 编剧字段需要单独一行 —— 下面 row 2b 处理 */}
+              </>
+            ) : (
+              <InlineField
+                fieldId="starring"
+                label={starringLabelFor(kind)!}
+                display={starring}
+                value={starring}
+                onChange={setStarring}
+                kind="text"
+                editing={editingField === 'starring'}
+                onActivate={() => setEditingField('starring')}
+                onDeactivate={() => setEditingField(null)}
+                emptyPlaceholder="未设置"
+              />
+            )
+          ) : (
+            // 其他 kind (book/other 没有译者也未必有主演)—— placeholder 撑列
+            <span aria-hidden="true" className="field-row-placeholder" />
           )}
-          {starringLabelFor(kind) && (
-            <InlineField
-              fieldId="starring"
-              label={starringLabelFor(kind)!}
-              display={starring}
-              value={starring}
-              onChange={setStarring}
-              kind="text"
-              editing={editingField === 'starring'}
-              onActivate={() => setEditingField('starring')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-            />
-          )}
-          {screenwriterLabelFor(kind) && (
+        </div>
+        {/* movie 类型专属 row 2b —— 编剧独立一行,跟主演区分 */}
+        {kind === 'movie' && screenwriterLabelFor(kind) && (
+          <div className="field-row">
             <InlineField
               fieldId="screenwriter"
               label={screenwriterLabelFor(kind)!}
@@ -556,8 +589,9 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
               onDeactivate={() => setEditingField(null)}
               emptyPlaceholder="未设置"
             />
-          )}
-        </div>
+            <span aria-hidden="true" className="field-row-placeholder" />
+          </div>
+        )}
         <div className="field-row">
           <InlineField
             fieldId="country"
@@ -585,53 +619,81 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             emptyPlaceholder=""
           />
         </div>
-        {(status === 'reading' || status === 'watching') && (
+        {(status === 'reading' || status === 'watching') ? (
+          <>
+            <div className="field-row">
+              <InlineField
+                fieldId="readCount"
+                label="第 N 次看"
+                display={String(readCount)}
+                value={String(readCount)}
+                onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
+                // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
+                normalize={(v) => String(Math.max(1, Number(v) || 1))}
+                kind="number"
+                editing={editingField === 'readCount'}
+                onActivate={() => setEditingField('readCount')}
+                onDeactivate={() => setEditingField(null)}
+                emptyPlaceholder=""
+                min={1}
+              />
+              <InlineField
+                fieldId="progressCurrent"
+                label="当前进度"
+                display={progressCurrent}
+                value={progressCurrent}
+                onChange={setProgressCurrent}
+                kind="number"
+                editing={editingField === 'progressCurrent'}
+                onActivate={() => setEditingField('progressCurrent')}
+                onDeactivate={() => setEditingField(null)}
+                emptyPlaceholder="未设置"
+                min={0}
+              />
+            </div>
+            <div className="field-row">
+              <InlineField
+                fieldId="progressTotal"
+                label="总进度"
+                display={progressTotal}
+                value={progressTotal}
+                onChange={setProgressTotal}
+                kind="number"
+                editing={editingField === 'progressTotal'}
+                onActivate={() => setEditingField('progressTotal')}
+                onDeactivate={() => setEditingField(null)}
+                emptyPlaceholder="未设置"
+                min={1}
+              />
+              <InlineField
+                fieldId="tags"
+                label="标签"
+                display={tagsText}
+                value={tagsText}
+                onChange={setTagsText}
+                kind="text"
+                editing={editingField === 'tags'}
+                onActivate={() => setEditingField('tags')}
+                onDeactivate={() => setEditingField(null)}
+                emptyPlaceholder="未设置"
+              />
+            </div>
+          </>
+        ) : (
           <div className="field-row">
             <InlineField
-              fieldId="readCount"
-              label="第 N 次看"
-              display={String(readCount)}
-              value={String(readCount)}
-              onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
-              // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
-              normalize={(v) => String(Math.max(1, Number(v) || 1))}
-              kind="number"
-              editing={editingField === 'readCount'}
-              onActivate={() => setEditingField('readCount')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder=""
-              min={1}
-            />
-          </div>
-        )}
-        {(status === 'reading' || status === 'watching') && (
-          <div className="field-row progress-fields">
-            <InlineField
-              fieldId="progressCurrent"
-              label="当前进度"
-              display={progressCurrent}
-              value={progressCurrent}
-              onChange={setProgressCurrent}
-              kind="number"
-              editing={editingField === 'progressCurrent'}
-              onActivate={() => setEditingField('progressCurrent')}
+              fieldId="tags"
+              label="标签"
+              display={tagsText}
+              value={tagsText}
+              onChange={setTagsText}
+              kind="text"
+              editing={editingField === 'tags'}
+              onActivate={() => setEditingField('tags')}
               onDeactivate={() => setEditingField(null)}
               emptyPlaceholder="未设置"
-              min={0}
             />
-            <InlineField
-              fieldId="progressTotal"
-              label="总进度"
-              display={progressTotal}
-              value={progressTotal}
-              onChange={setProgressTotal}
-              kind="number"
-              editing={editingField === 'progressTotal'}
-              onActivate={() => setEditingField('progressTotal')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-              min={1}
-            />
+            <span aria-hidden="true" className="field-row-placeholder" />
           </div>
         )}
         <label className="form-checkline">
@@ -689,18 +751,6 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             />
           )}
         </div>
-        <InlineField
-          fieldId="tags"
-          label="标签"
-          display={tagsText}
-          value={tagsText}
-          onChange={setTagsText}
-          kind="text"
-          editing={editingField === 'tags'}
-          onActivate={() => setEditingField('tags')}
-          onDeactivate={() => setEditingField(null)}
-          emptyPlaceholder="点击设置 标签（用逗号分隔）"
-        />
         {error && <p className="form-error">{error}</p>}
       </div>
 
