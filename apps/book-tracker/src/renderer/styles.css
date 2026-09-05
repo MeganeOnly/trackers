@@ -202,6 +202,11 @@ button:focus-visible {
   color: var(--muted);
   flex-shrink: 0; /* label 不压缩,确保 value 区域宽度可预测 */
   white-space: nowrap;
+  /* 全局统一 label 宽度,让所有 row 的 value 起点对齐到同一垂直线
+   * (解决用户反馈"首播年份 / 主演 / 状态在不同 row 不对齐")。
+   * 104px 容纳最长 label 如"原产国 / 地区" / "制片国家 / 地区";
+   * 短 label 后会留白,但视觉上比"value 起点错位"整齐。 */
+  min-width: 104px;
 }
 /* 预览态 —— 关键:把 button 还原成纯文本容器(无默认样式) */
 .inline-field-preview {
