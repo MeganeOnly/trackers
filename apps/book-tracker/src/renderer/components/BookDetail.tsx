@@ -710,48 +710,24 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
 
-      {/* v2.x 「上一季 / 下一季」合并到一条两列 grid(左 = 上一季,右 = 下一季,中间 1px 分隔线)。
-          - 上一季:之前是只读跳转,v2.x 起新增「+ 设置上一季」入口(同下一季 picker 复用,
-            顶部多"没有上一季"项);主动设的 prev 走专用 IPC,带粘性标记
-            (Rust 端 prevSeasonExplicit = true,set_next_season 反向同步会跳过)
-          - 下一季:跟 v1.6 同款 + / 改 / × 三个动作 */}
+      {/* v2.x 「上一季 / 下一季」合并为一条两列 grid(左=上一季,右=下一季,中间 1px 分隔线)。
+          - 极简交互:每侧只有 label + 内容(未设置=「+ 设置」按钮 / 已设置=条目+×)
+          - 没有「改」按钮 —— 要改先 × 清除再 + 重新设
+          - × 清除后回到「未设置」状态,可重新打开 picker */}
       <section className="season-pair-block">
         <div className="season-pair">
-          {/* 左侧:上一季 */}
+          {/* 左侧:上一季(整体在最左) */}
           <div className="prev-season">
-            <div className="prev-season-head">
-              <span className="prev-season-label">上一季</span>
-              {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
-                <button
-                  type="button"
-                  className="prev-season-add"
-                  onClick={() => setSeasonPickerMode('prev')}
-                >
-                  + 设置上一季
-                </button>
-              ) : prevSeasonBook ? (
-                <button
-                  type="button"
-                  className="prev-season-edit"
-                  onClick={() => setSeasonPickerMode('prev')}
-                  title="改成另一部作品 / 标记为「没有上一季」"
-                >
-                  改
-                </button>
-              ) : (
-                // 引用了已被删除的作品 —— 优雅降级
-                <button
-                  type="button"
-                  className="prev-season-remove"
-                  onClick={() => void handleClearPrevSeason()}
-                  title="清除失效的上一季引用"
-                >
-                  × 清除
-                </button>
-              )}
-            </div>
+            <span className="prev-season-label">上一季</span>
             {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
-              <span className="prev-season-missing">未设置</span>
+              <button
+                type="button"
+                className="prev-season-add"
+                onClick={() => setSeasonPickerMode('prev')}
+                title="主动设置上一季(粘性) / 标记「没有上一季」"
+              >
+                + 设置上一季
+              </button>
             ) : prevSeasonBook ? (
               <>
                 <span
@@ -765,7 +741,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                   type="button"
                   className="prev-season-remove"
                   onClick={() => void handleClearPrevSeason()}
-                  title="移除上一季关联(变成「没有上一季」状态)"
+                  title="移除上一季关联(回到「未设置」状态)"
                 >
                   ×
                 </button>
@@ -776,44 +752,32 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                 <span className="prev-season-missing">
                   原作品已删除 (id: {cur.prevSeasonId})
                 </span>
-                <span
-                  className="prev-season-info"
-                  title="service 层会在下次设置该作品的下一季时自动清理失效的反向引用"
+                <button
+                  type="button"
+                  className="prev-season-remove"
+                  onClick={() => void handleClearPrevSeason()}
+                  title="清除失效的上一季引用"
                 >
-                  × 自愈中
-                </span>
+                  ×
+                </button>
               </>
             )}
           </div>
 
-          {/* 中间 1px 分隔线 —— 视觉上把"上一季"和"下一季"切成两半,跟「左 / 右」心智一致 */}
+          {/* 中间 1px 分隔线 —— 视觉上把"上一季"和"下一季"切成两半 */}
           <div className="season-pair-divider" aria-hidden="true" />
 
-          {/* 右侧:下一季 */}
+          {/* 右侧:下一季(整体在最右) */}
           <div className="next-season">
-            <div className="next-season-head">
-              <span className="next-season-label">下一季</span>
-              {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
-                <button
-                  type="button"
-                  className="next-season-add"
-                  onClick={() => setSeasonPickerMode('next')}
-                >
-                  + 设置下一季
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="next-season-add"
-                  onClick={() => setSeasonPickerMode('next')}
-                  title="改成另一部作品"
-                >
-                  改
-                </button>
-              )}
-            </div>
+            <span className="next-season-label">下一季</span>
             {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
-              <span className="next-season-missing">未设置</span>
+              <button
+                type="button"
+                className="next-season-add"
+                onClick={() => setSeasonPickerMode('next')}
+              >
+                + 设置下一季
+              </button>
             ) : nextSeasonBook ? (
               <>
                 <span
@@ -827,7 +791,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                   type="button"
                   className="next-season-remove"
                   onClick={() => void handleClearNextSeason()}
-                  title="移除下一季关联"
+                  title="移除下一季关联(回到「未设置」状态)"
                 >
                   ×
                 </button>
@@ -844,7 +808,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                   onClick={() => void handleClearNextSeason()}
                   title="清除失效的下一季引用"
                 >
-                  × 清除
+                  ×
                 </button>
               </>
             )}

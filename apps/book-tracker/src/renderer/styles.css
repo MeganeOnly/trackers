@@ -2339,12 +2339,10 @@ ul.book-grid {
 
 
 /* ============ v2.x 「上一季 / 下一季」合并两列区块 ============ */
-/* 之前 v1.6 是两块独立 section(「上一季」在「下一季」上方),v2.x 起合并为一条
- * 两列 grid(左 = 上一季,右 = 下一季,中间 1px 分隔线)。同时上一季新增
- * 「+ 设置上一季」入口 + 「× 清除」按钮(之前是只读跳转)。
- *
- * 内部布局:每个 column 自带一个 head(label + 操作按钮)和 body(value 显示),
- * head 横向 flex,body 横向 flex —— 跟"上下季"心智一致:label 在顶,value 在下 */
+/* 一长条 grid 1fr 1px 1fr:左 = 上一季,右 = 下一季,中间 1px 分隔线。
+ * 极简交互:每侧只有 [label] [内容 flex:1] [×(已设时)] —— 不再有「改」按钮,
+ * 不再有「未设置」文字占位 —— 未设置时「+ 设置XXX」按钮占满内容区。
+ * 视觉上整条只有 2 个 label + 内容,不再 head/body 两行式。*/
 .season-pair-block {
   margin-top: 18px;
 }
@@ -2357,34 +2355,18 @@ ul.book-grid {
   border-radius: 4px;
   overflow: hidden;
 }
-.season-pair > .prev-season,
-.season-pair > .next-season {
-  /* 覆盖外层 div 默认行为(去掉独立 border / radius,grid 容器统一管理) */
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 8px 12px;
-  font-size: 13px;
-}
 .season-pair-divider {
   background: var(--border);
-  /* 垂直贯穿整条 —— 跟 grid 容器同高 */
   align-self: stretch;
 }
+/* 每侧一行 flex —— label 在最外侧(左=prev 在左,右=next 在右),内容 flex:1 居中 */
 .prev-season,
 .next-season {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-/* 内部 head:label + 右侧操作按钮(横排) */
-.prev-season-head,
-.next-season-head {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  padding: 8px 12px;
+  min-width: 0;
 }
 .prev-season-label,
 .next-season-label {
@@ -2410,6 +2392,10 @@ ul.book-grid {
   color: var(--muted);
   font-style: italic;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .prev-season-info {
   padding: 2px 8px;
@@ -2421,25 +2407,27 @@ ul.book-grid {
   cursor: help;
   flex-shrink: 0;
 }
-/* v2.x 上一季 新增操作按钮 —— 跟下一季同款 button style,共用 next-season-add class
-   (或者单独 prev-season-add 也可,这里复用减少 CSS 重复) */
+/* v2.x 「+ 设置上一季」按钮 —— 未设置时占满内容区(跟 + 设置下一季 同款) */
 .prev-season-add,
-.prev-season-edit {
-  font-size: 12px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+.next-season-add {
+  flex: 1;
+  padding: 4px 10px;
+  font-size: 13px;
   background: white;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
   color: var(--muted);
   cursor: pointer;
-  flex-shrink: 0;
+  text-align: center;
+  min-width: 0;
 }
 .prev-season-add:hover,
-.prev-season-edit:hover {
+.next-season-add:hover {
   color: var(--accent);
   border-color: var(--accent);
 }
-.prev-season-remove {
+.prev-season-remove,
+.next-season-remove {
   font-size: 12px;
   padding: 2px 8px;
   border: 1px solid var(--border);
@@ -2449,7 +2437,8 @@ ul.book-grid {
   cursor: pointer;
   flex-shrink: 0;
 }
-.prev-season-remove:hover {
+.prev-season-remove:hover,
+.next-season-remove:hover {
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -2463,57 +2452,6 @@ ul.book-grid {
   font-weight: 600;
   color: var(--fg);
 }
-.next-season {
-  /* v2.x:.next-season 跟 .prev-season 走同一个 column 布局规则(head + body),
-     样式在 .prev-season, .next-season 通用规则处统一定义;这里只放历史遗留的细节样式 */
-}
-.next-season-label {
-  color: var(--muted);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.next-season-link {
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  font-weight: 500;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.next-season-link:hover { filter: brightness(0.85); }
-.next-season-missing {
-  color: var(--muted);
-  font-style: italic;
-  flex: 1;
-}
-/* v2.x:`+ 设置下一季` 按钮跟 v1.6 同款(虚线 dashed border)—— 之前 .next-season-add
-   是 row 布局里的按钮,现在搬到 .next-season-head 里也适用 */
-.next-season-add {
-  padding: 2px 8px;
-  font-size: 12px;
-  background: white;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
-  color: var(--muted);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.next-season-add:hover { color: var(--accent); border-color: var(--accent); }
-.next-season-remove {
-  padding: 2px 8px;
-  font-size: 12px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.next-season-remove:hover { color: var(--accent); border-color: var(--accent); }
 
 
 /* ============ v1.6 NextSeasonPicker(弹窗式 inline 选择器) ============ */
