@@ -180,6 +180,79 @@ button:focus-visible {
 }
 .field textarea { font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace; font-size: 13px; resize: vertical; }
 .field-row { display: flex; gap: 12px; }
+
+/* ============ v2.x InlineField —— 默认预览 + 点击白框编辑 ============ */
+/* 设计目标（跟笔记的「preview ↔ edit」二态对齐）：
+ *   - 横排布局:label 在左,value 在右,避免「label 一行 + value 一行」纵向占空
+ *   - 预览态:无边框、无背景,hover 时底色轻微提示「可点击」
+ *   - 编辑态:白框 input/select,跟原来 .field input 同款
+ *   - 空值:muted 灰字「未设置」占位(简短,避免跟 label 重复)
+ *   - 字段之间视觉一致,统一用 button 元素避免 div+role="button" 的 a11y 包袱
+ */
+.inline-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0; /* 防止 preview 文本溢出 flex */
+}
+.inline-field-label {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0; /* label 不压缩,确保 value 区域宽度可预测 */
+  white-space: nowrap;
+}
+/* 预览态 —— 关键:把 button 还原成纯文本容器(无默认样式) */
+.inline-field-preview {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent; /* hover 前透明,不抢视觉 */
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, border-color 0.12s;
+}
+.inline-field-preview:hover,
+.inline-field-preview:focus-visible {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--border);
+  outline: none;
+}
+.inline-field-preview:focus-visible {
+  border-color: var(--accent);
+}
+/* 空值 muted 占位 —— 不像警告色那么重,温和提示 */
+.inline-field-empty {
+  color: var(--muted);
+  opacity: 0.7;
+  font-style: italic;
+}
+/* 编辑态的白框 input/select —— 复用 .field 的尺寸/圆角风格 */
+.inline-field-control {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  background: white;
+}
+.inline-field-control:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* 编辑态时 label 主题色高亮,跟笔记 is-editing 同款 */
+.inline-field.is-editing .inline-field-label {
+  color: var(--accent);
+}
 .form-error {
   margin: 0; padding: 8px 12px;
   background: #f7dfd8; color: var(--danger);
@@ -371,7 +444,7 @@ button:focus-visible {
 /* 内联编辑表单（编辑模式详情 = 表单字段，复用 .field/.field-row 样式） */
 .detail-form {
   margin-top: 20px;
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 
 .detail-fields {
@@ -2233,7 +2306,7 @@ ul.book-grid {
 /* grid 模式 + library/codex:用 Fraunces italic 标题 + 编号更显眼 */
 :root[data-format="grid"][data-theme="library"] .book-card-grid-title,
 :root[data-format="grid"][data-theme="codex"] .book-card-grid-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display-loaded);
   font-style: italic;
   font-weight: 700;
   font-size: 16px;
@@ -2265,30 +2338,59 @@ ul.book-grid {
 .stamp-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
-/* ============ v1.6 「下一季」区块(放在 BookDetail 上) ============ */
-/* ============ v1.6 「上一季」(自动反向同步 + 只读跳转) ============ */
-.prev-season-block {
+/* ============ v2.x 「上一季 / 下一季」合并两列区块 ============ */
+/* 之前 v1.6 是两块独立 section(「上一季」在「下一季」上方),v2.x 起合并为一条
+ * 两列 grid(左 = 上一季,右 = 下一季,中间 1px 分隔线)。同时上一季新增
+ * 「+ 设置上一季」入口 + 「× 清除」按钮(之前是只读跳转)。
+ *
+ * 内部布局:每个 column 自带一个 head(label + 操作按钮)和 body(value 显示),
+ * head 横向 flex,body 横向 flex —— 跟"上下季"心智一致:label 在顶,value 在下 */
+.season-pair-block {
   margin-top: 18px;
 }
-.prev-season-block .prev-season-title {
-  margin: 0 0 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg);
-}
-.prev-season {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+.season-pair {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 0;
   background: var(--bg, #f7f7f5);
   border: 1px solid var(--border);
   border-radius: 4px;
+  overflow: hidden;
+}
+.season-pair > .prev-season,
+.season-pair > .next-season {
+  /* 覆盖外层 div 默认行为(去掉独立 border / radius,grid 容器统一管理) */
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 12px;
   font-size: 13px;
 }
-.prev-season-label {
+.season-pair-divider {
+  background: var(--border);
+  /* 垂直贯穿整条 —— 跟 grid 容器同高 */
+  align-self: stretch;
+}
+.prev-season,
+.next-season {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* 内部 head:label + 右侧操作按钮(横排) */
+.prev-season-head,
+.next-season-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prev-season-label,
+.next-season-label {
   color: var(--muted);
   font-weight: 500;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .prev-season-link {
@@ -2319,6 +2421,38 @@ ul.book-grid {
   cursor: help;
   flex-shrink: 0;
 }
+/* v2.x 上一季 新增操作按钮 —— 跟下一季同款 button style,共用 next-season-add class
+   (或者单独 prev-season-add 也可,这里复用减少 CSS 重复) */
+.prev-season-add,
+.prev-season-edit {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.prev-season-add:hover,
+.prev-season-edit:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.prev-season-remove {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.prev-season-remove:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 .next-season-block {
   margin-top: 18px;
@@ -2330,14 +2464,8 @@ ul.book-grid {
   color: var(--fg);
 }
 .next-season {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg, #f7f7f5);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 13px;
+  /* v2.x:.next-season 跟 .prev-season 走同一个 column 布局规则(head + body),
+     样式在 .prev-season, .next-season 通用规则处统一定义;这里只放历史遗留的细节样式 */
 }
 .next-season-label {
   color: var(--muted);
@@ -2362,14 +2490,17 @@ ul.book-grid {
   font-style: italic;
   flex: 1;
 }
+/* v2.x:`+ 设置下一季` 按钮跟 v1.6 同款(虚线 dashed border)—— 之前 .next-season-add
+   是 row 布局里的按钮,现在搬到 .next-season-head 里也适用 */
 .next-season-add {
-  padding: 4px 10px;
+  padding: 2px 8px;
   font-size: 12px;
   background: white;
   border: 1px dashed var(--border);
   border-radius: 4px;
   color: var(--muted);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .next-season-add:hover { color: var(--accent); border-color: var(--accent); }
 .next-season-remove {
@@ -2440,6 +2571,17 @@ ul.book-grid {
 }
 .next-season-picker-item:hover { background: var(--bg); }
 .next-season-picker-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* v2.x:prev 模式顶部「— 没有上一季 —」特殊项 —— 视觉上跟候选作品区分
+   (顶部 1px 实线分隔 + 灰字 + 居中,避免被误以为是"某个作品叫没有上一季") */
+.next-season-picker-item--no-prev {
+  border-bottom: 1px solid var(--border);
+  justify-content: center;
+}
+.next-season-picker-item--no-prev .title {
+  flex: 0 0 auto; /* 覆盖 .next-season-picker-item .title 的 flex: 1,避免被拉伸 */
+  font-weight: normal;
+  text-align: center;
+}
 .next-season-picker-item .title {
   font-weight: 500;
   flex: 1;
@@ -3235,20 +3377,33 @@ ul.book-grid {
 .note-field {
   /* 沿用 .field 布局,这里只覆盖专属样式 */
 }
-.note-field-toggle {
+/* 「笔记」字样式跟「集笔记 / 角色笔记」h3 标题(14px / 600)对齐。
+   选择器写 .field > .note-field-toggle(特异性 0,2,1)是为了压过
+   .field > span { font-size: 12px; color: var(--muted) }(0,1,1) —— 否则
+   "笔记"在 BookDetail 的 .field 容器里会被强制成 12px 灰字。
+   同时保留单独的 .note-field-toggle 选择器,覆盖 BookNotesModal 里
+   "主笔记"(在 .book-notes-section-head 内,不在 .field 里)。 */
+.note-field-toggle,
+.field > .note-field-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
   cursor: pointer;
   user-select: none;
   transition: color 0.12s;
 }
 .note-field-toggle:hover,
-.note-field-toggle:focus-visible {
-  color: var(--fg);
+.note-field-toggle:focus-visible,
+.field > .note-field-toggle:hover,
+.field > .note-field-toggle:focus-visible {
+  color: var(--accent);
   outline: none;
 }
-.note-field-toggle.is-editing {
+.note-field-toggle.is-editing,
+.field > .note-field-toggle.is-editing {
   cursor: default;
   color: var(--accent);
 }

@@ -94,12 +94,19 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .filter(|s| !s.is_empty())
             .map(String::from),
         // v1.6:prev_season_id —— 字段缺损 / 非字符串 / 空串 → None(向后兼容;老文件无此字段)。
-        // 此字段由 service 层在 set_next_season 路径自动维护,前端不主动设。
+        // 此字段由 service 层在 set_next_season 路径自动维护,前端可通过 books_set_prev_season 主动设。
         prev_season_id: data
             .get("prevSeasonId")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
+        // v2.x:prev_season_explicit —— 字段缺损 / 非 bool → false（向后兼容;老数据无此字段）。
+        // true = 用户主动设的 prev(set_prev_season 路径),service 层反向同步不应清掉;
+        // false = service 层在 set_next_season 路径自动同步时设的(默认),可被反向清理。
+        prev_season_explicit: data
+            .get("prevSeasonExplicit")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         // v1.7:series_id —— 字段缺损 / 非字符串 / 空串 → None（向后兼容;老文件无此字段）。
         // 单向引用,跟 nextSeasonId / prevSeasonId 同款"空串不写盘"策略。
         series_id: data
@@ -293,7 +300,10 @@ pub fn write_book(
         // next_season_id 新建作品时为空(详情页独占编辑;v1.6 起)
         next_season_id: None,
         // prev_season_id 同款:新建作品时为空;由 service 层在 set_next_season 路径自动维护
+        // 或用户通过 books_set_prev_season 主动设
         prev_season_id: None,
+        // 新建作品 prev 显然不是用户主动设的(没设过),默认 false
+        prev_season_explicit: false,
         // series_id(v1.7 起):从 BookInput 透传;新建作品时可为 None(等同"无所属系列")
         series_id: input.series_id.as_ref().filter(|s| !s.is_empty()).cloned(),
     };
@@ -622,11 +632,21 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
         }
     }
     // prev_season_id: 仅在 Some(非空) 时写盘(v1.6 新增;跟 next_season_id 同款"空串不写"策略)
-    // 由 service 层在 set_next_season 路径自动维护 —— 老数据缺字段 → None(向后兼容)
+    // 由 service 层在 set_next_season 路径自动维护,或用户通过 books_set_prev_season 主动设。
+    // 老数据缺字段 → None(向后兼容)
     if let Some(pid) = &book.prev_season_id {
         if !pid.is_empty() {
             fm.insert("prevSeasonId".into(), serde_json::Value::String(pid.clone()));
         }
+    }
+    // prev_season_explicit(v2.x 新增):仅在 true 时写盘。
+    // false 是默认值(老数据无此字段也视作 false),不写盘避免污染 frontmatter;
+    // true 表示用户主动设的 prev —— 粘性标记,set_next_season 反向同步看到会跳过清理。
+    if book.prev_season_explicit {
+        fm.insert(
+            "prevSeasonExplicit".into(),
+            serde_json::Value::Bool(true),
+        );
     }
     // series_id(v1.7 新增):仅在 Some(非空) 时写盘;老文件缺字段 → None(向后兼容,serde default 兜底)。
     // 跟 next_season_id / prev_season_id 同款"空串不写"策略;稀疏写盘避免污染 frontmatter。
@@ -1568,6 +1588,66 @@ mod tests {
     // ===================================================================
     // ============= v1.6 prev_season_id + 双向同步测试 ===================
     // ===================================================================
+
+    /// v2.x prevSeasonExplicit 字段的回归测试(data 层 persist + 读回策略)。
+    /// 不变量:
+    /// - `true` → 写盘到 frontmatter `prevSeasonExplicit: true`
+    /// - `false` → 不写盘(默认/老数据 → 读回 false,避免污染 frontmatter)
+    /// - 老文件缺 prevSeasonExplicit 字段 → 读回 false(向后兼容)
+    #[test]
+    fn prev_season_explicit_round_trip_and_omit() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path(); // temp_books_dir() 已创建 books/ 子目录
+        let mut existing = HashSet::new();
+
+        // 1) 写 default book → prev_season_explicit 默认 false,frontmatter 不写
+        let book1 = write_book(books_dir, &sample_input(), &mut existing).unwrap();
+        let raw1 = std::fs::read_to_string(books_dir.join(format!("{}.md", book1.id))).unwrap();
+        assert!(
+            !raw1.contains("\"prevSeasonExplicit\""),
+            "默认 false 不应写盘,避免污染 frontmatter; raw={raw1}"
+        );
+
+        // 2) 改 prev_season_explicit = true → 写盘
+        let mut book2 = read_book(books_dir, &book1.id).unwrap().unwrap();
+        book2.prev_season_explicit = true;
+        book2.prev_season_id = Some("99".to_string());
+        crate::data::books::persist(books_dir, &book2).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book1.id))).unwrap();
+        assert!(raw2.contains("\"prevSeasonExplicit\": true"), "应写盘 true; raw={raw2}");
+
+        // 3) 读回 = true
+        let book3 = read_book(books_dir, &book1.id).unwrap().unwrap();
+        assert!(book3.prev_season_explicit);
+        assert_eq!(book3.prev_season_id.as_deref(), Some("99"));
+
+        // 4) 改成 false → 不写盘(再次稀疏)
+        let mut book4 = read_book(books_dir, &book1.id).unwrap().unwrap();
+        book4.prev_season_explicit = false;
+        crate::data::books::persist(books_dir, &book4).unwrap();
+        let raw4 = std::fs::read_to_string(books_dir.join(format!("{}.md", book1.id))).unwrap();
+        assert!(
+            !raw4.contains("\"prevSeasonExplicit\""),
+            "false 不应写盘; raw={raw4}"
+        );
+        let book5 = read_book(books_dir, &book1.id).unwrap().unwrap();
+        assert!(!book5.prev_season_explicit, "读回应是 false");
+
+        // 5) 老数据(手写 frontmatter 无 prevSeasonExplicit 字段) → 读回 false
+        let legacy_dir = temp_books_dir();
+        let legacy_path = legacy_dir.path().join("42.md");
+        std::fs::write(
+            &legacy_path,
+            "---\n{\"id\": 42, \"title\": \"Legacy\", \"kind\": \"tv\", \"author\": \"a\", \
+             \"country\": \"\", \"year\": 2024, \"translator\": \"\", \"status\": \"want\", \
+             \"read_count\": 1, \"created\": \"2024-01-01T00:00:00Z\", \
+             \"updated\": \"2024-01-01T00:00:00Z\", \"tags\": [], \"notes\": \"\", \
+             \"starring\": \"\", \"screenwriter\": \"\"}\n---\n# Legacy\n",
+        )
+        .unwrap();
+        let legacy = read_book(legacy_dir.path(), "42").unwrap().unwrap();
+        assert!(!legacy.prev_season_explicit, "老数据无此字段 → 默认 false");
+    }
 
     /// v1.6 prev_season_id 字段的回归测试(data 层 persist + 读回策略)。
     /// 不变量(跟 next_season_id 同款):

@@ -45,6 +45,9 @@ export const api: ElectronAPI & {
     // v1.6 「下一季」
     setNextSeason: (id, nextSeasonId) =>
       invoke<Book>('books_set_next_season', { id, nextSeasonId }),
+    // v2.x 「上一季」主动设
+    setPrevSeason: (id, prevSeasonId) =>
+      invoke<Book>('books_set_prev_season', { id, prevSeasonId }),
     // v1.7 「所属系列」
     setSeries: (id, seriesId) =>
       invoke<Book>('books_set_series', { id, seriesId })

@@ -9,6 +9,7 @@ import { SeriesPickerModal } from './SeriesPickerModal'
 import { useSeriesStore } from '../store/series'
 import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
+import { InlineField, type InlineFieldOption } from './InlineField'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
@@ -91,6 +92,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const select = useBooksStore((s) => s.select)
   // v1.6 「下一季」action —— 走专用 IPC(同 seasons / episodes / characters 模式)
   const setNextSeason = useBooksStore((s) => s.setNextSeason)
+  // v2.x 「上一季」主动设 action —— 走专用 IPC,带粘性标记
+  const setPrevSeason = useBooksStore((s) => s.setPrevSeason)
   // v1.7 「所属系列」action —— 走专用 IPC
   const setSeries = useBooksStore((s) => s.setSeries)
   // v1.7 读 series 列表(BookDetail 显示所属系列名 + SeriesPickerModal 候选用)
@@ -133,9 +136,14 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   // v1.6 「下一季」picker 开关(受控传给 NextSeasonPicker)
-  const [nextSeasonPickerOpen, setNextSeasonPickerOpen] = useState(false)
+  // v2.x:季节 picker 统一状态 —— 一次只开一个,mode 区分 prev/next 共用 NextSeasonPicker 组件
+  // null = 全关;'next' = 选下一季;'prev' = 选上一季(顶部多"没有上一季"项)
+  const [seasonPickerMode, setSeasonPickerMode] = useState<null | 'next' | 'prev'>(null)
   // v1.7 「所属系列」picker 开关(受控传给 SeriesPickerModal)
   const [seriesPickerOpen, setSeriesPickerOpen] = useState(false)
+  // v2.x 详情页字段 inline edit 状态:一次只编辑一个字段(null = 全预览)。
+  // 编辑控件由 InlineField 渲染,父组件统一管理避免多个白框同时打开。
+  const [editingField, setEditingField] = useState<string | null>(null)
 
   // 切换条目时重置草稿（未保存的输入随之丢弃，与旧「弹窗编辑」语义一致）
   useEffect(() => {
@@ -162,8 +170,10 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     setError(null)
     setSaved(false)
     // 切换作品时关闭 picker(避免开 picker 状态下切到另一部)
-    setNextSeasonPickerOpen(false)
+    setSeasonPickerMode(null)
     setSeriesPickerOpen(false)
+    // 切作品 → 关掉所有 inline 编辑态(切到新作品从预览开始,符合"切换 = 重置草稿"语义)
+    setEditingField(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.id])
 
@@ -254,7 +264,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const pct = progressPercent(cur.progress)
 
   async function handleSetNextSeason(id: string): Promise<void> {
-    setNextSeasonPickerOpen(false)
+    setSeasonPickerMode(null)
     if (id === cur.id) return // self-loop 兜底(Rust 也会拒绝,这里双保险)
     try {
       await setNextSeason(cur.id, id)
@@ -266,6 +276,26 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   async function handleClearNextSeason(): Promise<void> {
     try {
       await setNextSeason(cur.id, null)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // v2.x 「上一季」主动设/清除(走专用 IPC,带粘性标记)
+  // id === '' 表示 prev 模式 picker 顶部"没有上一季"项被选中
+  async function handleSetPrevSeason(id: string): Promise<void> {
+    setSeasonPickerMode(null)
+    if (id === cur.id) return // self-loop 兜底
+    try {
+      await setPrevSeason(cur.id, id === '' ? null : id)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function handleClearPrevSeason(): Promise<void> {
+    try {
+      await setPrevSeason(cur.id, null)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -440,103 +470,168 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       )}
 
       <div className="detail-form">
+        {/* v2.x 字段 inline 预览/编辑二态 —— 默认无背景显示值,点开后变白框。
+            沿用底部「保存」统一写盘(本地 useState 暂存),切换作品 / Esc / blur 退出编辑。
+            笔记保留独立 inline 模式(自带 wikilink picker 等特化交互,不适合走通用 InlineField)。 */}
         <div className="field-row">
-          <label className="field">
-            <span>作品类型</span>
-            <select value={kind} onChange={(e) => setKind(e.target.value as WorkKind)}>
-              {WORK_KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {WORK_KIND_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>{yearLabelFor(kind)}</span>
-            <input
-              type="number"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              min="0"
-              max="9999"
-            />
-          </label>
+          <InlineField
+            fieldId="kind"
+            label="作品类型"
+            display={WORK_KIND_LABELS[kind]}
+            value={kind}
+            onChange={(v) => setKind(v as WorkKind)}
+            kind="select"
+            options={WORK_KIND_ORDER.map((k) => ({ value: k, label: WORK_KIND_LABELS[k] }))}
+            editing={editingField === 'kind'}
+            onActivate={() => setEditingField('kind')}
+            onDeactivate={() => setEditingField(null)}
+            emptyPlaceholder=""
+          />
+          <InlineField
+            fieldId="year"
+            label={yearLabelFor(kind)}
+            display={year}
+            value={year}
+            onChange={setYear}
+            kind="number"
+            editing={editingField === 'year'}
+            onActivate={() => setEditingField('year')}
+            onDeactivate={() => setEditingField(null)}
+            emptyPlaceholder="未设置"
+            min={0}
+            max={9999}
+          />
         </div>
         <div className="field-row">
-          <label className="field">
-            <span>{authorLabelFor(kind)}</span>
-            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者名 / 导演名 / 主创名" />
-          </label>
+          <InlineField
+            fieldId="author"
+            label={authorLabelFor(kind)}
+            display={author}
+            value={author}
+            onChange={setAuthor}
+            kind="text"
+            editing={editingField === 'author'}
+            onActivate={() => setEditingField('author')}
+            onDeactivate={() => setEditingField(null)}
+            emptyPlaceholder="未设置"
+          />
           {translatorLabelFor(kind) && (
-            <label className="field">
-              <span>{translatorLabelFor(kind)}</span>
-              <input value={translator} onChange={(e) => setTranslator(e.target.value)} placeholder="如：范晔" />
-            </label>
+            <InlineField
+              fieldId="translator"
+              label={translatorLabelFor(kind)!}
+              display={translator}
+              value={translator}
+              onChange={setTranslator}
+              kind="text"
+              editing={editingField === 'translator'}
+              onActivate={() => setEditingField('translator')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+            />
           )}
           {starringLabelFor(kind) && (
-            <label className="field">
-              <span>{starringLabelFor(kind)}</span>
-              <input value={starring} onChange={(e) => setStarring(e.target.value)} placeholder="如：基努·里维斯, 劳伦斯·菲什伯恩" />
-            </label>
+            <InlineField
+              fieldId="starring"
+              label={starringLabelFor(kind)!}
+              display={starring}
+              value={starring}
+              onChange={setStarring}
+              kind="text"
+              editing={editingField === 'starring'}
+              onActivate={() => setEditingField('starring')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+            />
           )}
           {screenwriterLabelFor(kind) && (
-            <label className="field">
-              <span>{screenwriterLabelFor(kind)}</span>
-              <input value={screenwriter} onChange={(e) => setScreenwriter(e.target.value)} placeholder="如：诺兰, 乔纳森·诺兰" />
-            </label>
+            <InlineField
+              fieldId="screenwriter"
+              label={screenwriterLabelFor(kind)!}
+              display={screenwriter}
+              value={screenwriter}
+              onChange={setScreenwriter}
+              kind="text"
+              editing={editingField === 'screenwriter'}
+              onActivate={() => setEditingField('screenwriter')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+            />
           )}
         </div>
         <div className="field-row">
-          <label className="field">
-            <span>{countryLabelFor(kind)}</span>
-            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="如：中国" />
-          </label>
-          <label className="field">
-            <span>状态</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value as BookStatus)}>
-              {statusOptionsFor(kind).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <InlineField
+            fieldId="country"
+            label={countryLabelFor(kind)}
+            display={country}
+            value={country}
+            onChange={setCountry}
+            kind="text"
+            editing={editingField === 'country'}
+            onActivate={() => setEditingField('country')}
+            onDeactivate={() => setEditingField(null)}
+            emptyPlaceholder="未设置"
+          />
+          <InlineField
+            fieldId="status"
+            label="状态"
+            display={STATUS_LABELS[status]}
+            value={status}
+            onChange={(v) => setStatus(v as BookStatus)}
+            kind="select"
+            options={statusOptionsFor(kind).map((o) => ({ value: o.value, label: o.label }))}
+            editing={editingField === 'status'}
+            onActivate={() => setEditingField('status')}
+            onDeactivate={() => setEditingField(null)}
+            emptyPlaceholder=""
+          />
         </div>
         {(status === 'reading' || status === 'watching') && (
           <div className="field-row">
-            <label className="field">
-              <span>第 N 次看</span>
-              <input
-                type="number"
-                value={readCount}
-                onChange={(e) => setReadCount(Math.max(1, Number(e.target.value) || 1))}
-                min="1"
-              />
-            </label>
+            <InlineField
+              fieldId="readCount"
+              label="第 N 次看"
+              display={String(readCount)}
+              value={String(readCount)}
+              onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
+              // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
+              normalize={(v) => String(Math.max(1, Number(v) || 1))}
+              kind="number"
+              editing={editingField === 'readCount'}
+              onActivate={() => setEditingField('readCount')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder=""
+              min={1}
+            />
           </div>
         )}
         {(status === 'reading' || status === 'watching') && (
           <div className="field-row progress-fields">
-            <label className="field">
-              <span>当前进度</span>
-              <input
-                type="number"
-                value={progressCurrent}
-                onChange={(e) => setProgressCurrent(e.target.value)}
-                min="0"
-                placeholder="如 12"
-              />
-            </label>
-            <label className="field">
-              <span>总进度（连载/更新中可留空）</span>
-              <input
-                type="number"
-                value={progressTotal}
-                onChange={(e) => setProgressTotal(e.target.value)}
-                min="1"
-                placeholder="如 100；空 = 连载/更新中"
-              />
-            </label>
+            <InlineField
+              fieldId="progressCurrent"
+              label="当前进度"
+              display={progressCurrent}
+              value={progressCurrent}
+              onChange={setProgressCurrent}
+              kind="number"
+              editing={editingField === 'progressCurrent'}
+              onActivate={() => setEditingField('progressCurrent')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+              min={0}
+            />
+            <InlineField
+              fieldId="progressTotal"
+              label="总进度"
+              display={progressTotal}
+              value={progressTotal}
+              onChange={setProgressTotal}
+              kind="number"
+              editing={editingField === 'progressTotal'}
+              onActivate={() => setEditingField('progressTotal')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+              min={1}
+            />
           </div>
         )}
         <label className="form-checkline">
@@ -548,7 +643,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
         </label>
         {/* 笔记 —— 默认预览(WikilinkText),点「笔记」标题切到 textarea 编辑;
-            textarea blur 切回预览。预览/编辑二态互斥,符合"非编辑就是只读"心智。 */}
+            textarea blur 切回预览。预览/编辑二态互斥,符合"非编辑就是只读"心智。
+            笔记保留独立 inline 模式(自带 wikilink picker 等特化交互,不适合走通用 InlineField)。 */}
         <div className="field note-field">
           <span
             className={`note-field-toggle${noteEditing ? ' is-editing' : ''}`}
@@ -593,14 +689,18 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
             />
           )}
         </div>
-        <label className="field">
-          <span>标签</span>
-          <input
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-            placeholder="用逗号分隔 —— 如：科幻, 短篇, 2024"
-          />
-        </label>
+        <InlineField
+          fieldId="tags"
+          label="标签"
+          display={tagsText}
+          value={tagsText}
+          onChange={setTagsText}
+          kind="text"
+          editing={editingField === 'tags'}
+          onActivate={() => setEditingField('tags')}
+          onDeactivate={() => setEditingField(null)}
+          emptyPlaceholder="点击设置 标签（用逗号分隔）"
+        />
         {error && <p className="form-error">{error}</p>}
       </div>
 
@@ -610,106 +710,153 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
 
-      {/* 「上一季」关联(v1.6 新增;与「下一季」配对)—— 由 service 层在 set_next_season
-          路径自动维护的反向引用,前端不暴露"设置上一季"按钮(只读跳转)。
-          放在「下一季」上方:视觉上"上下季链"自然对齐,用户从任一端都可跳转。 */}
-      <section className="prev-season-block">
-        <h3 className="prev-season-title">上一季</h3>
-        <div className="prev-season">
-          <span className="prev-season-label">上一季:</span>
-          {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
-            <span className="prev-season-missing">未设置</span>
-          ) : prevSeasonBook ? (
-            <span
-              className="prev-season-link"
-              onClick={() => select(prevSeasonBook.id)}
-              title="点击跳到该作品"
-            >
-              {prevSeasonBook.title}
-            </span>
-          ) : (
-            // 引用了已被删除的作品 —— 优雅降级
-            <>
-              <span className="prev-season-missing">
-                原作品已删除 (id: {cur.prevSeasonId})
-              </span>
-              <span
-                className="prev-season-info"
-                title="service 层会在下次设置该作品的下一季时自动清理失效的反向引用"
-              >
-                × 自愈中
-              </span>
-            </>
-          )}
-        </div>
-      </section>
+      {/* v2.x 「上一季 / 下一季」合并到一条两列 grid(左 = 上一季,右 = 下一季,中间 1px 分隔线)。
+          - 上一季:之前是只读跳转,v2.x 起新增「+ 设置上一季」入口(同下一季 picker 复用,
+            顶部多"没有上一季"项);主动设的 prev 走专用 IPC,带粘性标记
+            (Rust 端 prevSeasonExplicit = true,set_next_season 反向同步会跳过)
+          - 下一季:跟 v1.6 同款 + / 改 / × 三个动作 */}
+      <section className="season-pair-block">
+        <div className="season-pair">
+          {/* 左侧:上一季 */}
+          <div className="prev-season">
+            <div className="prev-season-head">
+              <span className="prev-season-label">上一季</span>
+              {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
+                <button
+                  type="button"
+                  className="prev-season-add"
+                  onClick={() => setSeasonPickerMode('prev')}
+                >
+                  + 设置上一季
+                </button>
+              ) : prevSeasonBook ? (
+                <button
+                  type="button"
+                  className="prev-season-edit"
+                  onClick={() => setSeasonPickerMode('prev')}
+                  title="改成另一部作品 / 标记为「没有上一季」"
+                >
+                  改
+                </button>
+              ) : (
+                // 引用了已被删除的作品 —— 优雅降级
+                <button
+                  type="button"
+                  className="prev-season-remove"
+                  onClick={() => void handleClearPrevSeason()}
+                  title="清除失效的上一季引用"
+                >
+                  × 清除
+                </button>
+              )}
+            </div>
+            {cur.prevSeasonId === undefined || cur.prevSeasonId === '' ? (
+              <span className="prev-season-missing">未设置</span>
+            ) : prevSeasonBook ? (
+              <>
+                <span
+                  className="prev-season-link"
+                  onClick={() => select(prevSeasonBook.id)}
+                  title="点击跳到该作品"
+                >
+                  {prevSeasonBook.title}
+                </span>
+                <button
+                  type="button"
+                  className="prev-season-remove"
+                  onClick={() => void handleClearPrevSeason()}
+                  title="移除上一季关联(变成「没有上一季」状态)"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              // 引用了已被删除的作品 —— 优雅降级
+              <>
+                <span className="prev-season-missing">
+                  原作品已删除 (id: {cur.prevSeasonId})
+                </span>
+                <span
+                  className="prev-season-info"
+                  title="service 层会在下次设置该作品的下一季时自动清理失效的反向引用"
+                >
+                  × 自愈中
+                </span>
+              </>
+            )}
+          </div>
 
-      {/* 「下一季」关联(v1.6 新增;tv/anime 实际使用)—— 单向 Book.nextSeasonId 字段,
-          与集笔记 / 角色笔记同级,放在前置依赖之前(让"下一季是另一部作品"的元信息优先可见) */}
-      <section className="next-season-block">
-        <h3 className="next-season-title">下一季</h3>
-        <div className="next-season">
-          <span className="next-season-label">下一季:</span>
-          {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
-            <>
+          {/* 中间 1px 分隔线 —— 视觉上把"上一季"和"下一季"切成两半,跟「左 / 右」心智一致 */}
+          <div className="season-pair-divider" aria-hidden="true" />
+
+          {/* 右侧:下一季 */}
+          <div className="next-season">
+            <div className="next-season-head">
+              <span className="next-season-label">下一季</span>
+              {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
+                <button
+                  type="button"
+                  className="next-season-add"
+                  onClick={() => setSeasonPickerMode('next')}
+                >
+                  + 设置下一季
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="next-season-add"
+                  onClick={() => setSeasonPickerMode('next')}
+                  title="改成另一部作品"
+                >
+                  改
+                </button>
+              )}
+            </div>
+            {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
               <span className="next-season-missing">未设置</span>
-              <button
-                type="button"
-                className="next-season-add"
-                onClick={() => setNextSeasonPickerOpen(true)}
-              >
-                + 设置下一季
-              </button>
-            </>
-          ) : nextSeasonBook ? (
-            <>
-              <span
-                className="next-season-link"
-                onClick={() => select(nextSeasonBook.id)}
-                title="点击跳到该作品"
-              >
-                {nextSeasonBook.title}
-              </span>
-              <button
-                type="button"
-                className="next-season-add"
-                onClick={() => setNextSeasonPickerOpen(true)}
-                title="改成另一部作品"
-              >
-                改
-              </button>
-              <button
-                type="button"
-                className="next-season-remove"
-                onClick={() => void handleClearNextSeason()}
-                title="移除下一季关联"
-              >
-                ×
-              </button>
-            </>
-          ) : (
-            // 引用了已被删除的作品 —— 优雅降级
-            <>
-              <span className="next-season-missing">
-                原作品已删除 (id: {cur.nextSeasonId})
-              </span>
-              <button
-                type="button"
-                className="next-season-remove"
-                onClick={() => void handleClearNextSeason()}
-                title="清除失效的下一季引用"
-              >
-                × 清除
-              </button>
-            </>
-          )}
+            ) : nextSeasonBook ? (
+              <>
+                <span
+                  className="next-season-link"
+                  onClick={() => select(nextSeasonBook.id)}
+                  title="点击跳到该作品"
+                >
+                  {nextSeasonBook.title}
+                </span>
+                <button
+                  type="button"
+                  className="next-season-remove"
+                  onClick={() => void handleClearNextSeason()}
+                  title="移除下一季关联"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              // 引用了已被删除的作品 —— 优雅降级
+              <>
+                <span className="next-season-missing">
+                  原作品已删除 (id: {cur.nextSeasonId})
+                </span>
+                <button
+                  type="button"
+                  className="next-season-remove"
+                  onClick={() => void handleClearNextSeason()}
+                  title="清除失效的下一季引用"
+                >
+                  × 清除
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <NextSeasonPicker
-          open={nextSeasonPickerOpen}
-          onClose={() => setNextSeasonPickerOpen(false)}
+          open={seasonPickerMode !== null}
+          onClose={() => setSeasonPickerMode(null)}
           candidates={nextSeasonCandidates}
-          onPick={(id) => void handleSetNextSeason(id)}
+          onPick={(id) => (seasonPickerMode === 'prev' ? void handleSetPrevSeason(id) : void handleSetNextSeason(id))}
           currentTitle={cur.title}
+          mode={seasonPickerMode ?? 'next'}
         />
       </section>
 

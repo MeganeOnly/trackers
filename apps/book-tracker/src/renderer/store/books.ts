@@ -66,6 +66,18 @@ interface BooksState {
    * - 目标 book 不存在不拒绝,前端 UI 兜底提示「原作品已删除」
    */
   setNextSeason: (id: string, nextSeasonId: string | null) => Promise<Book>
+  // -------- v2.x 「上一季」主动设 actions --------
+  /**
+   * 设置 / 清除「上一季」关联到另一部作品(v2.x 新增;用户主动设)。
+   *
+   * **与 setNextSeason 关键区别**:
+   * - 单向写 —— 不联动 prev 目标书的 `nextSeasonId`
+   * - 粘性 —— 设值时 Rust 端同步写 `prevSeasonExplicit = true`;后续
+   *   `setNextSeason` 反向清理路径会跳过该 prev,保护用户显式表达
+   *
+   * 校验:self-loop Rust 端拒绝;目标不存在不拒绝(同 setNextSeason)。
+   */
+  setPrevSeason: (id: string, prevSeasonId: string | null) => Promise<Book>
   // -------- v1.7 「所属系列」actions --------
   /**
    * 设置 / 清除「所属系列」(v1.7 新增;无序收藏夹分组)。
@@ -176,6 +188,12 @@ export const useBooksStore = create<BooksState>((set) => ({
   // -------- v1.6 「下一季」actions 实现 --------
   setNextSeason: async (id, nextSeasonId) => {
     const book = await api.books.setNextSeason(id, nextSeasonId)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v2.x 「上一季」主动设 actions 实现 --------
+  setPrevSeason: async (id, prevSeasonId) => {
+    const book = await api.books.setPrevSeason(id, prevSeasonId)
     upsertBook(set, book)
     return book
   },

@@ -1,6 +1,6 @@
-// 「下一季」选择器 —— BookDetail 加"下一季"按钮触发
+// 「下一季 / 上一季」选择器 —— BookDetail 顶部两个 button 触发(v2.x 起复用本组件)
 //
-// 职责:弹一个紧凑的选择器,列出所有非当前 book 的候选,让用户选一部作为下一季。
+// 职责:弹一个紧凑的选择器,列出所有非当前 book 的候选,让用户选一部作为下一季 / 上一季。
 // 候选规则(在 BookDetail 父组件的 `candidates` useMemo 里实现):
 // - 排除自己(self-loop 禁止)
 // - 推荐按 kind === 'tv' | 'anime' 优先,但不硬约束(允许跨类型)
@@ -10,12 +10,16 @@
 // 父组件提供 open / onClose / candidates,自己只管搜索 query 和选中回调。
 //
 // v1.6 新增 —— 用户报告"没有实际增添下一季的地方,没办法让我点击后让我能够选择下一季是哪个作品"
+// v2.x 扩展 —— 上一季 picker 也复用本组件(modal prop 切 'next' | 'prev');
+//   prev 模式顶部多一个"没有上一季"特殊项,选中调 onPick('') 走 setPrevSeason(id, null) 路径
 
 import { useEffect, useRef, useState } from 'react'
 import { WORK_KIND_LABELS } from '@shared/types'
 import type { Book } from '@shared/types'
 
-interface NextSeasonPickerProps {
+export type SeasonPickerMode = 'next' | 'prev'
+
+interface SeasonPickerProps {
   /** 是否打开 picker(受控) */
   open: boolean
   /** 关闭 picker(选中 / 取消 / 点外部 都调) */
@@ -24,10 +28,13 @@ interface NextSeasonPickerProps {
    *  不在父组件截断 —— picker 自带搜索框负责按 title / author 过滤,
    *  列表 max-height + overflow-y 处理滚动) */
   candidates: Book[]
-  /** 选中候选 → 触发持久化(BookDetail 父组件 setNextSeason);空串视为取消 */
+  /** 选中候选 → 触发持久化(BookDetail 父组件 setNextSeason / setPrevSeason);
+   *  **空串 `''` 表示"prev 模式下的『没有上一季』"**——父组件走 setPrevSeason(id, null) 路径 */
   onPick: (id: string) => void
   /** 当前 book 的标题,给 picker title 用 */
   currentTitle: string
+  /** 'next' = 选下一季(默认);'prev' = 选上一季(顶部多一个"没有上一季"项) */
+  mode?: SeasonPickerMode
 }
 
 export function NextSeasonPicker({
@@ -35,8 +42,9 @@ export function NextSeasonPicker({
   onClose,
   candidates,
   onPick,
-  currentTitle
-}: NextSeasonPickerProps): JSX.Element | null {
+  currentTitle,
+  mode = 'next'
+}: SeasonPickerProps): JSX.Element | null {
   const [query, setQuery] = useState<string>('')
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -58,10 +66,14 @@ export function NextSeasonPicker({
       )
     : candidates
 
+  const directionLabel = mode === 'prev' ? '上一季' : '下一季'
+  // v2.x:prev 模式顶部"没有上一季"项 —— 灰色 + 视觉区分(让用户明白"这是特殊项,不是候选")
+  const showNoPrevItem = mode === 'prev'
+
   return (
-    <div className="next-season-picker" role="dialog" aria-label="选择下一季">
+    <div className="next-season-picker" role="dialog" aria-label={`选择${directionLabel}`}>
       <div className="next-season-picker-head">
-        <span>《{currentTitle}》的下一季</span>
+        <span>《{currentTitle}》的{directionLabel}</span>
         <button
           type="button"
           className="next-season-picker-close"
@@ -86,6 +98,23 @@ export function NextSeasonPicker({
         }}
       />
       <ul className="next-season-picker-list">
+        {/* v2.x prev 模式:顶部"没有上一季"项,点击调 onPick('') 让父组件走清除路径 */}
+        {showNoPrevItem && (
+          <li
+            className="next-season-picker-item next-season-picker-item--no-prev"
+            onClick={() => onPick('')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onPick('')
+              }
+            }}
+          >
+            <span className="title muted">— 没有上一季 —</span>
+          </li>
+        )}
         {filtered.length === 0 ? (
           <li className="muted empty-hint">无匹配 —— 先在加作品表单加新作品吧</li>
         ) : (

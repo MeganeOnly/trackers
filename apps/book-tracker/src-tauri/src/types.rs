@@ -308,6 +308,23 @@ pub struct Book {
     /// 文件格式:persist 手写 `prevSeasonId` 字面量。
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "prevSeasonId")]
     pub prev_season_id: Option<String>,
+    /// 「上一季」是否用户主动设置(v2.x 新增;与 `prev_season_id` 配对)。
+    ///
+    /// **粘性语义**:用户主动设的 prev 是"粘性"的 —— 不会被 `set_next_season` 路径反向清掉。
+    /// 例如:用户主动设 A.prev = X,即使 X.next 被改成 Y(导致 X 不再指向 A),A.prev 仍保留 X。
+    /// 理由:用户表达了明确的"我的上一季就是 X"的意图,service 层的反向同步不应该擅自覆盖。
+    ///
+    /// 区分两种 prev 来源:
+    /// - service 层 `set_next_season` 自动同步 → `prev_season_explicit = false`(默认)
+    /// - 用户主动 `books_set_prev_season` → `prev_season_explicit = true`
+    ///
+    /// `set_next_season` 在"清旧 prev"路径检查该标记:为 true 时**跳过**清理(尊重用户显式表达)。
+    /// `delete_book` 路径不受该标记影响(book 被删了,脏引用一定要清)。
+    ///
+    /// 写盘策略:`true` 才写 frontmatter,`false` / `None` 不写(老数据无此字段 → 默认 false,向后兼容)。
+    /// IPC 字段名:`prevSeasonExplicit`(单字段 `rename`,与 nextSeasonId / prevSeasonId 一致)。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not", rename = "prevSeasonExplicit")]
+    pub prev_season_explicit: bool,
     /// 「所属系列」id(v1.7 新增;无序收藏夹分组)。
     ///
     /// 语义:这部作品属于 `series_id` 这个 Series 集合(同一系列下可能有电视剧 / 电影 /
@@ -554,6 +571,17 @@ pub struct Config {
     /// 后续可加更多模式(独立 section / chip 列表 等);空 / 未知值 fallback `inline-row`。
     #[serde(default)]
     pub sidebar_series_entry_mode: String,
+    /// 「字体加载」开关 —— 仅 library/codex 主题生效。
+    /// `true` = 本地 ttf(`packages/tracker-ui/src/fonts/`);`false` = Google Fonts CDN。
+    /// 默认 `false`(与现状一字不动);`#[serde(default)]` 让老 config 缺字段 → false。
+    /// renderer 端把值写到 `<html data-font-source="local|remote">`,base.css 选择器接管。
+    #[serde(default)]
+    pub use_local_fonts: bool,
+    /// 「柔化视觉」开关 —— 圆角 +1、阴影更柔。
+    /// `true` = 启用柔化 token;`false` = 原值。`#[serde(default)]` 老 config 缺字段 → false。
+    /// renderer 端把值写到 `<html data-cozy-tokens="on|off">`,base.css 选择器接管。
+    #[serde(default)]
+    pub use_cozy_tokens: bool,
 }
 
 fn default_work_kind() -> WorkKind {

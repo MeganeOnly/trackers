@@ -204,6 +204,21 @@ pub fn books_set_next_season(
     books::set_next_season(&dir, &id, next_season_id).map_err(|e| e.to_string())
 }
 
+/// 设置 / 清除「上一季」关联(v2.x 新增;用户主动设)。
+/// `prev_season_id: None` 或 `Some("")` 等同"清除"(不写 frontmatter,且
+/// `prev_season_explicit` 重置为 false)。设值时会同步写 `prev_season_explicit = true`
+/// 作为"粘性"标记,`set_next_season` 反向清理路径看到该标记会跳过 —— 保护用户显式表达。
+/// 禁止 self-loop,目标 book 不存在时仍写盘(同 set_next_season)。
+/// **不联动 next 方向**:本命令不修改 prev 目标书的 `next_season_id`。
+#[tauri::command]
+pub fn books_set_prev_season(
+    id: String,
+    prev_season_id: Option<String>,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_prev_season(&dir, &id, prev_season_id).map_err(|e| e.to_string())
+}
+
 // ==================== v1.7 「所属系列」commands ====================
 
 /// 设置 / 清除「所属系列」(v1.7 新增)。

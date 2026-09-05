@@ -77,8 +77,9 @@ pub struct TimeStamp {
 }
 
 // 镜像 types.rs 的 `Book`（仅字段对齐 serde 行为，类型用占位；本测试只关心
-// `next_season_id` ↔ `nextSeasonId` 和 `prev_season_id` ↔ `prevSeasonId` 这两个字段的 rename）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// `next_season_id` ↔ `nextSeasonId` / `prev_season_id` ↔ `prevSeasonId` /
+// `prev_season_explicit` ↔ `prevSeasonExplicit` 这三个字段的 rename）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct BookLite {
     pub id: String,
@@ -87,6 +88,10 @@ pub struct BookLite {
     pub next_season_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "prevSeasonId")]
     pub prev_season_id: Option<String>,
+    // 跟 types.rs 同款:false 不写盘 / true 写盘;这里省掉 skip_serializing_if
+    // 仅用于断言序列化字段名正确(rename 行为)
+    #[serde(default, rename = "prevSeasonExplicit")]
+    pub prev_season_explicit: bool,
 }
 
 /// 1. renderer payload（TS 风格 camelCase）反序列化进 `Vec<SeasonInfo>` 应该成功。
@@ -165,6 +170,7 @@ fn book_next_season_id_serializes_as_camel_case() {
         title: "鉴证实录".to_string(),
         next_season_id: Some("5".to_string()),
         prev_season_id: None, // v1.6 起 BookLite 多了 prev_season_id 字段
+        ..Default::default()
     };
     let json = serde_json::to_string(&book).unwrap();
     assert!(
@@ -196,6 +202,7 @@ fn book_prev_season_id_serializes_as_camel_case() {
         title: "鉴证实录 S02".to_string(),
         next_season_id: None,
         prev_season_id: Some("1".to_string()),
+        ..Default::default()
     };
     let json = serde_json::to_string(&book).unwrap();
     assert!(
@@ -218,10 +225,39 @@ fn book_prev_season_id_serializes_as_camel_case() {
         title: "Y".to_string(),
         next_season_id: Some("3".to_string()),
         prev_season_id: Some("1".to_string()),
+        ..Default::default()
     };
     let full_json = serde_json::to_string(&full).unwrap();
     assert!(full_json.contains("\"nextSeasonId\":\"3\""));
     assert!(full_json.contains("\"prevSeasonId\":\"1\""));
     assert!(!full_json.contains("next_season_id"));
     assert!(!full_json.contains("prev_season_id"));
+}
+
+/// v2.x `prev_season_explicit` 字段的 IPC 序列化测试 —— 跟 next/prev 同款验证 rename。
+/// TS 端用 `prevSeasonExplicit`,Rust 端用 `prev_season_explicit`,serde rename 兜底;
+/// false 走 skip_serializing_if 不写盘(true 时写)。
+#[test]
+fn book_prev_season_explicit_serializes_as_camel_case() {
+    let book_true = BookLite {
+        id: "2".to_string(),
+        title: "X".to_string(),
+        next_season_id: None,
+        prev_season_id: None,
+        prev_season_explicit: true,
+    };
+    let json = serde_json::to_string(&book_true).unwrap();
+    assert!(
+        json.contains("\"prevSeasonExplicit\":true"),
+        "出参应含 camelCase `prevSeasonExplicit`; got: {json}"
+    );
+    assert!(
+        !json.contains("prev_season_explicit"),
+        "出参**不应**含 snake_case `prev_season_explicit`; got: {json}"
+    );
+
+    // 镜像反向:TS 风格入参 `prevSeasonExplicit: true` 应当能反序列化进 `BookLite`。
+    let payload = r#"{"id":"2","title":"X","prevSeasonExplicit":true}"#;
+    let parsed: BookLite = serde_json::from_str(payload).unwrap();
+    assert!(parsed.prev_season_explicit);
 }

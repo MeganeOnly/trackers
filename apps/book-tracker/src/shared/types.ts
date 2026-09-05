@@ -368,9 +368,10 @@ export interface Book {
    * 典型场景:一部剧拆成多个 book 追踪时,例如《鉴证实录 S02》有 prevSeasonId = S01 的 id,
    * 双向可点击跳转形成整条季链。
    *
-   * **v1.6 决策**：**仅由 service 层自动维护**（set_next_season 路径双向同步）。
-   * 不暴露 `BookPatch` / `setPrevSeason` IPC —— 用户不能也不需要手动设 prevSeasonId。
-   * 老数据:之前没这字段 → undefined（向后兼容）。
+   * **v1.6 起源**:由 service 层在 set_next_season 路径双向同步维护,前端不主动设。
+   * **v2.x 扩展**:新增 `books_set_prev_season` IPC,允许用户主动设 prev(配合
+   * `prevSeasonExplicit` 粘性标记)。主动设的 prev 即使 prev 目标书的 next 被改指向别处,
+   * 也不会被 service 层反向清掉 —— 尊重用户显式表达"我的上一季就是 X"。
    *
    * 写盘策略:同 nextSeasonId —— undefined / 空串不写 frontmatter;老文件缺字段 → undefined。
    *
@@ -378,6 +379,22 @@ export interface Book {
    * 反之亦然:把 A.nextSeasonId 从 B 改到 C 时,C.prevSeasonId 自动设为 A,B.prevSeasonId 自动清掉。
    */
   prevSeasonId?: string
+  /**
+   * 「上一季」是否用户主动设置(v2.x 新增;与 `prevSeasonId` 配对)。
+   *
+   * 区分两种 prev 来源:
+   * - `true` —— 用户通过 BookDetail「上一季」picker 主动设的;`set_next_season`
+   *   路径反向清 prev 时看到该标记会**跳过**(粘性保护),尊重用户显式表达
+   * - `false`(默认)—— service 层在 set_next_season 路径自动同步产生的,
+   *   可被反向清掉(老逻辑)
+   *
+   * 写盘策略:仅 `true` 写 frontmatter,`false` / `undefined` 不写(避免污染);
+   * 老文件缺字段 → `undefined`(向后兼容)。
+   *
+   * IPC 字段名:跟 nextSeasonId / prevSeasonId 一致用单字段 `rename`(Rust 端实现),
+   * TS 端直接 `book.prevSeasonExplicit` 访问。
+   */
+  prevSeasonExplicit?: boolean
   /**
    * 「所属系列」id(v1.7 新增;无序收藏夹分组)。
    *
@@ -521,4 +538,23 @@ export interface Config {
    * 写盘:`Some('inline-row')` 才写,空串 / 未知值 fallback `inline-row`(同 theme / format 模式)。
    */
   sidebar_series_entry_mode?: SidebarSeriesEntryMode
+  /**
+   * 「字体加载」开关 —— 选 Fraunces 字体的加载来源(仅 library/codex 主题生效)。
+   * - `true`:本地字体(下载到 packages/tracker-ui/src/fonts/ 的 ttf,offline 友好)
+   * - `false`(默认):Google Fonts CDN(走 index.html 里的 <link>)
+   *
+   * **默认 `false` 与现状一字不动** —— 用户在 Settings → 「外观 · 字体加载」开 ON
+   * 后,base.css 的 `[data-font-source="local"]` 选择器接管,@font-face 用本地 ttf。
+   * Rust 端 ConfigPatch 同样镜像,白名单校验 + fallback false(老 config 缺字段)。
+   */
+  use_local_fonts?: boolean
+  /**
+   * 「柔化视觉」开关 —— 是否启用「柔化 token」组(圆角 / 阴影 +1)。
+   * - `true`:radius-sm 2→3 / radius-md 4→6 / radius-lg 8→10,基座 --shadow-card 更柔
+   * - `false`(默认):原 token 值,与现状一字不动
+   *
+   * 同样默认关闭。改的 token 数刻意控制在「边缘柔和、整体密度不变」,不动 spacing /
+   * 字号 / 字体(动了破坏既有对齐)。由 Settings → 「外观 · 视觉舒适」开 ON。
+   */
+  use_cozy_tokens?: boolean
 }

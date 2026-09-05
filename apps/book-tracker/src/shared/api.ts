@@ -59,6 +59,20 @@ export interface BookAPI {
    * - 目标 book 不存在时不拒绝(Rust 端不校验),由前端 UI 兜底提示「原作品已删除」
    */
   setNextSeason(id: string, nextSeasonId: string | null): Promise<Book>
+  // -------- v2.x 「上一季」主动设置 --------
+  /**
+   * 设置 / 清除「上一季」关联到另一部作品(v2.x 新增;用户主动设,与 setNextSeason 的自动同步配对)。
+   *
+   * **与 setNextSeason 关键区别**:
+   * - **单向写**:不联动 prev 目标书的 `nextSeasonId`(用户主动表达"我的上一季是 X"
+   *   是一厢情愿,是否要 X.next = A 留给 X 自己决定)
+   * - **粘性**:设值时同步写 `prevSeasonExplicit = true`;`setNextSeason` 反向清理路径
+   *   看到该标记会跳过 —— 保护用户显式表达不被 service 层擅自覆盖
+   * - `prevSeasonId: null` 或 `""` → 清空(不写 frontmatter,且 `prevSeasonExplicit` 重置为 false)
+   *
+   * 校验:禁止 self-loop;目标 book 不存在时仍写盘(同 setNextSeason 兜底)。
+   */
+  setPrevSeason(id: string, prevSeasonId: string | null): Promise<Book>
   // -------- v1.7 「所属系列」 --------
   /**
    * 设置 / 清除「所属系列」关联(v1.7 新增;无序收藏夹分组)。
