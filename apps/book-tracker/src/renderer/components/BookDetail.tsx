@@ -750,11 +750,7 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
                   <span className="prev-season-missing">
                     原作品已删除 (id: {cur.prevSeasonId})
                   </span>
-                ) : (
-                  // prevSeasonId 是 None + prevSeasonExplicit=true → 明确"没有上一季"
-                  // 视觉上 content 区为空(不显示文字),靠 × 按钮区别于"未设置"
-                  <span className="prev-season-missing">（已标记「没有上一季」）</span>
-                )}
+                ) : null /* 明确「没有上一季」:content 区留空,只靠 × 按钮跟「未设置」区分 */}
                 <button
                   type="button"
                   className="prev-season-remove"
