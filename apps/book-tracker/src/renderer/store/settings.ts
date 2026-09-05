@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api } from '../lib/api'
 import { applyTheme, applyFormat, normalizeTheme, normalizeFormat } from '@ui/useTheme'
 import type { ThemeName, FormatName } from '@ui/useTheme'
-import type { Config, WorkKind } from '@shared/types'
+import type { Config, SidebarSeriesEntryMode, WorkKind } from '@shared/types'
 
 interface SettingsState {
   /** 新建作品的默认类型 */
@@ -13,15 +13,24 @@ interface SettingsState {
   theme: ThemeName
   /** 信息呈现格式(格式风格 —— list/grid/focus-stack,与 theme 正交) */
   format: FormatName
+  /** 侧栏系列入口展示模式(v2.x 起;当前固定 inline-row,留扩展位) */
+  sidebarSeriesEntryMode: SidebarSeriesEntryMode
   hydrate: (cfg: Config) => void
   setDefaultWorkKind: (k: WorkKind) => Promise<void>
   setWorksFilter: (f: string) => Promise<void>
   setTheme: (name: ThemeName) => Promise<void>
   setFormat: (name: FormatName) => Promise<void>
+  setSidebarSeriesEntryMode: (m: SidebarSeriesEntryMode) => Promise<void>
 }
 
 const THEME_LS_KEY = 'tracker-theme'
 const FORMAT_LS_KEY = 'tracker-format'
+
+/** 把 Config.sidebar_series_entry_mode 容错规整成已知 SidebarSeriesEntryMode(v2.x 起)。 */
+function normalizeSidebarSeriesEntryMode(s: string | undefined): SidebarSeriesEntryMode {
+  if (s === 'inline-row') return 'inline-row'
+  return 'inline-row'
+}
 
 function persistThemeLS(name: ThemeName): void {
   try {
@@ -43,6 +52,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   worksFilter: 'all',
   theme: 'classic',
   format: 'list',
+  sidebarSeriesEntryMode: 'inline-row',
   hydrate: (cfg) => {
     const t = normalizeTheme(cfg.theme)
     const f = normalizeFormat(cfg.format)
@@ -54,7 +64,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       defaultWorkKind: cfg.default_work_kind ?? 'book',
       worksFilter: cfg.works_filter || 'all',
       theme: t,
-      format: f
+      format: f,
+      sidebarSeriesEntryMode: normalizeSidebarSeriesEntryMode(cfg.sidebar_series_entry_mode)
     })
   },
   setDefaultWorkKind: async (k) => {
@@ -101,6 +112,23 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('settings.setFormat: persist failed, UI-only', e)
+    }
+  },
+  // v2.x 侧栏系列入口展示模式 —— 当前固定 inline-row,留扩展位
+  setSidebarSeriesEntryMode: async (m) => {
+    const normalized = normalizeSidebarSeriesEntryMode(m)
+    // 立即同步本地状态 —— BookList 重新渲染会用到;没有 DOM class 副作用
+    set({ sidebarSeriesEntryMode: normalized })
+    // 持久化到 config.json(失败时不回滚 UI,跟 setTheme/setFormat 同款精神)
+    try {
+      const cfg = await api.config.set({ sidebar_series_entry_mode: normalized })
+      const stored = normalizeSidebarSeriesEntryMode(cfg.sidebar_series_entry_mode)
+      if (stored !== normalized) {
+        set({ sidebarSeriesEntryMode: stored })
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('settings.setSidebarSeriesEntryMode: persist failed, UI-only', e)
     }
   }
 }))

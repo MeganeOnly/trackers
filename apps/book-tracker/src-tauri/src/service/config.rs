@@ -24,6 +24,12 @@ pub fn set_config(data_dir: &str, patch: ConfigPatch) -> std::io::Result<Config>
             _ => "list".to_string(),
         })
         .unwrap_or(current.format);
+    let sidebar_series_entry_mode = patch.sidebar_series_entry_mode
+        .map(|m| match m.as_str() {
+            "inline-row" => m.to_string(),
+            _ => "inline-row".to_string(),
+        })
+        .unwrap_or(current.sidebar_series_entry_mode);
     let new = Config {
         version: 1,
         data_dir: current.data_dir, // 不允许通过 patch 改 data_dir
@@ -33,12 +39,13 @@ pub fn set_config(data_dir: &str, patch: ConfigPatch) -> std::io::Result<Config>
         works_filter: patch.works_filter.unwrap_or(current.works_filter),
         theme,
         format,
+        sidebar_series_entry_mode,
     };
     data::write_config(&new)?;
     Ok(new)
 }
 
-/// config patch 结构(只允许改 language / default_mode / default_work_kind / works_filter / theme / format)。
+/// config patch 结构(只允许改 language / default_mode / default_work_kind / works_filter / theme / format / sidebar_series_entry_mode)。
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct ConfigPatch {
     pub language: Option<String>,
@@ -49,4 +56,6 @@ pub struct ConfigPatch {
     pub theme: Option<String>,
     /// 信息呈现格式；空 / 未知值 fallback list
     pub format: Option<String>,
+    /// 侧栏系列入口展示模式；空 / 未知值 fallback inline-row(v2.x 起)
+    pub sidebar_series_entry_mode: Option<String>,
 }

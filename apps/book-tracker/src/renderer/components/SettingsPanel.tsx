@@ -1,7 +1,7 @@
 import { Modal } from './Modal'
 import { useSettingsStore } from '../store/settings'
 import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
-import type { WorkKind } from '@shared/types'
+import type { SidebarSeriesEntryMode, WorkKind } from '@shared/types'
 import { ALL_THEMES, ALL_FORMATS, THEME_META, FORMAT_META } from '@ui/useTheme'
 import type { ThemeName, FormatName } from '@ui/useTheme'
 
@@ -12,6 +12,15 @@ interface SettingsPanelProps {
 const FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'all', label: '全部作品' },
   ...WORK_KIND_ORDER.map((k) => ({ value: k, label: WORK_KIND_LABELS[k] }))
+]
+
+// v2.x 侧栏系列入口模式选项(当前固定 1 项,后续可加更多 preset)
+const SERIES_ENTRY_MODES: { value: SidebarSeriesEntryMode; label: string; hint: string }[] = [
+  {
+    value: 'inline-row',
+    label: '插入到状态分组',
+    hint: '系列徽章插入到各 status 分组顶部,跨 status 可重复出现;搜索时去重一次。'
+  }
 ]
 
 // 设置项的「?」说明图标 —— 鼠标悬置 / 键盘聚焦时显示 tooltip,
@@ -40,6 +49,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
   const setTheme = useSettingsStore((s) => s.setTheme)
   const format = useSettingsStore((s) => s.format)
   const setFormat = useSettingsStore((s) => s.setFormat)
+  const sidebarSeriesEntryMode = useSettingsStore((s) => s.sidebarSeriesEntryMode)
+  const setSidebarSeriesEntryMode = useSettingsStore((s) => s.setSidebarSeriesEntryMode)
 
   return (
     <Modal
@@ -155,6 +166,31 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                 </button>
               )
             })}
+          </div>
+        </div>
+
+        {/* v2.x 侧栏系列入口模式 —— 编辑模式 BookList 里 series 怎么呈现。
+            当前只有 1 个选项,后续若加更多展示方式可扩展;切完立即重新渲染 BookList。 */}
+        <div className="field">
+          <span className="field-label">
+            侧栏系列入口
+            <InfoTip tip="编辑模式左侧栏如何呈现系列。当前只一种模式;后续可加更多。" />
+          </span>
+          <div className="seg-chips" role="radiogroup" aria-label="侧栏系列入口">
+            {SERIES_ENTRY_MODES.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={sidebarSeriesEntryMode === o.value}
+                className={`seg-chip${sidebarSeriesEntryMode === o.value ? ' active' : ''}`}
+                onClick={() => void setSidebarSeriesEntryMode(o.value)}
+                data-tip={o.hint}
+                aria-label={`${o.label} — ${o.hint}`}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>

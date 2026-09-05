@@ -21,6 +21,7 @@ pub fn default_config() -> Config {
         works_filter: "all".to_string(),
         theme: "classic".to_string(),
         format: "list".to_string(),
+        sidebar_series_entry_mode: "inline-row".to_string(),
     }
 }
 
@@ -81,6 +82,14 @@ fn normalize(raw: serde_json::Value) -> Config {
                 _ => "list".to_string(),
             }
         },
+        sidebar_series_entry_mode: {
+            let m = get_str("sidebar_series_entry_mode").unwrap_or_default();
+            // 只接受已知 preset;其他值 fallback inline-row(防 renderer 发意外值)
+            match m.as_str() {
+                "inline-row" => m,
+                _ => "inline-row".to_string(),
+            }
+        },
     }
 }
 
@@ -122,6 +131,7 @@ mod tests {
             works_filter: "movie".to_string(),
             theme: "library".to_string(),
             format: "grid".to_string(),
+            sidebar_series_entry_mode: "inline-row".to_string(),
         };
         write_config(&cfg).unwrap();
         let got = read_config(&cfg.data_dir).unwrap();
@@ -157,6 +167,28 @@ mod tests {
         .unwrap();
         let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
         assert_eq!(got.format, "list");
+    }
+
+    #[test]
+    fn invalid_sidebar_series_entry_mode_falls_back_to_inline_row() {
+        // v2.x:sidebar_series_entry_mode 缺损 / 垃圾值 → fallback `inline-row`
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"sidebar_series_entry_mode": "garbage_value"}"#,
+        )
+        .unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.sidebar_series_entry_mode, "inline-row");
+    }
+
+    #[test]
+    fn missing_sidebar_series_entry_mode_uses_default() {
+        // v2.x:字段缺损 → 默认 `inline-row`(跟 format 同款)
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("config.json"), "{}").unwrap();
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.sidebar_series_entry_mode, "inline-row");
     }
 
     #[test]

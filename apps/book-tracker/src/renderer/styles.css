@@ -252,7 +252,9 @@ button:focus-visible {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .book-list-group li .read-count { font-size: 11px; color: var(--muted); flex-shrink: 0; }
-.book-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; }
+.book-list-group .empty-hint { padding: 4px 8px; margin: 0; font-size: 12px; list-style: none; }
+.book-list-group li.empty-hint { cursor: default; padding: 4px 8px; font-size: 12px; }
+.book-list-group li.empty-hint:hover { background: transparent; }
 
 /* 「已收起」最外层容器 —— 不是一个 status 组，而是『所有被收起的』专用收纳位置 */
 .book-list-group--collapsed-bucket {
@@ -2937,6 +2939,168 @@ ul.book-grid {
   padding: 5px 14px;
 }
 .series-picker-footer button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ============ v2.x 侧栏系列入口(inline-row) ============ */
+
+/* ============ v2.x 侧栏系列入口(inline-row) ============ */
+
+/* 系列徽章 —— 视觉跟 `.kind-tag` 完全同款(同 8px 圆角 / 10px 字号 / 1px border /
+   `1px 6px` padding),只是配色专属(teal 青绿系,跟现有 book/anime/tv/movie/other
+   五种 kind 配色完全不撞 —— 系列= 收纳/分类,语义跟青色文件夹标签很贴)。
+   整行 li 样式( / hover / selected / padding / cursor)100% 复用 .book-list-group li
+   —— 系列 row 直接渲染在跟 book row 同一个 <ul> 里,不引入新的视觉语言。 */
+.kind-tag.kind-series {
+  color: #2c7a7b;
+  border-color: #b8d8d8;
+  background: #e3f0f0;
+}
+/* selected 态:hover 也跟 book row 同款,用 --accent-soft,不引入额外配色;
+   series 自身的 teal 配色只体现在 kind-tag,跟 book row 视觉重量 / 高度完全一致。 */
+
+/* 侧栏 series 视图(整左侧栏切到 series) —— 类似 SeriesDetailBody 但紧凑 + 只有 × 移除 */
+.sidebar-series-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 4px 4px;
+}
+.sidebar-series-view-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sidebar-series-view-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.sidebar-series-view-back:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+.sidebar-series-view-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-series-view-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-series-view-count {
+  font-size: 12px;
+}
+.sidebar-series-view-notes {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 8px;
+  border-left: 2px solid var(--border);
+}
+.sidebar-series-view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.sidebar-series-view-add {
+  margin-left: auto;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* 成员列表 */
+.sidebar-series-view-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-series-view-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: background 120ms ease;
+}
+.sidebar-series-view-row:hover {
+  background: var(--bg);
+}
+.sidebar-series-view-row.is-removing {
+  opacity: 0.55;
+}
+.sidebar-series-view-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+.sidebar-series-view-row-main:hover .title {
+  color: var(--accent);
+}
+.sidebar-series-view-row-main .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-series-view-row-main .author {
+  font-size: 12px;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-series-view-row-main .tracker-id {
+  font-size: 11px;
+}
+.sidebar-series-view-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  min-width: 28px;
+  text-align: center;
+  line-height: 22px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.sidebar-series-view-remove:hover {
+  color: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+}
+.sidebar-series-view-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* ============ v1.7 作品双链 `[[角色名]]` ============ */
 

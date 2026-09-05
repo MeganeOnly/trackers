@@ -34,6 +34,7 @@ where
             works_filter: "all".to_string(),
             theme: "classic".to_string(),
             format: "list".to_string(),
+            sidebar_series_entry_mode: "inline-row".to_string(),
         })?;
         let books_dir = crate::data::config::paths::books_dir(chosen);
         tracker_core::files::ensure_dir(&books_dir)?;

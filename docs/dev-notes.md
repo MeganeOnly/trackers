@@ -6,6 +6,113 @@
 
 ---
 
+## 2026-09：[book-tracker] 「系列」侧栏入口(inline-row 模式 + 搜索去重)(v2.x)
+
+### 1. 现象 / 需求
+
+用户诉求:**在编辑模式左侧栏**直接看到系列的入口(不必每次都从「+ 添加」→「+ 系列」tab 进),以"系列徽章"形式**插入到 status 分组里**:
+- 一个系列跨多个 status 分组时(系列下有"已读"也有"想看"),**徽章在多个分组里都出现**
+- 但**搜索时只出现一次**(避免 4 个 status 分组各一个"三体"徽章)
+- 点徽章 → 左侧栏整体切到 series 视图(展示成员 + × 移除)
+- 成员行带 × 移除按钮,**无 confirm**(跟 BookDetail × 移除系列同款)
+
+### 2. 关键决策
+
+#### 2.1 跨 status 重复 vs 搜索去重 ——「按 first status 出现」
+
+**问题**:跨 status 重复和搜索去重两个诉求看似矛盾。
+
+**正确做法**:把"是否跨 status 展示"和"是否搜索去重"**作为正交两件事**:
+- **跨 status 重复**(无搜索时):每个 status 分组顶部都插入该 status 下"至少有一本属于该 series"的徽章
+- **搜索去重**(有搜索时):预计算每个 matching series 的"first status"(按 `STATUS_ORDER` 第一个含它的 status),徽章只在 first status 分组展示一次
+
+```typescript
+// 关键派生(全部 useMemo,无 IPC)
+const matchingSeriesIds = useMemo(...) // null = 关闭;Set<string> = 匹配
+const firstStatusForSeries = useMemo(...) // Map<seriesId, BookStatus>
+const seriesByStatus = useMemo(...) // Record<BookStatus, Series[]>
+```
+
+**判定**:任何"看似矛盾的多诉求"先拆成**正交两件事**,再分别用独立派生解决。
+
+#### 2.2 worksFilter 对 series 的影响 ——"至少一本符合"
+
+`worksFilter !== 'all'`(用户筛"只看动画")时,series 是否展示 = **至少有一本 book.kind 符合**;不要"全集都为该 kind 才展示"。
+
+**反例**:系列 A 有"电视剧 S01" + "小说原著" + "电影外传"。用户筛"只看动画"时:
+- 错误:全集都不是动画 → 隐藏(用户看不到系列,以为"被过滤了")
+- 正确:虽然没动画成员,但仍有电视剧/小说 → 展示(用户能看到"这个系列存在,只是当前筛选下没动画成员")
+
+#### 2.3 collapsed 不影响徽章
+
+`Book.collapsed = true` 时,book 从原 status 分组移到「已收起」分组,**但它本身仍属原 status**。徽章代表"该 status 有成员",所以徽章依然在原 status 分组展示该 series —— **不要因为 book 被收起就藏起徽章**。
+
+#### 2.4 selectedSeriesId 用局部 useState 而非 zustand
+
+侧栏 series 视图纯粹是 BookList 的 UI 视图态,没有跨组件读写需求(都是 BookList 的子组件)。**用局部 useState 而非 zustand**:
+- 避免污染全局 store
+- 自动 unmount 清零(切走再回来时不会卡在 series 视图)
+- 渲染路径短(无 selector 订阅开销)
+
+**判定**:"切视图"类状态如果不跨组件读写,**永远先用局部 useState**。
+
+### 3. 组件拆分取舍
+
+#### 3.1 SidebarSeriesView 不复用 SeriesDetailBody
+
+**问题**:SeriesDetailBody 已经是系列成员展示 body,带「+ 添加作品」+「删除系列」按钮。
+
+**为什么不复用**:
+- 视觉上下文不同(侧栏 vs modal)
+- 行为子集不同(侧栏版不要「+ 添加」+「删除」)
+- props 兼容成本不如另写一个 ~110 行的小组件
+
+**判定**:组件复用性看「**视觉 + 行为**是否同源」,不是「名字相似」就强行复用。
+
+#### 3.2 SeriesRowInSidebar 是「切视图」入口,不是「选中 book」入口
+
+点系列徽章 → 切到 series 视图(`setSelectedSeriesId`),**不修改 `selectedId`**。
+
+**反例**:点徽章同时 `select(id)` 某个 book,会让 BookDetail 跟着跳(看起来像"选了一个 book",其实用户意图是"看系列成员")。
+
+### 5. Config 字段新增 → 必走 TS / Rust / 容错 / 单测 四步
+
+加 `sidebar_series_entry_mode` 字段时:
+1. TS `Config` interface 加字段
+2. Rust `Config` struct 加字段 + `#[serde(default)]`(老文件缺字段 fallback)
+3. Rust `default_config()` 显式设默认
+4. Rust `normalize()` 走白名单 fallback(垃圾值兜底)
+5. Rust `ConfigPatch` 加 Option 字段 + `set_config` 路径同样白名单过滤
+6. 单测覆盖:**缺损字段 fallback + 垃圾值 fallback**两条路径
+
+**漏一处必踩**(实测):
+- TS 端 typecheck 不过
+- 老 config.json 反序列化 fail → 应用启动挂
+- 垃圾值从前端发过来被静默写入 → 配置污染
+
+### 6. 回归验证
+
+- `npm run typecheck` 三端全过
+- `npm run test:book` 205 个 vitest 全过(无新增/删除,纯 UI 改造)
+- `cargo test -p book-tracker` 67 + 2 = 69 个 Rust test 全过(新增 `invalid_sidebar_series_entry_mode_falls_back_to_inline_row` + `missing_sidebar_series_entry_mode_uses_default`)
+- 手测流程:
+  1. 编辑模式左侧栏 status 分组顶部出现系列徽章(同系列跨多个 status 时,多个分组都出现)
+  2. 点徽章 → 左侧栏整体切到 series 视图(系列名 + 成员列表)
+  3. 成员行 × 按钮 → 单击移除(无 confirm,立即生效)
+  4. ← 返回 → 回到 status 分组视图
+  5. 搜索时:徽章只在 first status 分组出现一次
+  6. worksFilter "只看动画"时,只展示有动画成员的 series
+  7. collapsed = true 的 book 仍属原 status,该 series 徽章在原 status 展示
+
+### 7. 教训(共享 + 单 app)
+
+- **「跨 status 重复 + 搜索去重」是 UI 诉求的复合表述**,本质是正交两件事 —— 拆开用两个独立派生(展示 / 去重)解决,不要试图用单一逻辑同时满足
+- **"切视图"用局部 useState,不要污染全局 store**:不跨组件读写 → 永远先局部
+- **组件复用看"视觉 + 行为同源"**,不是"名字相似"
+- **加 Config 字段必走 6 步**(TS / Rust struct / default / normalize / patch / 单测),漏一处踩一处
+
+---
+
 ## 2026-09：[book-tracker] wikilink `[[角色名]]` —— 数据格式不变 + 后端零改动的 Obsidian 风格双链 (v1.5)
 
 ### 1. 现象 / 需求

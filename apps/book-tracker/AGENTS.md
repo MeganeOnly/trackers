@@ -368,6 +368,21 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     **修复**:(a) 给 StampRow 加本地 `noteDraft` + `setNoteDraft` + `scheduleNoteFlush` 500ms debounce,`value={noteDraft}` 受控,`setValue: (v) => { setNoteDraft(v); scheduleNoteFlush() }` —— 跟 EpisodeEditor / CharacterEditor 严格对齐;(b) 加 start / end inline 编辑 UI —— 单击时间戳文字切换到编辑态,start mm + ss、end mm + ss(end 可空);blur / 回车 → `onEditStart(startSecNum)` + `onEditEnd(endSecNum)` 写 store;Esc → `cancelEditTime` 用 `cancelledRef` 标记"取消"避免 onBlur 后又触发 flush。**判定**:任何"短输入多操作 + 需要与 IPC 通信"的 textarea(笔记 / 角色笔记 / 时间戳笔记 / 季集数 inline)都必须用"本地 draft + debounce flush"模式,**绝不**直接 `value={store value}` —— 这是 React 18 controlled input 吞 keystroke 的著名坑,只在慢 IPC / 频繁 IPC 场景才暴露,EpisodicEditor 这种慢 debounce IPC 不会触发。
 44. **v2025-09 React 18 受控 input 的 fireEvent.change / userEvent.paste 在 vitest + jsdom 下不可靠**:**现象**:写回归测试时,`fireEvent.input(startMin, { value: '02' })` + `await act` 不能把 React state 改成 '02',flushEditTime 闭包仍读到旧 '00';**但** `fireEvent.input(endMin, { value: '' })` 却能成功设空字符串(因为空字符串 = "未改"边界,React state 没变也算"没变")。**根因**:React 18 受控 input + jsdom 的合成事件派发时序与 React commit 不一致,`fireEvent.input` 派发 input event 后 React 同步 setState,但 commit 在下一个 tick;后续 `await act` 等待 microtask 后,React render 重建 flushEditTime 闭包 —— **但 React StrictMode + 受控 input + setStartMin('02') + setStartSec('00')** 在同一 act 里两次 setState batch 合并,第二次覆盖第一次?实际更复杂:**React 18 batch 在 act() 外不立即 commit,只有 async act() 才强制 commit**。**解决**:本仓库的 vitest + jsdom 测试**不要**用 fireEvent 模拟受控 input 改值,只测**可稳定断言的部分**:DOM 结构(data-testid 检查)、单击交互的最终态(进入编辑态时 input.value 回填原值)、不依赖 commit 时序的断言。复杂 prop 变化链路用 `setStamp(newStamp)` 直接驱动,不模拟 keystroke。这是 jsdom 的固有限制,非产品代码 bug。
 45. **v2025-09 测试 jsdom 缺 `Element.prototype.scrollIntoView`**:`WikilinkPickerModal` 打开时 useEffect 调 `item.scrollIntoView({ block: 'nearest' })`,jsdom 没这个 API → TypeError,测试 setup 阶段加 `if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) { Element.prototype.scrollIntoView = function() {} }` 打 stub。这是测试 jsdom 环境的固定成本,任何 mount 含 modal / scroll 行为的组件测试都要预留。
+46. **v2.x 系列徽章跨 status 重复 + 搜索去重 = 「按 first status 出现」**(2026-09 加 sidebar series entry 时踩):用户诉求"系列里的作品可能跨 status(有些已读/有些想看),所以同一个系列徽章可以在多个 status 分组里出现;**但搜索时只出现一次**"。**正确做法**:
+    - **跨 status 重复**:每个 status 分组顶部插入该 status 下"至少一本属于该 series"的徽章;徽章总数(成员数)= 该 series 全量 books.length(跨 status 聚合,跟 status 无关)
+    - **搜索去重**:按 `STATUS_ORDER` 预计算每个 matching series 的"first status"(第一个含它的 status),徽章只在 first status 分组展示一次;其余 status 跳过(否则用户搜索"三体"时,看到 4 个 status 分组各一个"三体"徽章,很乱)
+    - **去重 key 用 Set 还是 Map**:`firstStatusForSeries: Map<seriesId, BookStatus>` —— 用 Map 不用 ref,因为 React 渲染函数里不能用 ref 跨函数调用传递;"first status"是纯派生,每次 render 重算代价可忽略
+    - **worksFilter 对 series 的影响**:`worksFilter !== 'all'` 时,series 是否展示 = 至少有一本 book.kind 符合;不要"全集都为该 kind 才展示"——系列可能跨类型(电视剧 + 小说 + 电影),只看动画时只展示"有动画成员"的,而不是"全集都是动画"的"
+    - **collapsed 不影响徽章**:某 book `collapsed = true` 时它从原 status 分组被移到"已收起"分组,但它**仍然属于原 status**,所以徽章依然在原 status 分组展示该 series(徽章代表"该 status 有成员",不管该成员是否被收起)
+47. **v2.x series 视图切走时清 selectedSeriesId + removingMemberId 双重清理**(2026-09):BookList 在 series 视图时,如果用户点了某成员(`onSelectBook`)进 BookDetail,会同时 `select(id)` + `setSelectedSeriesId(null)` ——**不清会导致下次回到 EditMode 时还卡在 series 视图**(看起来像"跳过去再回来还在 series 视图")。`handleBackToList` + `handleSeriesClick` + 选成员走 onSelectBook 三处都清。`removingMemberId` 同款,因为移除进行中切走会让对应 × 按钮永远卡在 loading 态。**判定**:任何"切视图要带走的局部状态"都要显式清,不依赖组件 unmount。
+48. **v2.x 系列徽章不重写 book row 选择态**:`SeriesRowInSidebar` 是「切换 series 视图」入口,不是「选中某本 book」入口 —— 所以 BookList 选中态(selectedId)不会被 series 徽章影响。点 series 徽章 → selectedSeriesId 切,但 selectedId 不动(用户切到 series 视图时,BookDetail 还是显示上次选中的 book)。**判定**:任何"切换侧栏视图"行为跟"选中某项"行为必须解耦,共享同一个 selectedId 会让 UI 状态错乱。
+49. **v2.x SidebarSeriesView 不复用 SeriesDetailBody 的取舍**(2026-09):SeriesDetailBody 是 AddModal 内的成员管理 body,带「+ 添加作品」+「删除系列」按钮;SidebarSeriesView 是侧栏只读版,只展示成员 + × 移除。**不复用 SeriesDetailBody**,因为(1) 视觉上下文不同(侧栏 vs modal);(2) 行为子集不同(不要 +添加 / 不要删除);(3) props 兼容成本不如另写一个 ~110 行的小组件。**判定**:组件复用性看「视觉 + 行为是否同源」,而不是「名字相似」就强行复用。
+50. **v2.x `selectedSeriesId` 用 BookList 局部 useState 而非 zustand store**(2026-09):侧栏 series 视图纯粹是 BookList 的 UI 视图态,没有跨组件读写的需求(SeriesRowInSidebar / SidebarSeriesView 都是 BookList 的子组件,直接 props 传)。用局部 useState 而非 zustand:避免污染全局 store + 自动 unmount 清零 + 渲染路径短。**判定**:"切视图"类状态如果不跨组件读写,**永远先用局部 useState**,能进 store 再进。
+51. **v2.x Config 新字段必须 TS / Rust 两端 + 容错兜底**(2026-09):加 `sidebar_series_entry_mode` 字段时:`Config` TS interface + Rust struct 同时加 → `default_config()` 显式设默认 → `normalize()` 走白名单 fallback → `ConfigPatch` 加 Option 字段 → `set_config` patch 路径同样按白名单过滤 → 单测覆盖"缺损 + 垃圾值"两条路径。**漏一处必踩**:
+- TS 端 typecheck 不过(字段缺)
+- 老 config.json 缺字段 → Rust 端反序列化 fail(没 `#[serde(default)]`)
+- 垃圾值从前端发过来 → Rust 端被静默写入(没白名单过滤)
+- 测试覆盖不全 → 后续 refactor 误改 fallback 路径无回归</new_string>
 
 ## 十一、已实现功能清单
 
@@ -504,6 +519,22 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     - `SeriesDetailBody.tsx` —— 成员管理 body(无 Modal 包装,「+ 添加作品」+ 移除 × + 系列名/notes/计数)
     - `SeriesPickBooksBody.tsx` —— 多选 picker body(无 Modal 包装,搜索 + checkbox 全选 + 「加入系列」footer)
   - **共享边界**：跟原 series 同款 —— 整条栈留 app;无新 IPC、无新 data 层、tracker-core / Rust / crates/tracker-core **零改动**
+- [x] **「系列」侧栏入口**(v2.x 新增)—— 编辑模式 BookList 左侧栏直接呈现 series,不必走 AddModal「+ 系列」tab:
+  - **系列徽章插入到 status 分组顶部**(inline-row 模式,默认唯一选项;用户诉求"系列里的作品跨 status 时,在多个 status 分组里出现,但搜索时只出现一次")
+  - 跨 status 重复:每个 status 分组顶部展示「该 status 下至少有一本属于该 series」的徽章;徽章上 `(N 本)` = 该 series 全量成员数(跨 status 聚合)
+  - 搜索去重:按 `STATUS_ORDER` 预计算每个 matching series 的"first status"(第一个含它的 status 分组),徽章只在 first status 展示一次;其余 status 跳过
+  - worksFilter 影响:`worksFilter !== 'all'` 时,系列只在「至少一本成员符合 kind」时展示(不要求全集都符合)
+  - collapsed 不影响:某 book `collapsed = true` 时仍属原 status,该 series 徽章依然在原 status 展示
+  - **点徽章 → 整左侧栏切到 series 视图**(`SidebarSeriesView`,跟 SeriesDetailBody 同款风格 + × 移除,无 confirm,跟 BookDetail/SeriesDetailBody 同款)
+  - **点 ← 返回 → 回到 status 分组视图**
+  - **点成员 → 跳到 BookDetail**(同时清 selectedSeriesId / removingMemberId)
+  - **删除/重命名系列 → 脏引用兜底**(跟 SeriesDetailBody 同款:selectedSeries === undefined → 自动回 status 分组)
+  - **新组件**:
+    - `SeriesRowInSidebar.tsx` —— 系列徽章 row(chip 风格,accent 边框 + expanded 态背景)
+    - `SidebarSeriesView.tsx` —— 整左侧栏 series 视图(只读 + × 移除,不复用 SeriesDetailBody 避免行为子集膨胀)
+  - **新配置项**:`Config.sidebar_series_entry_mode` (TS + Rust 镜像)—— 当前只 `inline-row` 一种,留扩展位;写盘 / 容错 / 路径同 `theme` / `format`(`normalize` 白名单 + `#[serde(default)]` + 缺省 / 垃圾值 fallback 单测)
+  - **新 store 字段**:`SettingsState.sidebarSeriesEntryMode` + `setSidebarSeriesEntryMode` —— 立即同步本地状态 + 持久化到 config.json(失败不阻塞 UI)
+  - **共享边界**:跟 series 整条栈一致 —— 留 app;Rust 端只加 `Config` 字段 + `normalize` 兜底 + `ConfigPatch` 字段 + 单测;tracker-core / tracker-ui 零改动;无新 IPC 命令(复用现有 `books_set_series`)
 - [x] 用户数据目录 picker（首次启动）
 - [x] 数据目录结构初始化（picker 完成后同步写 `config.json` + `books/`，避免空壳）
 - [x] 配置文件 `config.json` 持久化（含 `default_work_kind` / `works_filter`）

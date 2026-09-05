@@ -550,6 +550,10 @@ pub struct Config {
     /// 信息呈现格式(`"list" | "grid" | "focus-stack"`)—— 与 theme 正交,缺省 fallback list
     #[serde(default)]
     pub format: String,
+    /// 侧栏系列入口展示模式(v2.x 起;`"inline-row"` = 系列徽章插入到 status 分组顶部)。
+    /// 后续可加更多模式(独立 section / chip 列表 等);空 / 未知值 fallback `inline-row`。
+    #[serde(default)]
+    pub sidebar_series_entry_mode: String,
 }
 
 fn default_work_kind() -> WorkKind {

@@ -455,6 +455,16 @@ export type ThemeName = 'classic' | 'library' | 'codex'
  * - focus-stack: 焦点卡 + 紧凑清单 + 印章墙（按时间倒序） */
 export type FormatName = 'list' | 'grid' | 'focus-stack'
 
+/**
+ * 侧栏系列入口展示模式(v2.x 起)—— 编辑模式 BookList 里如何呈现 series。
+ * - `inline-row`:系列徽章插入到 status 分组顶部,跨 status 可重复,搜索去重(默认)
+ * - 后续可加 `side-section`(顶层独立 section)/ `chip-list`(每 series 一个 chip)等
+ *
+ * **跟 status 的关系**:徽章总是基于「该 status 下有多少本 book 属于该 series」展示,
+ * 搜索时按系列名 + 成员名匹配去重,只在第一个匹配的 status 分组展示一次。
+ */
+export type SidebarSeriesEntryMode = 'inline-row'
+
 /** 配置文件（数据目录自带） */
 export interface Config {
   version: number
@@ -470,4 +480,9 @@ export interface Config {
   theme?: ThemeName
   /** 信息呈现格式（与 theme 正交,独立维度） */
   format?: FormatName
+  /**
+   * 侧栏系列入口展示模式(v2.x 起)—— 当前固定 `inline-row`,预留扩展位。
+   * 写盘:`Some('inline-row')` 才写,空串 / 未知值 fallback `inline-row`(同 theme / format 模式)。
+   */
+  sidebar_series_entry_mode?: SidebarSeriesEntryMode
 }

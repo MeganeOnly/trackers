@@ -439,3 +439,64 @@
 ### 标签
 
 - （待发 tag 时）
+
+---
+
+## v2.0 (2026-09): 系列侧栏入口 —— 系列徽章插入 status 分组(inline-row 模式)
+
+**侧栏系列入口**。用户在编辑模式左侧栏直接看到系列,以「系列徽章」插入到各 status 分组顶部 —— 不必再走 AddModal「+ 系列」tab 就能进入系列视图。
+
+### 核心能力
+
+- **系列徽章插入到 status 分组顶部**(inline-row 模式,当前唯一选项,留扩展位):
+  - 每个 status 分组顶部展示「该 status 下至少有一本属于该 series」的徽章
+  - 徽章文本:`[集] 系列名 (N 本)`(`N` = 该 series 全量成员数,跨 status 聚合)
+  - 视觉:chip 风格,accent 边框 + 浅底色,跟 book row 区分
+  - 选中态(切到 series 视图时):背景变 accent + 白字
+- **跨 status 重复**:同系列在多个 status 分组都出现(成员跨 status 时)
+- **搜索去重**:有搜索时,徽章只在该 series「first status」(按 STATUS_ORDER 第一个含它的 status)展示一次,其余 status 跳过
+- **worksFilter 影响**:`worksFilter !== 'all'` 时,系列只在「至少一本成员符合 kind」时展示
+- **collapsed 不影响**:某 book `collapsed = true` 时仍属原 status,该 series 徽章依然在原 status 展示
+- **点徽章 → 整左侧栏切到 series 视图**(`SidebarSeriesView`):
+  - 顶部:← 返回 + 系列名 + (N 本) + id
+  - 成员列表:kind-tag + title + author + tracker-id + × 移除按钮(无 confirm,跟 BookDetail × 同款)
+  - 空成员时:提示「进「+ 添加」→「+ 系列」tab 管理」
+  - 「+ 添加作品」按钮:disabled 占位(留 AddModal 入口完整)
+- **点 ← 返回 / 点成员 / 系列被删 → 回 status 分组视图**(selectedSeriesId / removingMemberId 三处统一清零)
+- **新配置项**:`Config.sidebar_series_entry_mode`(TS + Rust 镜像)—— 当前固定 `inline-row`,预留扩展位
+
+### 新组件
+
+- **`SeriesRowInSidebar.tsx`** —— 系列徽章 row,接收 `(series, memberCount, expanded, onClick)`,渲染 chip 风格按钮
+- **`SidebarSeriesView.tsx`** —— 整左侧栏 series 视图,跟 SeriesDetailBody 同款但只读 + × 移除(无「+ 添加」/「删除系列」)
+
+### Config 链路
+
+- **TS**:`Config.sidebar_series_entry_mode?: SidebarSeriesEntryMode` + `SidebarSeriesEntryMode = 'inline-row'` + settings store 字段 `sidebarSeriesEntryMode` + `setSidebarSeriesEntryMode` action
+- **Rust**:`Config.sidebar_series_entry_mode: String` + `default_config()` 设 `"inline-row"` + `normalize()` 白名单 fallback + `ConfigPatch.sidebar_series_entry_mode: Option<String>` + `set_config` 路径同样白名单过滤
+- **单测**:`invalid_sidebar_series_entry_mode_falls_back_to_inline_row` + `missing_sidebar_series_entry_mode_uses_default`(两条 Rust 测试覆盖「缺损 + 垃圾值」)
+
+### 共享边界
+
+- 整条栈留 book-tracker app;tracker-core / tracker-ui / crates/tracker-core 零改动
+- 无新 IPC(复用现有 `books_set_series`)
+- Rust 端只加 `Config` 字段 + `normalize` 兜底 + `ConfigPatch` 字段 + 单测
+
+### 工程化
+
+- **typecheck 三端全过**:book-tracker / life-tracker / tracker-core
+- **book-tracker vitest 205/205 通过**(无新增/删除 —— 纯 UI 改造)
+- **book-tracker cargo test 67 + 2 = 69/69 通过**(新增 2 个 Config 字段容错测试)
+- **series 视图切换走 BookList 局部 useState**(selectedSeriesId / removingMemberId),不污染全局 zustand store
+- **不动 BookPatch / 不动 series store**:纯渲染层新增 + Config 字段扩展
+
+### 数据兼容性
+
+- **完全零迁移**:老 config.json 缺 `sidebar_series_entry_mode` 字段 → Rust 端 `#[serde(default)]` + normalize 兜底 fallback `inline-row`(同 theme / format)
+- **共享边界遵守**:整条栈留 app,不动 tracker-core(系列是 book-tracker 领域专属)
+- **worksFilter / search / collapsed 行为均向后兼容**:老用户的 series 仍可见,徽章位置由派生计算决定(自动适配)
+- **快捷键不变**:无新增快捷键;点徽章 = 鼠标点击 / 键盘 Enter
+
+### 标签
+
+- （待发 tag 时）
