@@ -51,6 +51,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
   const setFormat = useSettingsStore((s) => s.setFormat)
   const sidebarSeriesEntryMode = useSettingsStore((s) => s.sidebarSeriesEntryMode)
   const setSidebarSeriesEntryMode = useSettingsStore((s) => s.setSidebarSeriesEntryMode)
+  const useLocalFonts = useSettingsStore((s) => s.useLocalFonts)
+  const setUseLocalFonts = useSettingsStore((s) => s.setUseLocalFonts)
+  const useCozyTokens = useSettingsStore((s) => s.useCozyTokens)
+  const setUseCozyTokens = useSettingsStore((s) => s.setUseCozyTokens)
 
   return (
     <Modal title="设置" onClose={onClose} width={560} className="settings-modal">
@@ -187,6 +191,75 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
                 {o.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* 视觉微调开关组 —— 默认全 OFF,行为与现状一字不动;用户主动 ON 才生效。
+            每个开关独立 seg-chip (ON / OFF),切换立即写到 DOM data-* 触发 base.css 选择器。 */}
+        <div className="field">
+          <span className="field-label">
+            外观 · 字体加载
+            <InfoTip
+              tip={
+                '只影响 library / codex 主题(Fraunces 衬线字体)。\n' +
+                '· 本地（ON）：用 packages/tracker-ui/src/fonts/ 里的 ttf 文件，offline 也能用，体积约 460KB。\n' +
+                '· CDN（OFF，默认）：用 Google Fonts 远程加载，受网络影响但零本地占用。'
+              }
+            />
+          </span>
+          <div className="seg-chips" role="radiogroup" aria-label="字体加载">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!useLocalFonts}
+              className={`seg-chip${!useLocalFonts ? ' active' : ''}`}
+              onClick={() => void setUseLocalFonts(false)}
+            >
+              CDN（默认）
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={useLocalFonts}
+              className={`seg-chip${useLocalFonts ? ' active' : ''}`}
+              onClick={() => void setUseLocalFonts(true)}
+            >
+              本地
+            </button>
+          </div>
+        </div>
+
+        <div className="field">
+          <span className="field-label">
+            外观 · 视觉舒适
+            <InfoTip
+              tip={
+                '让圆角略大、阴影略柔(仅共享基座 token)。\n' +
+                '· 开：radius-sm 2→3 / radius-md 4→6 / radius-lg 8→10，整体边缘更圆润。\n' +
+                '· 关（默认）：原 token，行为与现状一字不动。\n' +
+                '不动间距 / 字号 / 字体（动了破坏既有对齐）。'
+              }
+            />
+          </span>
+          <div className="seg-chips" role="radiogroup" aria-label="视觉舒适">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!useCozyTokens}
+              className={`seg-chip${!useCozyTokens ? ' active' : ''}`}
+              onClick={() => void setUseCozyTokens(false)}
+            >
+              标准（默认）
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={useCozyTokens}
+              className={`seg-chip${useCozyTokens ? ' active' : ''}`}
+              onClick={() => void setUseCozyTokens(true)}
+            >
+              柔和
+            </button>
           </div>
         </div>
       </div>

@@ -40,12 +40,17 @@ pub fn set_config(data_dir: &str, patch: ConfigPatch) -> std::io::Result<Config>
         theme,
         format,
         sidebar_series_entry_mode,
+        use_local_fonts: patch.use_local_fonts.unwrap_or(current.use_local_fonts),
+        use_cozy_tokens: patch.use_cozy_tokens.unwrap_or(current.use_cozy_tokens),
     };
     data::write_config(&new)?;
     Ok(new)
 }
 
-/// config patch 结构(只允许改 language / default_mode / default_work_kind / works_filter / theme / format / sidebar_series_entry_mode)。
+/// config patch 结构(只允许改 language / default_mode / default_work_kind / works_filter / theme / format / sidebar_series_entry_mode / use_local_fonts / use_cozy_tokens)。
+///
+/// 两个开关字段都是 `Option<bool>`:`None` = 不改;`Some(true/false)` = 写为该值。
+/// 跟其他 patch 字段同款精神,默认值由 service 层决定。
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct ConfigPatch {
     pub language: Option<String>,
@@ -58,4 +63,8 @@ pub struct ConfigPatch {
     pub format: Option<String>,
     /// 侧栏系列入口展示模式；空 / 未知值 fallback inline-row(v2.x 起)
     pub sidebar_series_entry_mode: Option<String>,
+    /// 「字体加载」开关；`None` 不改,`Some(true)` 用本地 ttf,`Some(false)` 走 Google Fonts CDN
+    pub use_local_fonts: Option<bool>,
+    /// 「柔化视觉」开关；`None` 不改,`Some(true)` 启用柔化 token,`Some(false)` 原值
+    pub use_cozy_tokens: Option<bool>,
 }

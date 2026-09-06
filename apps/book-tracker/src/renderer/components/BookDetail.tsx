@@ -506,10 +506,13 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
          *   row 1: 作品类型 | 首播年份
          *   row 2: 原作/主创 | 译者(仅 book)/主演(影视)/编剧(影视) [可能 + 编剧凑 2 个,或 + placeholder]
          *   row 3: 原产国/地区 | 状态
-         *   row 4 (reading/watching): 第N次看 | 当前进度
-         *   row 5 (reading/watching): 总进度 | 标签
+         *   row 4 (reading/watching): 第N次看 | 标签
          *   row 4 (其他): 标签 | placeholder
-         *   — 标签在 reading/watching 时挪到 row 5 跟"总进度"配对,非 reading/watching 时独立成 row 4 */}
+         *   — 「当前进度」/「总进度」InlineField 已删除:进度信息已在顶部 progress-card
+         *   展示(text + bar + -1/+1/+5/看完 按钮),详情页 inline 编辑是冗余。
+         *   进度值仍然由 BookDetail 本地 state 持有(handleBump 同步),保存时随
+         *   patch.progress 写回 store;若用户切走 status(reading→finished)再切回,
+         *   state 仍保留旧进度值,避免丢失。 */}
         <div className="field-row">
           <InlineField
             fieldId="author"
@@ -620,65 +623,35 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
           />
         </div>
         {(status === 'reading' || status === 'watching') ? (
-          <>
-            <div className="field-row">
-              <InlineField
-                fieldId="readCount"
-                label="第 N 次看"
-                display={String(readCount)}
-                value={String(readCount)}
-                onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
-                // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
-                normalize={(v) => String(Math.max(1, Number(v) || 1))}
-                kind="number"
-                editing={editingField === 'readCount'}
-                onActivate={() => setEditingField('readCount')}
-                onDeactivate={() => setEditingField(null)}
-                emptyPlaceholder=""
-                min={1}
-              />
-              <InlineField
-                fieldId="progressCurrent"
-                label="当前进度"
-                display={progressCurrent}
-                value={progressCurrent}
-                onChange={setProgressCurrent}
-                kind="number"
-                editing={editingField === 'progressCurrent'}
-                onActivate={() => setEditingField('progressCurrent')}
-                onDeactivate={() => setEditingField(null)}
-                emptyPlaceholder="未设置"
-                min={0}
-              />
-            </div>
-            <div className="field-row">
-              <InlineField
-                fieldId="progressTotal"
-                label="总进度"
-                display={progressTotal}
-                value={progressTotal}
-                onChange={setProgressTotal}
-                kind="number"
-                editing={editingField === 'progressTotal'}
-                onActivate={() => setEditingField('progressTotal')}
-                onDeactivate={() => setEditingField(null)}
-                emptyPlaceholder="未设置"
-                min={1}
-              />
-              <InlineField
-                fieldId="tags"
-                label="标签"
-                display={tagsText}
-                value={tagsText}
-                onChange={setTagsText}
-                kind="text"
-                editing={editingField === 'tags'}
-                onActivate={() => setEditingField('tags')}
-                onDeactivate={() => setEditingField(null)}
-                emptyPlaceholder="未设置"
-              />
-            </div>
-          </>
+          <div className="field-row">
+            <InlineField
+              fieldId="readCount"
+              label="第 N 次看"
+              display={String(readCount)}
+              value={String(readCount)}
+              onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
+              // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
+              normalize={(v) => String(Math.max(1, Number(v) || 1))}
+              kind="number"
+              editing={editingField === 'readCount'}
+              onActivate={() => setEditingField('readCount')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder=""
+              min={1}
+            />
+            <InlineField
+              fieldId="tags"
+              label="标签"
+              display={tagsText}
+              value={tagsText}
+              onChange={setTagsText}
+              kind="text"
+              editing={editingField === 'tags'}
+              onActivate={() => setEditingField('tags')}
+              onDeactivate={() => setEditingField(null)}
+              emptyPlaceholder="未设置"
+            />
+          </div>
         ) : (
           <div className="field-row">
             <InlineField

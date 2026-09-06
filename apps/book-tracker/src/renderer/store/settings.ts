@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { applyTheme, applyFormat, normalizeTheme, normalizeFormat } from '@ui/useTheme'
+import {
+  applyTheme,
+  applyFormat,
+  applyFontSource,
+  applyCozyTokens,
+  normalizeTheme,
+  normalizeFormat,
+  normalizeBool
+} from '@ui/useTheme'
 import type { ThemeName, FormatName } from '@ui/useTheme'
 import type { Config, SidebarSeriesEntryMode, WorkKind } from '@shared/types'
 
@@ -15,12 +23,18 @@ interface SettingsState {
   format: FormatName
   /** 侧栏系列入口展示模式(v2.x 起;当前固定 inline-row,留扩展位) */
   sidebarSeriesEntryMode: SidebarSeriesEntryMode
+  /** 「字体加载」开关 —— true=本地 ttf;false=Google Fonts CDN(默认 false 与现状一字不动) */
+  useLocalFonts: boolean
+  /** 「柔化视觉」开关 —— true=启用柔化 token(radius/shadow +1);false=原值(默认 false 与现状一字不动) */
+  useCozyTokens: boolean
   hydrate: (cfg: Config) => void
   setDefaultWorkKind: (k: WorkKind) => Promise<void>
   setWorksFilter: (f: string) => Promise<void>
   setTheme: (name: ThemeName) => Promise<void>
   setFormat: (name: FormatName) => Promise<void>
   setSidebarSeriesEntryMode: (m: SidebarSeriesEntryMode) => Promise<void>
+  setUseLocalFonts: (on: boolean) => Promise<void>
+  setUseCozyTokens: (on: boolean) => Promise<void>
 }
 
 const THEME_LS_KEY = 'tracker-theme'
@@ -53,6 +67,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   theme: 'classic',
   format: 'list',
   sidebarSeriesEntryMode: 'inline-row',
+  useLocalFonts: false,
+  useCozyTokens: false,
   hydrate: (cfg) => {
     const t = normalizeTheme(cfg.theme)
     const f = normalizeFormat(cfg.format)
@@ -60,12 +76,19 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     persistFormatLS(f)
     applyTheme(t)
     applyFormat(f)
+    // 两个视觉开关 — DOM 同步 + normalize boolean(容错 undefined / 垃圾值)
+    const localFonts = normalizeBool(cfg.use_local_fonts)
+    const cozyTokens = normalizeBool(cfg.use_cozy_tokens)
+    applyFontSource(localFonts)
+    applyCozyTokens(cozyTokens)
     set({
       defaultWorkKind: cfg.default_work_kind ?? 'book',
       worksFilter: cfg.works_filter || 'all',
       theme: t,
       format: f,
-      sidebarSeriesEntryMode: normalizeSidebarSeriesEntryMode(cfg.sidebar_series_entry_mode)
+      sidebarSeriesEntryMode: normalizeSidebarSeriesEntryMode(cfg.sidebar_series_entry_mode),
+      useLocalFonts: localFonts,
+      useCozyTokens: cozyTokens
     })
   },
   setDefaultWorkKind: async (k) => {
@@ -129,6 +152,42 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('settings.setSidebarSeriesEntryMode: persist failed, UI-only', e)
+    }
+  },
+  // 「字体加载」开关 —— 切换即时改 <html data-font-source> 触发 base.css 切换 @font-face。
+  // 不做 localStorage 缓存:切换瞬时,首次 hydrate 后即可生效,无需防 FOUC。
+  setUseLocalFonts: async (on) => {
+    const normalized = normalizeBool(on)
+    applyFontSource(normalized)
+    set({ useLocalFonts: normalized })
+    try {
+      const cfg = await api.config.set({ use_local_fonts: normalized })
+      const stored = normalizeBool(cfg.use_local_fonts)
+      if (stored !== normalized) {
+        applyFontSource(stored)
+        set({ useLocalFonts: stored })
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('settings.setUseLocalFonts: persist failed, UI-only', e)
+    }
+  },
+  // 「柔化视觉」开关 —— 切换即时改 <html data-cozy-tokens> 触发 base.css 切换 token。
+  // 跟 setUseLocalFonts 同款:无 localStorage 缓存,无 FOUC 风险(切 token 不闪)。
+  setUseCozyTokens: async (on) => {
+    const normalized = normalizeBool(on)
+    applyCozyTokens(normalized)
+    set({ useCozyTokens: normalized })
+    try {
+      const cfg = await api.config.set({ use_cozy_tokens: normalized })
+      const stored = normalizeBool(cfg.use_cozy_tokens)
+      if (stored !== normalized) {
+        applyCozyTokens(stored)
+        set({ useCozyTokens: stored })
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('settings.setUseCozyTokens: persist failed, UI-only', e)
     }
   }
 }))

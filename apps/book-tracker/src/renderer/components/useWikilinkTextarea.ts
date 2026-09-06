@@ -27,11 +27,18 @@
 //   且 cursorPos - 2 之前不是 `[[`(避免 [[[ 的中间触发)
 // - **光标定位**:onResolve 后用 setTimeout(0) 在 React commit 后 setSelectionRange,
 //   确保 setValue 引发的 re-render 不冲掉光标
+// - **IME composition 处理**(2026-09 修):用户在中文输入法打字时,每敲一个字母
+//   onChange 都会触发,此时 e.target.value 是**拼音**(如 "ni");如果直接
+//   setValue(拼音)→ React 用拼音覆盖 DOM → 用户按空格选词「你」时,IME 想把
+//   DOM 里的拼音替换为汉字,但 React prop value 还是拼音,controlled input
+//   反向覆盖回拼音 → 「汉字突然变成拼音」。修复:挂 compositionstart/end
+//   DOM 监听器,composition 期间 handleChange 跳过 setValue(让 IME 自己管 DOM),
+//   compositionend 时手动用 textarea.value(已是汉字)同步给父组件 setValue
 // - **用户中间输入**:picker 打开后用户在 textarea 继续敲的内容会被
 //   `value.slice(cursorPos)` 截到 after 段,最终插入后追加在 `]]` 后面。
 //   这是已知行为(见 v1.7 dev-notes 「wikilink 中间输入处理」)。
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { Book } from '@shared/types'
 import { collectLocalCharacterCandidates } from '@shared/wikilink'
 import { useWikilink } from './WikilinkContext'
@@ -72,6 +79,33 @@ export function useWikilinkTextarea(opts: UseWikilinkTextareaOpts): UseWikilinkT
   const wikilink = useWikilink()
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const pendingCursorRef = useRef<number | null>(null)
+  // IME composition 状态 —— 详见文件头注释
+  const isComposingRef = useRef<boolean>(false)
+  // setValue 缓存 —— 父组件每次 render 通常传新箭头函数(如 `(v) => { setNoteDraft(v); scheduleFlush() }`),
+  // 直接放进 effect 依赖数组会导致 effect 无限重挂。用 ref 缓存最新 setValue,effect 只挂一次。
+  const setValueRef = useRef(setValue)
+  setValueRef.current = setValue
+
+  // mount 时挂 IME composition DOM 监听器 —— compositionend 把汉字同步给 React state
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    const onStart = (): void => {
+      isComposingRef.current = true
+    }
+    const onEnd = (): void => {
+      isComposingRef.current = false
+      // IME 已把汉字 commit 到 textarea.value;同步给 React state,
+      // 避免 controlled input 用旧拼音 prop value 反向覆盖 DOM
+      setValueRef.current(ta.value)
+    }
+    ta.addEventListener('compositionstart', onStart)
+    ta.addEventListener('compositionend', onEnd)
+    return () => {
+      ta.removeEventListener('compositionstart', onStart)
+      ta.removeEventListener('compositionend', onEnd)
+    }
+  }, [])
 
   const insertWikilink = useCallback(
     (name: string, snapshotValue: string): void => {
@@ -96,6 +130,13 @@ export function useWikilinkTextarea(opts: UseWikilinkTextareaOpts): UseWikilinkT
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+      // IME composition 期间跳过 setValue —— 让 IME 自己管理 DOM,
+      // compositionend 时由挂载在 textarea 上的 DOM 监听器一次性 commit 汉字。
+      // 不跳过会导致 React 18 controlled input 在用户选词瞬间用拼音 prop value
+      // 反向覆盖刚选中的汉字,表现为「汉字突然变成拼音」。
+      // nativeEvent 类型是 React 的 Event,实际是 InputEvent(isComposing 在 InputEvent 上)。
+      if (isComposingRef.current || (e.nativeEvent as InputEvent).isComposing) return
+
       const newValue = e.target.value
       const cursorPos = e.target.selectionStart ?? newValue.length
       // 透传 value 变更给父组件(父组件决定何时 flush)

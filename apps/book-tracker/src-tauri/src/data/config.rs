@@ -22,6 +22,8 @@ pub fn default_config() -> Config {
         theme: "classic".to_string(),
         format: "list".to_string(),
         sidebar_series_entry_mode: "inline-row".to_string(),
+        use_local_fonts: false,
+        use_cozy_tokens: false,
     }
 }
 
@@ -90,6 +92,14 @@ fn normalize(raw: serde_json::Value) -> Config {
                 _ => "inline-row".to_string(),
             }
         },
+        use_local_fonts: obj
+            .and_then(|o| o.get("use_local_fonts"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        use_cozy_tokens: obj
+            .and_then(|o| o.get("use_cozy_tokens"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
@@ -132,6 +142,8 @@ mod tests {
             theme: "library".to_string(),
             format: "grid".to_string(),
             sidebar_series_entry_mode: "inline-row".to_string(),
+            use_local_fonts: true,
+            use_cozy_tokens: true,
         };
         write_config(&cfg).unwrap();
         let got = read_config(&cfg.data_dir).unwrap();
@@ -142,6 +154,8 @@ mod tests {
         assert_eq!(got.works_filter, "movie");
         assert_eq!(got.theme, "library");
         assert_eq!(got.format, "grid");
+        assert_eq!(got.use_local_fonts, true);
+        assert_eq!(got.use_cozy_tokens, true);
     }
 
     #[test]
@@ -220,6 +234,44 @@ mod tests {
         assert_eq!(got.data_dir, "");
         assert_eq!(got.language, "zh-CN");
         assert_eq!(got.default_mode, DefaultMode::Clean);
+        // 「字体加载」/「柔化视觉」开关缺损 → 默认 false(与现状一字不动)
+        assert_eq!(got.use_local_fonts, false);
+        assert_eq!(got.use_cozy_tokens, false);
+    }
+
+    #[test]
+    fn use_local_fonts_missing_field_falls_back_to_false() {
+        let dir = tempdir().unwrap();
+        fs_json(dir.path().join("config.json"), r#"{"use_local_fonts": true}"#);
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.use_local_fonts, true);
+        assert_eq!(got.use_cozy_tokens, false); // 缺字段 → false
+    }
+
+    #[test]
+    fn use_cozy_tokens_missing_field_falls_back_to_false() {
+        let dir = tempdir().unwrap();
+        fs_json(dir.path().join("config.json"), r#"{"use_cozy_tokens": true}"#);
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.use_cozy_tokens, true);
+        assert_eq!(got.use_local_fonts, false); // 缺字段 → false
+    }
+
+    #[test]
+    fn use_local_fonts_garbage_value_falls_back_to_false() {
+        // 防御:用户手改 config.json 写入非法值(字符串/数字/null) → 视为 false
+        let dir = tempdir().unwrap();
+        fs_json(dir.path().join("config.json"), r#"{"use_local_fonts": "yes"}"#);
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.use_local_fonts, false);
+    }
+
+    #[test]
+    fn use_cozy_tokens_garbage_value_falls_back_to_false() {
+        let dir = tempdir().unwrap();
+        fs_json(dir.path().join("config.json"), r#"{"use_cozy_tokens": null}"#);
+        let got = read_config(dir.path().to_string_lossy().as_ref()).unwrap();
+        assert_eq!(got.use_cozy_tokens, false);
     }
 
     #[test]
