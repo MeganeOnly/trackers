@@ -500,3 +500,57 @@
 ### 标签
 
 - （待发 tag 时）
+
+---
+
+## v2.1 (2026-09): 视觉微调开关 —— 字体加载（本地 / CDN）+ 视觉舒适（柔化圆角）
+
+**两个独立的可逆视觉开关**。用户主动 ON 才生效，默认关闭 —— **行为与现状一字不动**，用户可以随时切回去，相当于「不满意也能用现在的这样」。
+
+### 核心能力
+
+- **「外观 · 字体加载」开关**（仅 book-tracker，library/codex 主题生效）：
+  - `CDN（默认）`：Google Fonts CDN 加载 Fraunces（index.html 已有的 `<link>` 行为，跟 v1.1 一致）
+  - `本地`：用 `packages/tracker-ui/src/fonts/` 下 6 个本地 ttf 文件（normal 400/500/600/700 + italic 400/600，共 ~460KB），offline 也能用
+  - 切换走 `applyFontSource()` → `<html data-font-source="local|remote">` → base.css `[data-font-source="local"]` 选择器接管 `@font-face` 链
+  - 浏览器只有元素**实际引用** `'Fraunces Local'` 时才下载 src —— 因此 CDN 模式 / classic 主题永远不下载本地 ttf（零开销）
+- **「外观 · 视觉舒适」开关**（book-tracker + life-tracker，共享基座生效）：
+  - `标准（默认）`：原 token，行为与现状一字不动
+  - `柔和`：`--radius-sm` 2→3 / `--radius-md` 4→6 / `--radius-lg` 8→10，圆角 +1，整体边缘更圆润
+  - 切换走 `applyCozyTokens()` → `<html data-cozy-tokens="on|off">` → base.css `[data-cozy-tokens="on"]` 覆盖 `--radius-*`
+  - **不动 spacing / 字体 / 字号**（动了破坏既有对齐），**不动 hover 缩放**（印章 mechanic 是 preset 视觉语言一部分）
+
+### 共享边界
+
+- **CSS 选择器 / @font-face / apply 函数** → `packages/tracker-ui/base.css` + `useTheme.ts`（共享基座，两 app 一处改、两 app 同生效）
+- **字体文件** → `packages/tracker-ui/src/fonts/`（共享，6 个 ttf ~460KB，Vite 打包进 dist）
+- **Config 字段 + ConfigPatch + normalize + 测试** → book-tracker（SettingsPanel 在 book-tracker，life-tracker 暂时不暴露开关 —— 共享 CSS 始终听 renderer 的 data-attr，life 端不设 → 默认 off → 跟原版一致）
+- **SettingsPanel UI + settings store action** → book-tracker
+
+### 持久化
+
+- **`Config.use_local_fonts?: boolean`** + **`Config.use_cozy_tokens?: boolean`** —— TS + Rust 1:1 镜像
+- **Rust 端**：`#[serde(default)]` 让老 config 缺字段 → `false`；`normalize` 走 `v.as_bool()` 把 `"yes"` / `null` / 数字等垃圾值 fallback `false`（同 sidebar_series_entry_mode 模式）
+- **ConfigPatch**：`Option<bool>` 字段，`None` 不改 / `Some(true|false)` 写盘
+- **renderer 同步**：settings store `hydrate(cfg)` 时 normalize + DOM data-attr + 本地状态同写；`setUseLocalFonts` / `setUseCozyTokens` 走 `applyFontSource` / `applyCozyTokens` 立即改 DOM，再 async 持久化（跟 setTheme / setFormat 同款精神）
+- **无 FOUC 处理**：跟 theme/format 不同 —— font/tokens 切换不会引发剧烈视觉变化（字体是渐进的、token 是 CSS 重算无动画），首次 hydrate 后即可生效，不必做 localStorage 预加载
+
+### 工程化
+
+- **typecheck 三端全过**（book-tracker / life-tracker / tracker-core）
+- **book-tracker cargo test 新增 4 个**：`use_local_fonts_missing_field_falls_back_to_false` / `use_cozy_tokens_missing_field_falls_back_to_false` / `use_local_fonts_garbage_value_falls_back_to_false` / `use_cozy_tokens_garbage_value_falls_back_to_false`，全部通过
+- **vitest 不变**：纯 UI / CSS / 数据层，没有新逻辑需要单测
+- **Vite 构建**：book-tracker + life-tracker 都能正确打包本地字体到 `dist/`（Vite 自动处理 `url()` 路径）
+
+### 数据兼容性
+
+- **完全零迁移**：老 config.json 缺字段 → 默认 `false`（关闭状态 = 现状行为）
+- **共享边界遵守**：base.css / useTheme.ts 是基座，Config 字段和 SettingsPanel UI 留 book-tracker —— 跟 v1.1 Theme system / v1.7 Series 同款划分
+- **fonts 加进 packages/tracker-ui/src/fonts/**：不会被 monorepo 其它位置错误 import（Vite alias + package.json `exports` 控制）
+
+### 标签
+
+- `book-tracker-v2.1`
+- `life-tracker-v2.1`
+
+两 tag 同 commit hash，按 release workflow 分派构建。**注**：life-tracker 此版本仅享受共享 CSS 基座收益（token 切换就绪），但 Config 字段未暴露 —— life 用户用不到开关，相当于仅 CSS 准备就绪。
