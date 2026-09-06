@@ -11,7 +11,8 @@
     "./GraphView.css": "./src/GraphView.css",
     "./themes/classic.css": "./src/themes/classic.css",
     "./themes/library.css": "./src/themes/library.css",
-    "./themes/codex.css": "./src/themes/codex.css"
+    "./themes/codex.css": "./src/themes/codex.css",
+    "./fonts/*": "./src/fonts/*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

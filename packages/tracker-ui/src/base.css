@@ -2,16 +2,82 @@
  *
  * 共享 UI 基座的 CSS 基础 —— 两 app 共用。
  * - :root 提供 type scale / spacing / layout / motion 的共享 token
- * - 各 preset (classic / library / codex) 在 themes/*.css 里 :root[data-theme="..."] 覆盖
+ * - 各 preset (classic / library / codex) 在 themes 中 .css 里 :root[data-theme="..."] 覆盖
  * - 组件样式不进 base.css,留各 app 的 styles.css;base.css 只放全局 reset + 通用排版
  */
 
+/* ============ Fraunces 字体 —— 本地副本（开关 ON 时才加载） ============
+ *
+ * 关键设计:
+ * - font-family 用独立名 `'Fraunces Local'`,不与 Google Fonts CDN 的 `'Fraunces'`
+ *   冲突;renderer 端通过 CSS 选择器切换"用 CDN 还是用本地"
+ * - 浏览器只有元素**实际引用** `'Fraunces Local'` 时才下载 src(性能层面)——
+ *   因此:
+ *     data-font-source="local"(开关 ON)+ library/codex 主题  → 下载 6 个 ttf
+ *     开关 OFF(默认)                              → 不引用 → 0 下载
+ *     classic 主题(默认主题)                       → 不引用 → 0 下载
+ * - 默认状态与现状一字不动(Google Fonts CDN 继续工作,见 index.html),
+ *   用户可在 Settings → 「外观 · 字体加载」开 ON → 切本地 → offline 友好
+ *
+ * woff2 没找到(Google Fonts API 这版只吐 ttf),共 6 个变体:
+ * normal 400/500/600/700 + italic 400/600。latin 子集 ~70-85KB/个。
+ * 文件位于 packages/tracker-ui/src/fonts/,由 `npm run build` 一起打包进
+ * dist/,Vite 自动处理 url()。
+ */
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-400-normal.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-500-normal.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-600-normal.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-700-normal.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-400-italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fraunces Local';
+  src: url('./fonts/Fraunces-600-italic.ttf') format('truetype');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
-  /* Type —— 默认值（classic），preset 在 themes/*.css 覆盖为 Fraunces 等 */
+  /* Type —— 默认值（classic），preset 在 themes 中 .css 覆盖为 Fraunces 等 */
   --font-display: Georgia, 'Times New Roman', serif;
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Roboto Mono', monospace;
+
+  /* 实际生效的 display 字体 —— 默认走 --font-display;开关 ON 时插队 'Fraunces Local'
+   * 让任何主题(classic / library / codex)切 ON 都能看到 Fraunces 效果,
+   * 不只是 library/codex 才引用 */
+  --font-display-loaded: var(--font-display);
 
   /* Scale —— 7 档,跨 preset 一致 */
   --fs-xs: 12px;
@@ -44,6 +110,39 @@
   --ease-stamp: cubic-bezier(0.2, 0.8, 0.3, 1);
   --dur-stamp: 240ms;
   --dur-quick: 120ms;
+}
+
+/* ============ 「本地字体」开关 ============
+ * 默认(无 attribute 或 =remote)→ --font-display-loaded = --font-display 不变。
+ * data-font-source="local"     → 任何主题(不只是 library/codex)都用 Fraunces;
+ *                                 classic 切 ON 也能看到,因为这里 override 默认 --font-display。
+ * 由 renderer(settings store)在 hydrate + 用户切换时写。
+ */
+:root[data-font-source="local"] {
+  /* override --font-display-loaded 之外的 preset 都走 var(--font-display-loaded) */
+  --font-display-loaded: 'Fraunces Local', var(--font-display);
+  /* classic 主题默认 --font-display 是 Georgia,不影响。但全局所有 preset 都引用
+   * var(--font-display-loaded),preset 内 override '--font-display: Fraunces,...' 会通过
+   * 变量层穿透;classic 没 preset override,所以这里直接给 --font-display 也插队 Fraunces,
+   * 让 classic 切 ON 也能看到效果。*/
+  --font-display: 'Fraunces Local', Georgia, 'Times New Roman', serif;
+}
+
+/* ============ 「柔化视觉」开关 ============
+ * 默认 → token 原值,行为与现状一字不动。
+ * data-cozy-tokens="on" → 圆角 +2、阴影更柔、卡片留白 +4,改少量 token 获得"稍微好看一点点"。
+ * 不动字号 / 字体(动了破坏对齐);不碰 hover 缩放(印章缩放是 preset 视觉语言一部分)。
+ */
+:root[data-cozy-tokens="on"] {
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  /* spacing 微调 +2 让卡片 / button 更透气(用户能感受到的视觉差异) */
+  --s-3: 14px;
+  --s-4: 18px;
+  --s-6: 28px;
+  /* shadow-card 单独 override(共享基座里 .stamp-card 等引用) */
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
 /* ===== 全局 reset ===== */
@@ -140,7 +239,7 @@ code, pre, kbd {
 /* TopBar app title:library / codex 用 Fraunces italic(衬线斜体大字) */
 :root[data-theme="library"] .topbar-left .app-title,
 :root[data-theme="codex"] .topbar-left .app-title {
-  font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+  font-family: var(--font-display-loaded);
   font-style: italic;
   font-weight: 700;
   font-size: 19px;
@@ -226,7 +325,7 @@ code, pre, kbd {
 /* library / codex 用 Fraunces italic 巨大字 */
 :root[data-format="focus-stack"][data-theme="library"] .focal-card-title,
 :root[data-format="focus-stack"][data-theme="codex"] .focal-card-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display-loaded);
   font-style: italic;
   font-size: 32px;
   font-weight: 700;
@@ -389,7 +488,7 @@ code, pre, kbd {
 }
 :root[data-format="focus-stack"][data-theme="library"] .stamp-card-title,
 :root[data-format="focus-stack"][data-theme="codex"] .stamp-card-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display-loaded);
   font-style: italic;
   font-weight: 600;
 }

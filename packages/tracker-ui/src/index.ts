@@ -27,10 +27,15 @@ export {
   FORMAT_META,
   normalizeTheme,
   normalizeFormat,
+  normalizeBool,
   applyTheme,
   applyFormat,
+  applyFontSource,
+  applyCozyTokens,
   applyInitialTheme,
-  applyInitialFormat
+  applyInitialFormat,
+  applyInitialFontSource,
+  applyInitialCozyTokens
 } from './useTheme'
 export type { ThemeName, FormatName, ThemeMeta, FormatMeta } from './useTheme'
 export type {

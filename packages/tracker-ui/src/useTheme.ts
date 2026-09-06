@@ -111,6 +111,30 @@ export function applyFormat(name: FormatName): void {
   document.documentElement.dataset.format = name
 }
 
+/** 「字体加载」开关 —— 把当前值写到 `<html data-font-source>`。
+ *  true → "local"(用 packages/tracker-ui/src/fonts/ 本地 ttf);
+ *  false → "remote"(用 Google Fonts CDN,见 index.html 的 <link>)。
+ *  base.css 的 `:root[data-font-source="local"]` 选择器接管,@font-face 切本地。
+ *  函数幂等、可重复调用;document 不可用时静默跳过(SSR / 测试场景)。
+ *
+ *  **默认 off 时也写 attribute="remote"** —— 让 CSS 选择器永远可命中,
+ *  比"off 时删 attribute"更可预测(renderer 不需要判断 attribute 是否存在)。
+ */
+export function applyFontSource(on: boolean): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.dataset.fontSource = on ? 'local' : 'remote'
+}
+
+/** 「柔化视觉」开关 —— 把当前值写到 `<html data-cozy-tokens>`。
+ *  true → "on"(圆角 +1、阴影更柔);false → "off"(原 token)。
+ *  base.css 的 `:root[data-cozy-tokens="on"]` 选择器接管,override --radius-* / --shadow-card。
+ *  与 applyFontSource 同款:幂等、document 不可用静默、默认 off 也写 attribute。
+ */
+export function applyCozyTokens(on: boolean): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.dataset.cozyTokens = on ? 'on' : 'off'
+}
+
 /**
  * 启动时调一次,带 hydrate 出来的 theme 名。空值 fallback classic。
  * 不会抛错——即使 document 还没准备好也安全。
@@ -121,4 +145,19 @@ export function applyInitialTheme(name: string | undefined | null): void {
 
 export function applyInitialFormat(name: string | undefined | null): void {
   applyFormat(normalizeFormat(name))
+}
+
+/** 把任意值容错成 boolean(`undefined` / 垃圾值 → `false`)。 */
+export function normalizeBool(v: unknown): boolean {
+  return v === true
+}
+
+/** 启动时调一次,带 hydrate 出来的字体加载开关值。undefined → false。 */
+export function applyInitialFontSource(on: unknown): void {
+  applyFontSource(normalizeBool(on))
+}
+
+/** 启动时调一次,带 hydrate 出来的柔化视觉开关值。undefined → false。 */
+export function applyInitialCozyTokens(on: unknown): void {
+  applyCozyTokens(normalizeBool(on))
 }
