@@ -1,80 +1,36 @@
+// 编辑模式右侧的书详情 = 内联可编辑表单：
+// - 所有字段直接可编辑，点「保存」统一写盘，不再需要额外的「编辑」弹窗
+// - 无章节进度（progress === null）时只显示读完/没读完，不显示章节进度条
+// - 前置依赖编辑器与进度快捷调整（-1/+1/+5/读完）保留在下方
+//
+// 拆分(svg-2026-09, 响应 DSH 插件 700 行/30KB 阈值):
+// - BookDetail.labels.ts   状态 / 作品类型 标签纯函数
+// - BookDetailFields.tsx   字段行渲染(原 detail-form 段落)
+// - BookDetailSeasons.tsx  「上一季 / 下一季」组合块
+// - BookDetailSeries.tsx   「所属系列」关联 + 同系列其他作品
+// 本文件保留: 组件本体 + 状态编排 + 季节 / 系列区块以外的渲染
+
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useBooksStore } from '../store/books'
 import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
 import { CharactersPanel } from './CharactersPanel'
-import { NextSeasonPicker } from './NextSeasonPicker'
-import { SeriesPickerModal } from './SeriesPickerModal'
 import { useSeriesStore } from '../store/series'
-import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
-import { InlineField, type InlineFieldOption } from './InlineField'
 import { progressPercent } from '@core'
 import { formatProgress } from '@shared/progress'
 import { StampChip } from '@ui/StampChip'
-import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
-import type { Book, BookInput, BookStatus, WorkKind } from '@shared/types'
+import { STATUS_LABELS } from './BookDetail.labels'
+import type { BookInput, BookStatus, WorkKind } from '@shared/types'
+import { BookDetailFields } from './BookDetailFields'
+import { BookDetailSeasons } from './BookDetailSeasons'
+import { BookDetailSeries } from './BookDetailSeries'
 
 interface BookDetailProps {
   /** 显式指定显示哪本书；不传则用全局 selectedId */
   bookId?: string
-}
-
-const STATUS_LABELS: Record<BookStatus, string> = {
-  want: '想看',
-  shelved: '搁置',
-  reading: '在读',
-  watching: '在看',
-  finished: '已读',
-  abandoned: '弃读'
-}
-
-const STATUS_BASE_OPTIONS: { value: BookStatus; label: string }[] = [
-  { value: 'want', label: '想看' },
-  { value: 'shelved', label: '搁置' },
-  { value: 'reading', label: '在读' },
-  { value: 'finished', label: '已读' },
-  { value: 'abandoned', label: '弃读' }
-]
-
-/** 在看（watching）仅对非电影类型暴露,见 BookForm 同名函数注释 */
-function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[] {
-  if (kind === 'movie') return STATUS_BASE_OPTIONS
-  return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
-}
-
-// 类型相关字段标签 —— 详情内联编辑的 label 要和加作品表单一致,
-// 共享函数搬到 shared 段成本不划算,这里就近复制一份
-function authorLabelFor(kind: WorkKind): string {
-  switch (kind) {
-    case 'anime': return '原作 / 主创'
-    case 'tv': return '原作 / 主创'
-    case 'movie': return '导演'
-    case 'other': return '作者 / 主创'
-    case 'book': return '作者'
-  }
-}
-function translatorLabelFor(kind: WorkKind): string | null {
-  return kind === 'book' ? '译者' : null
-}
-function starringLabelFor(kind: WorkKind): string | null {
-  return kind === 'movie' || kind === 'tv' ? '主演' : null
-}
-function screenwriterLabelFor(kind: WorkKind): string | null {
-  return kind === 'movie' || kind === 'tv' ? '编剧' : null
-}
-function yearLabelFor(kind: WorkKind): string {
-  switch (kind) {
-    case 'book': return '出版年份'
-    case 'anime': return '开始年份'
-    case 'tv': return '首播年份'
-    case 'movie': return '上映年份'
-    case 'other': return '年份'
-  }
-}
-function countryLabelFor(kind: WorkKind): string {
-  return kind === 'book' ? '原产国 / 地区' : '制片国家 / 地区'
 }
 
 /**
@@ -248,6 +204,17 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
     value: notes,
     setValue: setNotesWithDirty
   })
+  // 笔记 textarea Esc 也切回预览(避免用户点 textarea 外部只能依赖鼠标 blur)
+  const handleNotesKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setNoteEditing(false)
+        ;(e.currentTarget as HTMLTextAreaElement).blur()
+      }
+    },
+    []
+  )
 
   if (!book) {
     return (
@@ -469,263 +436,41 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
         </section>
       )}
 
-      <div className="detail-form">
-        {/* v2.x 字段 inline 预览/编辑二态 —— 默认无背景显示值,点开后变白框。
-            沿用底部「保存」统一写盘(本地 useState 暂存),切换作品 / Esc / blur 退出编辑。
-            笔记保留独立 inline 模式(自带 wikilink picker 等特化交互,不适合走通用 InlineField)。 */}
-        <div className="field-row">
-          <InlineField
-            fieldId="kind"
-            label="作品类型"
-            display={WORK_KIND_LABELS[kind]}
-            value={kind}
-            onChange={(v) => setKind(v as WorkKind)}
-            kind="select"
-            options={WORK_KIND_ORDER.map((k) => ({ value: k, label: WORK_KIND_LABELS[k] }))}
-            editing={editingField === 'kind'}
-            onActivate={() => setEditingField('kind')}
-            onDeactivate={() => setEditingField(null)}
-            emptyPlaceholder=""
-          />
-          <InlineField
-            fieldId="year"
-            label={yearLabelFor(kind)}
-            display={year}
-            value={year}
-            onChange={setYear}
-            kind="number"
-            editing={editingField === 'year'}
-            onActivate={() => setEditingField('year')}
-            onDeactivate={() => setEditingField(null)}
-            emptyPlaceholder="未设置"
-            min={0}
-            max={9999}
-          />
-        </div>
-        {/* v2.x row 重排 —— 每行 2 列 grid,缺失位用 .field-row-placeholder 撑列:
-         *   row 1: 作品类型 | 首播年份
-         *   row 2: 原作/主创 | 译者(仅 book)/主演(影视)/编剧(影视) [可能 + 编剧凑 2 个,或 + placeholder]
-         *   row 3: 原产国/地区 | 状态
-         *   row 4 (reading/watching): 第N次看 | 标签
-         *   row 4 (其他): 标签 | placeholder
-         *   — 「当前进度」/「总进度」InlineField 已删除:进度信息已在顶部 progress-card
-         *   展示(text + bar + -1/+1/+5/看完 按钮),详情页 inline 编辑是冗余。
-         *   进度值仍然由 BookDetail 本地 state 持有(handleBump 同步),保存时随
-         *   patch.progress 写回 store;若用户切走 status(reading→finished)再切回,
-         *   state 仍保留旧进度值,避免丢失。 */}
-        <div className="field-row">
-          <InlineField
-            fieldId="author"
-            label={authorLabelFor(kind)}
-            display={author}
-            value={author}
-            onChange={setAuthor}
-            kind="text"
-            editing={editingField === 'author'}
-            onActivate={() => setEditingField('author')}
-            onDeactivate={() => setEditingField(null)}
-            emptyPlaceholder="未设置"
-          />
-          {translatorLabelFor(kind) ? (
-            <InlineField
-              fieldId="translator"
-              label={translatorLabelFor(kind)!}
-              display={translator}
-              value={translator}
-              onChange={setTranslator}
-              kind="text"
-              editing={editingField === 'translator'}
-              onActivate={() => setEditingField('translator')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-            />
-          ) : starringLabelFor(kind) ? (
-            starringLabelFor(kind) && screenwriterLabelFor(kind) ? (
-              // movie 既有主演又有编剧 —— row 2 放主演,编剧挪到 row 2.5? 简化:主演在 row 2,编剧塞到哪?
-              // 决策:主演在 row 2,编剧单独一行(单独一个 field + placeholder)
-              <>
-                <InlineField
-                  fieldId="starring"
-                  label={starringLabelFor(kind)!}
-                  display={starring}
-                  value={starring}
-                  onChange={setStarring}
-                  kind="text"
-                  editing={editingField === 'starring'}
-                  onActivate={() => setEditingField('starring')}
-                  onDeactivate={() => setEditingField(null)}
-                  emptyPlaceholder="未设置"
-                />
-                {/* 编剧字段需要单独一行 —— 下面 row 2b 处理 */}
-              </>
-            ) : (
-              <InlineField
-                fieldId="starring"
-                label={starringLabelFor(kind)!}
-                display={starring}
-                value={starring}
-                onChange={setStarring}
-                kind="text"
-                editing={editingField === 'starring'}
-                onActivate={() => setEditingField('starring')}
-                onDeactivate={() => setEditingField(null)}
-                emptyPlaceholder="未设置"
-              />
-            )
-          ) : (
-            // 其他 kind (book/other 没有译者也未必有主演)—— placeholder 撑列
-            <span aria-hidden="true" className="field-row-placeholder" />
-          )}
-        </div>
-        {/* movie 类型专属 row 2b —— 编剧独立一行,跟主演区分 */}
-        {kind === 'movie' && screenwriterLabelFor(kind) && (
-          <div className="field-row">
-            <InlineField
-              fieldId="screenwriter"
-              label={screenwriterLabelFor(kind)!}
-              display={screenwriter}
-              value={screenwriter}
-              onChange={setScreenwriter}
-              kind="text"
-              editing={editingField === 'screenwriter'}
-              onActivate={() => setEditingField('screenwriter')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-            />
-            <span aria-hidden="true" className="field-row-placeholder" />
-          </div>
-        )}
-        <div className="field-row">
-          <InlineField
-            fieldId="country"
-            label={countryLabelFor(kind)}
-            display={country}
-            value={country}
-            onChange={setCountry}
-            kind="text"
-            editing={editingField === 'country'}
-            onActivate={() => setEditingField('country')}
-            onDeactivate={() => setEditingField(null)}
-            emptyPlaceholder="未设置"
-          />
-          <InlineField
-            fieldId="status"
-            label="状态"
-            display={STATUS_LABELS[status]}
-            value={status}
-            onChange={(v) => setStatus(v as BookStatus)}
-            kind="select"
-            options={statusOptionsFor(kind).map((o) => ({ value: o.value, label: o.label }))}
-            editing={editingField === 'status'}
-            onActivate={() => setEditingField('status')}
-            onDeactivate={() => setEditingField(null)}
-            emptyPlaceholder=""
-          />
-        </div>
-        {(status === 'reading' || status === 'watching') ? (
-          <div className="field-row">
-            <InlineField
-              fieldId="readCount"
-              label="第 N 次看"
-              display={String(readCount)}
-              value={String(readCount)}
-              onChange={(v) => setReadCount(Math.max(1, Number(v) || 1))}
-              // 输入时同步归一化,避免中间态(v='')导致 readCount=1 然后用户松开手再敲变成 0
-              normalize={(v) => String(Math.max(1, Number(v) || 1))}
-              kind="number"
-              editing={editingField === 'readCount'}
-              onActivate={() => setEditingField('readCount')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder=""
-              min={1}
-            />
-            <InlineField
-              fieldId="tags"
-              label="标签"
-              display={tagsText}
-              value={tagsText}
-              onChange={setTagsText}
-              kind="text"
-              editing={editingField === 'tags'}
-              onActivate={() => setEditingField('tags')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-            />
-          </div>
-        ) : (
-          <div className="field-row">
-            <InlineField
-              fieldId="tags"
-              label="标签"
-              display={tagsText}
-              value={tagsText}
-              onChange={setTagsText}
-              kind="text"
-              editing={editingField === 'tags'}
-              onActivate={() => setEditingField('tags')}
-              onDeactivate={() => setEditingField(null)}
-              emptyPlaceholder="未设置"
-            />
-            <span aria-hidden="true" className="field-row-placeholder" />
-          </div>
-        )}
-        <label className="form-checkline">
-          <input
-            type="checkbox"
-            checked={collapsed}
-            onChange={(e) => setCollapsed(e.target.checked)}
-          />
-          <span title="移到 EditMode 侧栏底部『已收起』分组（所有 status 都允许，纯展示，不影响 status 与解锁）">侧栏收起</span>
-        </label>
-        {/* 笔记 —— 默认预览(WikilinkText),点「笔记」标题切到 textarea 编辑;
-            textarea blur 切回预览。预览/编辑二态互斥,符合"非编辑就是只读"心智。
-            笔记保留独立 inline 模式(自带 wikilink picker 等特化交互,不适合走通用 InlineField)。 */}
-        <div className="field note-field">
-          <span
-            className={`note-field-toggle${noteEditing ? ' is-editing' : ''}`}
-            role="button"
-            tabIndex={0}
-            title={noteEditing ? '编辑中 —— 点外部或失焦返回预览' : '点击进入编辑'}
-            onClick={() => setNoteEditing(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                setNoteEditing(true)
-              }
-            }}
-          >
-            笔记{!noteEditing && <span className="note-field-edit-hint">点击编辑</span>}
-          </span>
-          {noteEditing ? (
-            <textarea
-              ref={notesTaRef}
-              value={notes}
-              onChange={handleNotesChange}
-              onBlur={() => setNoteEditing(false)}
-              onKeyDown={(e) => {
-                // Esc 也切回预览(避免用户点 textarea 外部只能依赖鼠标 blur)
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  setNoteEditing(false)
-                  ;(e.currentTarget as HTMLTextAreaElement).blur()
-                }
-              }}
-              rows={6}
-              autoFocus
-              placeholder="自由写 —— 心得 / 摘录 / 备忘(输入 [[ 触发角色选择)"
-            />
-          ) : (
-            /* v1.7 wikilink 预览 —— 解析 notes 里的 [[xxx]] 成可点击链接 */
-            <WikilinkText
-              text={notes}
-              currentBook={cur}
-              allBooks={books}
-              className="wikilink-preview-block"
-            />
-          )}
-        </div>
-        {error && <p className="form-error">{error}</p>}
-      </div>
+      <BookDetailFields
+        book={cur}
+        kind={kind}
+        year={year}
+        author={author}
+        translator={translator}
+        country={country}
+        status={status}
+        readCount={readCount}
+        starring={starring}
+        screenwriter={screenwriter}
+        tagsText={tagsText}
+        collapsed={collapsed}
+        notes={notes}
+        noteEditing={noteEditing}
+        editingField={editingField}
+        error={error}
+        allBooks={books}
+        setKind={setKind}
+        setYear={setYear}
+        setAuthor={setAuthor}
+        setTranslator={setTranslator}
+        setCountry={setCountry}
+        setStatus={setStatus}
+        setReadCount={setReadCount}
+        setStarring={setStarring}
+        setScreenwriter={setScreenwriter}
+        setTagsText={setTagsText}
+        setCollapsed={setCollapsed}
+        setNoteEditing={setNoteEditing}
+        setEditingField={setEditingField}
+        notesTaRef={notesTaRef}
+        handleNotesChange={handleNotesChange}
+        onNotesKeyDown={handleNotesKeyDown}
+      />
 
       {/* 集笔记 —— 仅 tv/anime 显示,放在前置依赖之前(用户最关心的进度信息) */}
       {(kind === 'tv' || kind === 'anime') && <EpisodesPanel book={cur} />}
@@ -733,220 +478,31 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />
 
-      {/* v2.x 「上一季 / 下一季」合并为一条两列 grid(左=上一季,右=下一季,无中间分隔线 —— 用户嫌细线多余)。
-          - 镜像布局:左半边整体靠左(label 在最左 = "上一季" 自身最左);
-            右半边镜像(整组靠右,label 在最右 = "下一季" 自身最右)——
-            用 flex-direction: row-reverse + justify-content: flex-end 实现
-          - 镜像布局:左半边整体靠左(label 在最左 = "上一季" 自身最左);
-            右半边镜像(整组靠右,label 在最右 = "下一季" 自身最右)——
-            用 flex-direction: row-reverse + justify-content: flex-end 实现
-          - 极简交互:每侧只有 label + 内容 + 可选×;没有「改」按钮(要改先×再+)
-          - prev 三态:
-            1. prevSeasonId 未设 + prevSeasonExplicit=false → "未设置" → label + +设置按钮
-            2. prevSeasonId 已设 + prevSeasonExplicit=true(主动设)或 prevSeasonId 显式 Some
-              → "已设 prev" → label + content + ×
-            3. prevSeasonId = None + prevSeasonExplicit=true → "明确没有上一季"
-              → label + 空 + ×(视觉上跟"未设置"区分:有×无+)
-            视觉上 (2) 和 (3) 都有 × 按钮,区别只在 content 有没有值
-          - next 简化:只有「未设」和「已设」两态(service 路径固定单向,不需要 explicit 标记) */}
-      <section className="season-pair-block">
-        <div className="season-pair">
-          {/* 左侧:上一季 —— 整体靠左,label 在最左 */}
-          <div className="prev-season">
-            <span className="prev-season-label">上一季</span>
-            {/* prev "已设"判断:prevSeasonExplicit=true(主动设了 None 或 Some)
-                或 prevSeasonId 是 Some —— 任何"用户/数据明确指向某 prev"的状态 */}
-            {cur.prevSeasonExplicit === true ||
-            (cur.prevSeasonId !== undefined && cur.prevSeasonId !== '') ? (
-              // 已设(可能是某个 prev 或明确"没有")
-              <>
-                {prevSeasonBook ? (
-                  <span
-                    className="prev-season-link"
-                    onClick={() => select(prevSeasonBook.id)}
-                    title="点击跳到该作品"
-                  >
-                    {prevSeasonBook.title}
-                  </span>
-                ) : cur.prevSeasonId ? (
-                  // prevSeasonId 有值但书被删了 —— 优雅降级
-                  <span className="prev-season-missing">
-                    原作品已删除 (id: {cur.prevSeasonId})
-                  </span>
-                ) : null /* 明确「没有上一季」:content 区留空,只靠 × 按钮跟「未设置」区分 */}
-                <button
-                  type="button"
-                  className="prev-season-remove"
-                  onClick={() => void handleClearPrevSeason()}
-                  title="移除上一季关联(回到「未设置」状态)"
-                >
-                  ×
-                </button>
-              </>
-            ) : (
-              // 未设置 —— label + +设置按钮
-              <button
-                type="button"
-                className="prev-season-add"
-                onClick={() => setSeasonPickerMode('prev')}
-                title="主动设置上一季(粘性) / 标记「没有上一季」"
-              >
-                + 设置上一季
-              </button>
-            )}
-          </div>
+      <BookDetailSeasons
+        book={cur}
+        prevSeasonBook={prevSeasonBook}
+        nextSeasonBook={nextSeasonBook}
+        nextSeasonCandidates={nextSeasonCandidates}
+        seasonPickerMode={seasonPickerMode}
+        onSelectBook={select}
+        onSetSeasonPickerMode={setSeasonPickerMode}
+        onSetPrevSeason={handleSetPrevSeason}
+        onSetNextSeason={handleSetNextSeason}
+        onClearPrevSeason={handleClearPrevSeason}
+        onClearNextSeason={handleClearNextSeason}
+      />
 
-          {/* 右侧:下一季 —— 镜像布局(label 在最右,整组靠右) */}
-          <div className="next-season">
-            {cur.nextSeasonId === undefined || cur.nextSeasonId === '' ? (
-              <>
-                <button
-                  type="button"
-                  className="next-season-add"
-                  onClick={() => setSeasonPickerMode('next')}
-                >
-                  + 设置下一季
-                </button>
-                <span className="next-season-label">下一季</span>
-              </>
-            ) : nextSeasonBook ? (
-              <>
-                <button
-                  type="button"
-                  className="next-season-remove"
-                  onClick={() => void handleClearNextSeason()}
-                  title="移除下一季关联(回到「未设置」状态)"
-                >
-                  ×
-                </button>
-                <span
-                  className="next-season-link"
-                  onClick={() => select(nextSeasonBook.id)}
-                  title="点击跳到该作品"
-                >
-                  {nextSeasonBook.title}
-                </span>
-                <span className="next-season-label">下一季</span>
-              </>
-            ) : (
-              // 引用了已被删除的作品 —— 优雅降级
-              <>
-                <button
-                  type="button"
-                  className="next-season-remove"
-                  onClick={() => void handleClearNextSeason()}
-                  title="清除失效的下一季引用"
-                >
-                  ×
-                </button>
-                <span className="next-season-missing">
-                  原作品已删除 (id: {cur.nextSeasonId})
-                </span>
-                <span className="next-season-label">下一季</span>
-              </>
-            )}
-          </div>
-        </div>
-        <NextSeasonPicker
-          open={seasonPickerMode !== null}
-          onClose={() => setSeasonPickerMode(null)}
-          candidates={nextSeasonCandidates}
-          onPick={(id) => (seasonPickerMode === 'prev' ? void handleSetPrevSeason(id) : void handleSetNextSeason(id))}
-          currentTitle={cur.title}
-          mode={seasonPickerMode ?? 'next'}
-        />
-      </section>
-
-      {/* 「所属系列」关联(v1.7 新增;无序收藏夹分组)—— 放在「下一季」区块之后,
-          跟 PrereqEditor 之前;用户核心诉求:"几季 + 衍生作品全部摊开很占空间",
-          在这里汇总同系列的其他作品,方便跨作品跳转 */}
-      <section className="series-block">
-        <h3 className="series-title">所属系列</h3>
-        <div className="series">
-          <span className="series-label">所属系列:</span>
-          {cur.seriesId === undefined || cur.seriesId === '' ? (
-            <>
-              <span className="series-missing">未设置</span>
-              <button
-                type="button"
-                className="series-add"
-                onClick={openSeriesPicker}
-              >
-                + 设置系列
-              </button>
-            </>
-          ) : currentSeries ? (
-            <>
-              <span
-                className="series-link"
-                onClick={() => setSeriesPickerOpen(true)}
-                title="点击切换系列"
-              >
-                {currentSeries.name}
-              </span>
-              <button
-                type="button"
-                className="series-remove"
-                onClick={() => void handleClearSeries()}
-                title="移除所属系列"
-              >
-                ×
-              </button>
-            </>
-          ) : (
-            // 引用了已被删除的系列 —— 优雅降级(同 NextSeasonPicker 同款处理)
-            <>
-              <span className="series-missing">
-                原系列已删除 (id: {cur.seriesId})
-              </span>
-              <button
-                type="button"
-                className="series-remove"
-                onClick={() => void handleClearSeries()}
-                title="清除失效的系列引用"
-              >
-                × 清除
-              </button>
-            </>
-          )}
-        </div>
-        {/* 同系列其他作品(去重,排除自己)—— 用户核心诉求的解决方案。
-            最多展示 8 本 + 「查看全部」展开;数量小,几十以内(几季 + 衍生)。 */}
-        {seriesSiblings.length > 0 && (
-          <div className="series-siblings">
-            <span className="series-siblings-label">
-              同系列还有 {seriesSiblings.length} 本:
-            </span>
-            <ul className="series-siblings-list">
-              {seriesSiblings.slice(0, 8).map((b) => (
-                <li
-                  key={b.id}
-                  className={`kind-${b.kind}`}
-                  onClick={() => select(b.id)}
-                  title="点击查看详情"
-                >
-                  <span className={`kind-tag kind-${b.kind}`}>
-                    {WORK_KIND_LABELS[b.kind]}
-                  </span>
-                  <span className="title">{b.title}</span>
-                  <span className="tracker-id muted">{b.id}</span>
-                </li>
-              ))}
-            </ul>
-            {seriesSiblings.length > 8 && (
-              <p className="muted series-siblings-overflow">
-                还有 {seriesSiblings.length - 8} 本未展示 —— 在「+ 添加」→「系列」tab 查看全部系列
-              </p>
-            )}
-          </div>
-        )}
-        <SeriesPickerModal
-          open={seriesPickerOpen}
-          onClose={() => setSeriesPickerOpen(false)}
-          onPick={(id) => void handleSetSeries(id)}
-          currentTitle={cur.title}
-        />
-      </section>
+      <BookDetailSeries
+        book={cur}
+        currentSeries={currentSeries}
+        seriesSiblings={seriesSiblings}
+        seriesPickerOpen={seriesPickerOpen}
+        onOpenSeriesPicker={openSeriesPicker}
+        onCloseSeriesPicker={() => setSeriesPickerOpen(false)}
+        onSetSeries={handleSetSeries}
+        onClearSeries={handleClearSeries}
+        onSelectBook={select}
+      />
 
       <PrereqEditor bookId={book.id} />
 

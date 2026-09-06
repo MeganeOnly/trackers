@@ -6,20 +6,12 @@ import { useSettingsStore } from '../store/settings'
 import { useSeriesStore } from '../store/series'
 import { WORK_KIND_LABELS } from '@shared/types'
 import type { Book, BookStatus, Series } from '@shared/types'
+import { STATUS_LABELS, SIDEBAR_STATUS_ORDER } from './BookDetail.labels'
 import { SeriesRowInSidebar } from './SeriesRowInSidebar'
 import { SidebarSeriesView } from './SidebarSeriesView'
 
-const STATUS_LABELS: Record<BookStatus, string> = {
-  want: '想看',
-  shelved: '搁置',
-  reading: '在读',
-  watching: '在看',
-  finished: '已读',
-  abandoned: '弃读'
-}
-
-// 「进行中」(reading/watching) 排在最前；watching 紧接 reading 便于一眼看到同类目
-const STATUS_ORDER: BookStatus[] = ['reading', 'watching', 'want', 'finished', 'shelved', 'abandoned']
+// 本地别名 —— 原代码用 STATUS_ORDER / STATUS_LABELS 直接引用,改名后保持原写法
+const STATUS_ORDER = SIDEBAR_STATUS_ORDER
 
 /** localStorage 持久化键：哪些侧栏 section 当前处于『收起』状态 */
 const COLLAPSED_SECTIONS_STORAGE_KEY = 'book-tracker:sidebar:collapsed-sections'

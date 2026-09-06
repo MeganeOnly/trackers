@@ -9,91 +9,29 @@
 // 编辑,不再走 BookForm)。需要编辑作品时由后续 PR 决定是否在 AddModal 加新 tab。
 // 现在本组件只做「加」一件事,行为/字段/校验完全等同原 BookForm(book=null 路径)。
 //
-// **共享助手函数保留**:`statusOptionsFor` / `authorLabelFor` / `translatorLabelFor`
-// / `starringLabelFor` / `screenwriterLabelFor` / `yearLabelFor` / `countryLabelFor`
-// 全部就地保留,这些是 BookForm 内部 helper,改了一致性需连带 BookDetail /
-// RankingCompare 同步,留组件内。
+// 共享助手函数(2026-09 重构):`statusOptionsFor` / `authorLabelFor` /
+// `translatorLabelFor` / `starringLabelFor` / `screenwriterLabelFor` /
+// `yearLabelFor` / `countryLabelFor` 全部抽到 `BookDetail.labels.ts` 共享;
+// BookDetail / BookFormFields / RankingCompare 统一 import,保证标签文案
+// 跨组件一致(改一处全部生效)。
 
 import { useEffect, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useSettingsStore } from '../store/settings'
 import { WORK_KIND_LABELS, WORK_KIND_ORDER } from '@shared/types'
 import type { BookStatus, SeasonInfo, WorkKind } from '@shared/types'
+import {
+  authorLabelFor,
+  countryLabelFor,
+  screenwriterLabelFor,
+  starringLabelFor,
+  statusOptionsFor,
+  translatorLabelFor,
+  yearLabelFor
+} from './BookDetail.labels'
 
 interface BookFormFieldsProps {
   onClose: () => void
-}
-
-const STATUS_BASE_OPTIONS: { value: BookStatus; label: string }[] = [
-  { value: 'want', label: '想看' },
-  { value: 'shelved', label: '搁置' },
-  { value: 'reading', label: '在读' },
-  { value: 'finished', label: '已读' },
-  { value: 'abandoned', label: '弃读' }
-]
-
-/**
- * 在看（watching）仅对非电影类型暴露 —— 电影通常一次看完,无需"在看"中间态。
- * 非电影（书 / 动画 / 电视剧 / 其他）作品在已看完后再次观看时,可用此状态代替
- * "在读"措辞更自然。
- */
-function statusOptionsFor(kind: WorkKind): { value: BookStatus; label: string }[] {
-  if (kind === 'movie') return STATUS_BASE_OPTIONS
-  return [...STATUS_BASE_OPTIONS.slice(0, 3), { value: 'watching', label: '在看' }, ...STATUS_BASE_OPTIONS.slice(3)]
-}
-
-/**
- * 根据作品类型返回"作者"字段的最佳标签:
- * - book → 作者（默认）
- * - anime / tv → 原作 / 主创（漫画原作、动画监督、电视剧导演等）
- * - movie → 导演
- * - other → 作者 / 主创（兜底）
- */
-function authorLabelFor(kind: WorkKind): string {
-  switch (kind) {
-    case 'anime': return '原作 / 主创'
-    case 'tv': return '原作 / 主创'
-    case 'movie': return '导演'
-    case 'other': return '作者 / 主创'
-    case 'book': return '作者'
-  }
-}
-
-/** 译者字段只对书显示（动画/电视剧/电影/其他 通常无译者） */
-function translatorLabelFor(kind: WorkKind): string | null {
-  return kind === 'book' ? '译者' : null
-}
-
-/**
- * 主演字段只对 movie / tv 显示 —— 与"译者"位置对称,UI 不会同时出现两个。
- * anime 没放进来 —— anime 的等价概念是"声优",措辞不一样;用户当前只问 movie/tv。
- */
-function starringLabelFor(kind: WorkKind): string | null {
-  return kind === 'movie' || kind === 'tv' ? '主演' : null
-}
-
-/**
- * 编剧字段只对 movie / tv 显示 —— 与"主演"同属影视主创字段,但各自独立 input
- * (避免"主演 / 编剧"混在同一行的二义)。anime 不放 —— 编剧 vs 原作/漫画作者 不一致。
- */
-function screenwriterLabelFor(kind: WorkKind): string | null {
-  return kind === 'movie' || kind === 'tv' ? '编剧' : null
-}
-
-/** 年份字段按类型给出更具体的标签 */
-function yearLabelFor(kind: WorkKind): string {
-  switch (kind) {
-    case 'book': return '出版年份'
-    case 'anime': return '开始年份'
-    case 'tv': return '首播年份'
-    case 'movie': return '上映年份'
-    case 'other': return '年份'
-  }
-}
-
-/** 国家字段对书的语义其实是"原产国"，对影视是"制片国家/地区" */
-function countryLabelFor(kind: WorkKind): string {
-  return kind === 'book' ? '原产国 / 地区' : '制片国家 / 地区'
 }
 
 export function BookFormFields({ onClose }: BookFormFieldsProps): JSX.Element {

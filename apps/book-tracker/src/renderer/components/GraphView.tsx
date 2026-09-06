@@ -29,6 +29,7 @@ import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
+import { STATUS_LABELS } from './BookDetail.labels'
 
 const STATUS_COLORS: Record<BookStatus, string> = {
   want: '#999999',
@@ -37,15 +38,6 @@ const STATUS_COLORS: Record<BookStatus, string> = {
   watching: '#5a8a6c', // 比 reading 略浅一档；同属「进行中」色族
   finished: '#2d5a3a',
   abandoned: '#c0573d'
-}
-
-const STATUS_LABEL: Record<BookStatus, string> = {
-  want: '想看',
-  shelved: '搁置',
-  reading: '在读',
-  watching: '在看',
-  finished: '已读',
-  abandoned: '弃读'
 }
 
 interface BookNode extends BaseGraphNode {
@@ -200,7 +192,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       items.sort((a, b) => a.title.localeCompare(b.title))
       groups.push({
         id: status,
-        label: STATUS_LABEL[status],
+        label: STATUS_LABELS[status],
         items: items.map((n) => ({ id: n.id, title: n.title, color: STATUS_COLORS[n.status] }))
       })
     }
@@ -244,7 +236,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
         if (!n.unlocked) return '#c8c8c8'
         return STATUS_COLORS[n.status]
       }}
-      getNodeLabel={(n) => `${n.title} (${STATUS_LABEL[n.status]})`}
+      getNodeLabel={(n) => `${n.title} (${STATUS_LABELS[n.status]})`}
       getNodeTags={(n) => n.tags}
       onSelect={(id) => {
         if (pathMode) {

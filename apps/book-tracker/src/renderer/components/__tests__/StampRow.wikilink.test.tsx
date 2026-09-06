@@ -25,7 +25,7 @@ import { useState } from 'react'
 import { render, screen, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WikilinkProvider } from '../WikilinkContext'
-import { StampRow } from '../EpisodesPanel'
+import { StampRow } from '../EpisodesPanel.StampList'
 import type { Book, TimeStamp } from '@shared/types'
 
 afterEach(() => {

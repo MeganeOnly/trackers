@@ -6,6 +6,119 @@
 
 ---
 
+## 2026-09：[book-tracker] 大文件拆分 —— DSH 插件 700 行 / 30KB 阈值的 React 适配
+
+### 1. 现象 / 需求
+
+book-tracker 里两个组件远超 DSH 插件「≥ 700 行 / ≥ 30KB 触发拆分」阈值：
+- `BookDetail.tsx` 930 行 / 40.1 KB
+- `EpisodesPanel.tsx` 1104 行 / 44.3 KB
+
+这两个文件都是「主组件 + 多块独立 UI 区块 + 工具函数 + 状态机」混在一起，函数数量 30+，state hook 10+，JSX 嵌套深 —— 阅读时需要不停 scroll，修改时容易"牵一发动全身"。
+
+### 2. 关键设计决策
+
+#### 2.1 拆分原则 = 「子组件 / 标签字典」二分法，不拆逻辑
+
+只拆"可以独立 props 化、不需要 Context / reducer 的子组件"，**不拆**「状态编排」本身：
+
+- **BookDetail**：抽出 `BookDetail.labels.ts`（纯函数字典）+ `BookDetailFields.tsx`（字段行）+ `BookDetailSeasons.tsx`（季节对）+ `BookDetailSeries.tsx`（系列块）。**主组件仍持有所有 useState**，子组件纯展示 + 回调。
+- **EpisodesPanel**：抽出 `EpisodesPanel.StampList.tsx`（StampList + StampRow + makeStampId），主组件保留 EpisodesPanel + EpisodeCell + EpisodeEditor。
+
+理由：state 提升到父组件（已经是当前做法）后，子组件接受 props + handlers；父组件仍是「状态机编排者」，子组件是「纯 UI 渲染者」。**不引入 Context** —— 那会让"哪个组件修改 notesDirty？"变得不明确（dev-notes §v1.6 已踩过 Rules of Hooks 顺序坑，多 Context 嵌套更容易出 bug）。
+
+#### 2.2 「标签字典」放最前 —— 跨文件 dedup 的入口
+
+抽 `BookDetail.labels.ts` 之后才发现 `STATUS_LABELS` / `STATUS_BASE_OPTIONS` / `kindLabelXxx` 在 4 个文件里重复：
+- `BookDetail.tsx` 本地
+- `BookList.tsx` 本地
+- `PrereqEditor.tsx` 本地
+- `GraphView.tsx` 本地（名为 `STATUS_LABEL`）
+- `BookFormFields.tsx` 本地（含 6 个 `kindLabelXxx`）
+
+**先抽 labels 字典 → 再拆组件** 的顺序比"先拆组件"更顺：拆组件时 props 需要 `kind` 字段对应的 label，一致性立刻浮现。如果反过来先拆组件，会发现各组件自己维护一份 label，dedup 阶段还得回过头去改 props。
+
+**反例（保持本地）**：`RankingCompare` 的 `yearLabelFor` / `countryLabelFor` 是「短形式」（出版 / 原产地），与 BookDetail 的「长形式」（出版年份 / 原产国 / 地区）**故意不同**（compact 卡片 vs 详情表单的密度差）。**dedup 范围只覆盖完全相同的语义**；缩略词 ≠ 共享。
+
+#### 2.3 子组件 props API = 「业务字段全集 + 父组件 state 镜像」
+
+`BookDetailFields` 接受 ~25 个 props：所有字段值（kind / author / country / year / ...）+ 所有 setter（setKind / setAuthor / ...）+ 单一 `editingField` + `setEditingField`（控制 inline 模式互斥）。
+
+**为什么不引入 Context**：
+- 当前所有 setter 都被父组件 BookDetail 持有（这是 v2.x 内联编辑的"集中保存"心智），子组件用 props 拿 setter 即可，零间接层；
+- Context 会让"哪个 setter 在什么时机被调"变得跨文件追溯困难（尤其是 dev-notes 提到的「跨 Modal / Tab 共享同一 store 字段」陷阱）；
+- 25 个 props 看起来多，但都是 `useState` 的镜像，typing 自动校验，refactor 时 IDE 一秒定位。
+
+**判定**：「父组件持有 state，子组件 props 镜像」 vs 「Context」 vs 「state 下沉到子组件」：
+| 场景 | 推荐 |
+|---|---|
+| 子组件独立，无跨组件协调 | state 下沉到子组件 |
+| 子组件之间需要协调同一字段 | 父组件 + props 镜像 |
+| 跨 Modal / Tab / 路由 共享同一 store 字段 | store 字段 + Context 仅做协调层（dev-notes §v1.7 wikilink） |
+
+#### 2.4 阈值 700 行 / 30KB 在 React + TypeScript 里要宽松
+
+DSH 插件是 ES5（很多短函数、缩进紧凑），700 行 ≈ 30KB。但 React + TSX（function 关键字、JSX 大括号、TypeScript 注解、prop interface）平均每行字节数比 ES5 大 ~30%。
+
+实测：`BookDetail.tsx` 从 930 行 / 40KB 拆到：
+- `BookDetail.tsx` 495 行 / 21.2 KB
+- `BookDetail.labels.ts` 95 行 / 3.7 KB（含导出 STATUS_LABELS / SIDEBAR_STATUS_ORDER + 6 个 kind label 函数）
+- `BookDetailFields.tsx` 295 行 / 12.2 KB
+- `BookDetailSeasons.tsx` 159 行 / 6.3 KB
+- `BookDetailSeries.tsx` 130 行 / 5.5 KB
+
+总和 1174 行（比原 930 行略多，源于 props interface + 文件头注释），但单文件均 < 30KB、且最长的 EpisodesPanel.StampList.tsx 610 行 / 23.5 KB 仍在阈值内。
+
+**判定**：阈值按 DSH 插件保持不变（700 行 / 30KB），React + TS 拆出来的文件数量自然比 ES5 多，但单文件尺寸都达标。
+
+### 3. 实施清单
+
+```
+apps/book-tracker/src/renderer/components/
+├── BookDetail.tsx             930 → 495 行 (-47%, 21.2 KB)
+├── BookDetail.labels.ts        新建   95 行 (3.7 KB)  [共享 labels]
+├── BookDetailFields.tsx        新建  295 行 (12.2 KB)  [字段行 + 笔记]
+├── BookDetailSeasons.tsx       新建  159 行 (6.3 KB)   [季节对]
+├── BookDetailSeries.tsx        新建  130 行 (5.5 KB)   [系列关联 + 同系列]
+├── EpisodesPanel.tsx         1104 → 464 行 (-58%, 19.9 KB)
+└── EpisodesPanel.StampList.tsx 新建  610 行 (23.5 KB)  [StampList + StampRow]
+```
+
+`STATUS_LABELS` 等共享字典去重后，原地 4 份变 1 份：
+- `BookList.tsx` 改 import（保留 `STATUS_ORDER = SIDEBAR_STATUS_ORDER` 别名）
+- `PrereqEditor.tsx` 改 import
+- `GraphView.tsx` 改 import + 删 `STATUS_LABEL`（与 STATUS_LABELS 同义）
+- `BookFormFields.tsx` 改 import + 删 6 个 `kindLabelXxx` 本地副本
+- `RankingCompare.tsx` 只 import `authorLabelFor`（其他 2 个是短形式保持本地）
+
+测试入口微调：`StampRow.wikilink.test.tsx` 的 `import { StampRow } from '../EpisodesPanel'` → `from '../EpisodesPanel.StampList'`（一行）。
+
+### 4. 关键判定
+
+| 决策 | 选择 | 理由 |
+|---|---|---|
+| 子组件 state 位置 | 父组件持有 + props 镜像 | setter 集中可追溯；避免 Context 间接层 |
+| Context 引入 | 否 | 当前规模 props 25 个可管理；Context 跨文件追溯困难 |
+| 缩略词 labels（RankingCompare）| 保持本地 | 跟详情页长形式故意不同，是 UI 密度差而非 dedup 漏 |
+| 主组件内 import 子组件 | yes | 「子组件 = 父组件 JSX 段落」是一一对应，import 即目录 |
+| 测试 import 路径 | 跟着子组件走 | 单测 mount 真实产品组件，路径必须跟实现一致 |
+
+### 5. 回归验证
+
+- `npm run typecheck` —— book-tracker + life-tracker + tracker-core 三端全过（无 TS 错）
+- `npm run test:book` —— 233 / 233 vitest 通过（包含 25 个 visual-toggles + 4 个 StampRow.wikilink + 3 个 IME）
+- `cargo test -p book-tracker --lib` —— 91 / 91 通过（Rust 端零改动，纯 renderer 重构）
+- 文件尺寸：所有目标文件 < 30 KB / < 700 行（EpisodesPanel.StampList.tsx 23.5 KB / 610 行最接近，仍在阈值内）
+
+### 6. 教训（共享 / 单 app）
+
+- **[共享]** DSH 插件 700 行 / 30KB 阈值在 React + TSX 同样适用 —— 实测平均每行字节数 ~30% 更大，但拆出来的子文件比 ES5 多几份（labels 字典 / 子组件各一份），单文件尺寸都能达标。
+- **[共享]** 拆分顺序很重要：「**先抽共享字典 → 再拆子组件**」。抽字典能立刻暴露跨文件 dedup 机会（4 份 `STATUS_LABELS`）；反过来先拆组件会分神，dedup 变两轮。
+- **[共享]** dedup 范围要按"语义完全相同"判断，**不**按"长得像"。`RankingCompare` 的「出版/原产地」与 `BookDetail` 的「出版年份/原产国 / 地区」是 UI 密度差异不是冗余，强行共享会牺牲 compact 卡片的设计意图。
+- **[单 app book-tracker]** 子组件 props 镜像 state 比 Context 更可读 —— 25 个 props 看起来多，但 IDE 自动补全 + refactor 跳转 + setter 集中追溯都让"父组件是状态机，子组件是渲染"心智更稳。
+
+---
+
 ## 2026-09：[共享/book-tracker] 视觉微调开关 —— 用 CSS data-attr 做「可逆视觉实验」(v2.1)
 
 ### 1. 背景 / 需求

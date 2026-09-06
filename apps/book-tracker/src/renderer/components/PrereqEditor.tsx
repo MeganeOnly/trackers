@@ -4,18 +4,10 @@ import { useRelationsStore } from '../store/relations'
 import { useUnlocked } from '../store/selectors'
 import { detectCycles, formatIssues, validateEdges } from '@core'
 import type { Book, Edge, UnlockRule } from '@shared/types'
+import { STATUS_LABELS } from './BookDetail.labels'
 
 interface PrereqEditorProps {
   bookId: string
-}
-
-const STATUS_LABELS: Record<Book['status'], string> = {
-  want: '想看',
-  shelved: '搁置',
-  reading: '在读',
-  watching: '在看',
-  finished: '已读',
-  abandoned: '弃读'
 }
 
 export function PrereqEditor({ bookId }: PrereqEditorProps): JSX.Element {

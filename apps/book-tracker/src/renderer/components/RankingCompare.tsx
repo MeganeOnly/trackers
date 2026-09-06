@@ -3,21 +3,15 @@ import type { Book, PairwiseResult, SeasonInfo, WorkKind } from '@shared/types'
 import { WORK_KIND_LABELS } from '@shared/types'
 import { expectedScore } from '@core'
 import { deriveRanking, findCandidate, useRankingStore } from '../store/ranking'
+import { authorLabelFor } from './BookDetail.labels'
 
 interface RankingCompareProps {
   pool: Book[]
 }
 
-// 类型相关字段标签 —— 与 BookDetail / BookForm 保持一致（就近复制，见 BookDetail 同段注释）
-function authorLabelFor(kind: WorkKind): string {
-  switch (kind) {
-    case 'anime': return '原作 / 主创'
-    case 'tv': return '原作 / 主创'
-    case 'movie': return '导演'
-    case 'other': return '作者 / 主创'
-    case 'book': return '作者'
-  }
-}
+// 排名卡片是紧凑布局,标签用短形式（出版/开始/首播/上映 等),与详情页 / 表单
+// 的长形式(出版年份/开始年份/首播年份/上映年份) 故意区分;就地复制一份
+// 不共享 BookDetail.labels.ts 的 yearLabelFor(后者太长,塞不进 compact card)。
 function yearLabelFor(kind: WorkKind): string {
   switch (kind) {
     case 'book': return '出版'
