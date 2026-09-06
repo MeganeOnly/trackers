@@ -8,12 +8,14 @@
 //   季结构(seasons[])仍保留 —— 一本书可能因历史遗留 / 误填仍有多个 seasons,
 //   这里取 `seasons[0]` 显示(简化逻辑,不再维护 selectedSeason 状态)。
 // - 展开区:标题输入 / watched toggle / 笔记 textarea / 时间戳笔记 stamps / 删除按钮
-// - 顶部 stats 行:「已看 X / [Y] · N 条笔记」+ 快速操作(+1 / -1 / 清空),**Y 用 InlineField
+// - 顶部 stats 行:「已看 X / [Y] · N 条笔记」+ 快速操作(-1 / +1 / 清空),**Y 用 InlineField
 //   inline 模式紧贴「/」**(必须跟「/」在同一 <span> 内,否则被 .episodes-stats 的 10px gap 撑开,
 //   视觉上变成「11 / [ 40 ]」离得太远;现在「/ 40」紧贴对齐老版「20/20」纯文本形态)。
 //   preview / control 按钮 padding 缩到 0 4px,看起来跟普通数字一样;点上去才出白框 input。
 //   Enter / 失焦 / Esc 都提交并退出编辑。
 //   S01 前缀 + 「本季集数」label 已删 —— 每本只追踪一季,「已看 X /」已经隐含语义,无需再标。
+//   「-1 / +1」按钮(没带「集」字)跟进度卡片的 -1/+1 视觉对齐(避免重复前缀「集」);「清空」
+//   必须 confirm 二次确认,避免误点删所有 watched/笔记/标题。
 //
 // 状态:
 // - expandedEpisode: 当前展开的集号(单选,互斥)
@@ -184,11 +186,12 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
         </span>
         <div className="episodes-actions">
           <button className="btn-secondary" onClick={() => void handleBump(-1)} disabled={!book.progress}>
-            -1 集
+            -1
           </button>
           <button className="btn-secondary" onClick={() => void handleBump(+1)}>
-            +1 集
+            +1
           </button>
+          {/* 清空按钮 —— 必须二次确认(handleClear 内部 confirm),避免误点删所有 watched/笔记/标题 */}
           <button className="btn-secondary episodes-clear" onClick={() => void handleClear()}>
             清空
           </button>
@@ -275,19 +278,23 @@ function EpisodeCell({
   const watched = record?.watched ?? false
   const hasNote = !!record?.note?.trim()
   const hasTitle = !!record?.title?.trim()
+  // 是否有时间戳笔记 —— 集网格右上角加 🕐 + ::before 小点提示,
+  // 跟 hasNote 的左下角 📝 + ::after 小点对称(分两组角标:左上 watched ✓ / 右上 时间戳 / 右下 笔记)
+  const hasStamps = !!record?.stamps && record.stamps.length > 0
   return (
     <div
-      className={`episode-cell${watched ? ' watched' : ''}${hasNote ? ' has-note' : ''}${expanded ? ' expanded' : ''}`}
+      className={`episode-cell${watched ? ' watched' : ''}${hasNote ? ' has-note' : ''}${hasStamps ? ' has-stamps' : ''}${expanded ? ' expanded' : ''}`}
       onClick={onClick}
       onDoubleClick={(e) => {
         e.preventDefault()
         onToggleWatched()
       }}
-      title={`S${pad2(season)}E${pad2(episode)}${hasTitle ? ` · ${record!.title}` : ''}\n单击展开 / 双击标记 watched`}
+      title={`S${pad2(season)}E${pad2(episode)}${hasTitle ? ` · ${record!.title}` : ''}${hasStamps ? ` · 含 ${record!.stamps!.length} 条时间戳笔记` : ''}\n单击展开 / 双击标记 watched`}
     >
       <span className="episode-cell-num">{episode}</span>
       {watched && <span className="episode-cell-tick">✓</span>}
       {hasNote && <span className="episode-cell-note-mark">📝</span>}
+      {hasStamps && <span className="episode-cell-stamp-mark">🕐</span>}
     </div>
   )
 }

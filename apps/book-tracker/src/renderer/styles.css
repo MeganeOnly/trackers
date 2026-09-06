@@ -286,7 +286,7 @@ button:focus-visible {
 
 /* ============ Edit mode ============ */
 .page-edit {
-  display: grid; grid-template-columns: 280px 1fr;
+  display: grid; grid-template-columns: 280px 4px 1fr;
   flex: 1; overflow: hidden;
 }
 .sidebar {
@@ -294,6 +294,17 @@ button:focus-visible {
   background: white;
   padding: 16px 12px;
   overflow-y: auto;
+}
+/* 侧栏拖拽手柄 —— 4px 宽透明竖条,hover/drag 时显出 accent 色高亮 + col-resize 光标 */
+.sidebar-resizer {
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  transition: background-color 120ms ease;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
+  background: var(--accent);
 }
 .detail-panel { flex: 1; padding: 32px 40px; overflow-y: auto; }
 
@@ -818,6 +829,14 @@ button:focus-visible {
   background: var(--status-finished);
   border-radius: 50%;
 }
+.episode-cell.has-stamps::before {
+  content: '';
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+}
 .episode-cell-tick {
   position: absolute;
   top: 2px; left: 4px;
@@ -827,6 +846,12 @@ button:focus-visible {
 .episode-cell-note-mark {
   position: absolute;
   bottom: 1px; right: 3px;
+  font-size: 9px;
+  opacity: 0.85;
+}
+.episode-cell-stamp-mark {
+  position: absolute;
+  top: 1px; right: 3px;
   font-size: 9px;
   opacity: 0.85;
 }
