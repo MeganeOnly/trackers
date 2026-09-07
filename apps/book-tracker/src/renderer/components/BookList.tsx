@@ -278,17 +278,28 @@ export function BookList(): JSX.Element {
   }, [worksFilter, seriesList, booksBySeriesId])
 
   // v2.x 派生:每个 status 分组顶部应展示的 series 列表。
-  // - 必须至少有 1 本 book.status === status(series 在该 status 有成员)
-  // - 必须通过 worksFilter 过滤
-  // - 搜索模式下:还要求 matchingSeriesIds 且 firstStatusForSeries === 当前 status(去重)
+  // - 有成员的 series:必须至少 1 本 book.status === status(series 在该 status 有成员)
+  //   + 必须通过 worksFilter 过滤 + 搜索模式下 matchingSeriesIds + firstStatusForSeries 去重
+  // - **0 成员(空)系列**(v2.x 新增):固定在「想看」列出现 —— 用户诉求"0 成员系列不会
+  //   直接出现在编辑模式的左栏,现在能够出现并且出现在想看一栏"。理由:空系列没有 status
+  //   可以按,默认归「想看」(用户的"想给这个系列添东西"心智);worksFilter / seriesAllowedByKind
+  //   跳过(无成员可按 kind 过滤);搜索模式走 matchingSeriesIds(按名字匹配即可)。
   // 按系列名 localeCompare('zh') 升序,跨 status 间保持一致的排序。
   const seriesByStatus = useMemo<Record<BookStatus, Series[]>>(() => {
     const out = {} as Record<BookStatus, Series[]>
     for (const status of STATUS_ORDER) {
       out[status] = seriesList
         .filter((s) => {
-          if (!seriesAllowedByKind.has(s.id)) return false
           const members = booksBySeriesId.get(s.id) ?? []
+          // 空系列 → 固定到「想看」列
+          if (members.length === 0) {
+            if (status !== 'want') return false
+            // 搜索模式:空系列按名字命中(走 matchingSeriesIds),不需要去重(只在 want 一处出现)
+            if (matchingSeriesIds !== null && !matchingSeriesIds.has(s.id)) return false
+            return true
+          }
+          // 有成员的系列 → 原有逻辑
+          if (!seriesAllowedByKind.has(s.id)) return false
           if (!members.some((b) => b.status === status)) return false
           if (matchingSeriesIds !== null) {
             if (!matchingSeriesIds.has(s.id)) return false

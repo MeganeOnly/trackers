@@ -6,6 +6,59 @@
 
 ---
 
+## 2026-09：[book-tracker] AddModal「+ 系列」tab 简化为单行 + 0 成员系列归「想看」
+
+### 1. 现象 / 需求
+
+两个相关诉求，一起处理：
+
+- **诉求 1**：AddModal 的「+ 系列」tab 当前会把所有已添加的系列列在下面（带「编辑」「删除」按钮），用户觉得多余 —— "添加那边 + 系列不需要把那些已经添加的系列都列举在里面，就简单的最上面那一行就够了"。
+- **诉求 2**：0 成员系列（创建后还没添任何成员的空系列）当前不会出现在编辑模式左栏；用户希望它们能出现，并固定到「想看」一栏 —— 方便后续补充成员 / 删除管理。
+
+### 2. 调整
+
+#### 2.1 `SeriesView` 简化为只保留顶部创建行
+
+- 删除 view 状态机（`'list' | 'detail' | 'picker'`）+ 详情/批量 picker 路径 —— 这两个 view 是给"点列表里的某行进去管成员"用的，列表本身去掉后不可达，整个移除。
+- 删除 `editing / editError / selectedSeriesId / removingId / picking` 局部状态 + `handleDelete / handleSaveEdit / startEdit / handleRemoveMember / handlePickConfirm / openDetail / backToList / openPicker` 等仅详情/列表管理用的 handler。
+- 删除对 `useBooksStore` 的依赖（`setSeries / loadBooks` 等 —— AddModal 系列 tab 不再做任何成员管理）。
+- 保留：顶部 inline `新系列名` input + 「+ 新建」按钮 + `newError` 错误提示。
+- 新增底部小字 `已有 N 个系列 —— 在编辑模式左栏查看 / 管理成员` —— 让用户知道已添加系列去哪了。
+
+#### 2.2 空系列固定到「想看」列（`BookList.seriesByStatus`）
+
+`seriesByStatus` 在 filter 里加一段优先级最高的"空系列"分支：
+
+```ts
+const members = booksBySeriesId.get(s.id) ?? []
+if (members.length === 0) {
+  if (status !== 'want') return false
+  if (matchingSeriesIds !== null && !matchingSeriesIds.has(s.id)) return false
+  return true
+}
+// 有成员的系列 → 原有逻辑（worksFilter + 按 status 出现 + 搜索去重）
+```
+
+要点：
+- **跳过 `seriesAllowedByKind`**（worksFilter）：空系列没成员可按 kind 过滤，强行过滤会把空系列全过滤掉；用户诉求"想管理这个空系列"优先于按 kind 筛选。
+- **搜索去重免去**：空系列只在 want 一处出现，不需要 `firstStatusForSeries` 去重（避免 `firstStatusForSeries.get(s.id)` 是 `undefined` 时把空系列排除掉）。
+- **状态切换平滑**：从"空系列 → 加 want 成员"会让该 series 走原有逻辑（因为 `members.length > 0`），但 `members.some(b => b.status === 'want')` 仍 true → 继续在 want 列展示；视觉位置不跳。
+- **"已想看一栏里出现 0 本"的语义**：空系列徽章右侧 `read-count` 槽位显示 `(0 本)` —— 直接传达"还没添任何作品"。
+
+### 3. 通用教训 [共享]
+
+**"创建入口"和"消费入口"的 UI 分离** —— AddModal 是「我要新建一个 series」，侧栏 SidebarSeriesView 是「我要管理这个 series 的成员 / 删除它」。混在一起（创建 + 列表管理 + 详情钻入）会让用户在「我要新建」时被迫扫一眼所有已存在的 series，认知成本不必要。一旦列表项可以多（10+ 系列时），这种冗余更明显。**判据**：tab 标题是 "+ 创建"，就不该有列表；列表应该是"管理入口"的责任。
+
+**"0 个元素的桶"放哪一栏 —— 按心智而非数据** —— 0 成员系列没有 status 可按，但用户在「想看」一栏里看到"想给这个系列添东西"的入口最自然（语义同「我把东西先放这儿再说」）。强行给空系列也分配 status 反而把数据模型弄脏 —— Series 不该有 status 字段（它是组织维，不是消费维）。**判定**：当数据没有可分类的轴时，按用户的心智流向归到一个"默认桶"，而不是发明一个假属性。
+
+### 4. 回归验证
+
+- `npm run typecheck` 通过（node + web 两段）
+- `npm run test:book` 237 个测试全过（无新增测试 —— 改动纯前端 filter 逻辑 + 删除冗余 UI，没有新的纯函数可单测；侧栏 SeriesRowInSidebar 渲染空 series (0 本) 已经走原有路径，typecheck 兜底）
+- 手动路径：开 AddModal「+ 系列」tab → 只剩顶部一行；新建空系列 → 关闭 → 编辑模式左栏「想看」列出现新系列徽章；点徽章 → 进 SidebarSeriesView → 显示「这个系列还没有成员」
+
+---
+
 ## 2026-09：[book-tracker] BookNotesModal 「一按删除键就会出问题」修复
 
 ### 1. 现象

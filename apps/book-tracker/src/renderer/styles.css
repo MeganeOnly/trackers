@@ -2789,6 +2789,11 @@ ul.book-grid {
   flex-direction: column;
   gap: 12px;
 }
+/* v2.x:底部小字提示 —— 告诉用户已有系列去哪管理 */
+.series-existing-hint {
+  font-size: 12px;
+  margin: 0;
+}
 .series-create {
   display: flex;
   gap: 8px;

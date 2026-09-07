@@ -1,4 +1,4 @@
-// 统一「添加」modal(v1.8 新增)—— 整合加作品 / 加系列 / 管理系列到单一入口。
+// 统一「添加」modal(v1.8 新增)—— 整合加作品 / 加系列到单一入口。
 //
 // **为什么不再有 TopBar「系」按钮**:v1.7 在 TopBar 加「系」按钮(SeriesModal),
 // 跟「+ 加作品」按钮并列,导致 UI 上多了第二个「添加」入口,语义割裂。
@@ -8,7 +8,8 @@
 //
 // **tab 设计**:
 // - 「+ 作品」: 复用 BookFormFields —— 完整作品表单(原 BookForm 抽出)
-// - 「+ 系列」: SeriesView —— 顶部 inline 新建 + 列表管理(原 SeriesModal 抽出)
+// - 「+ 系列」: SeriesView —— 顶部 inline 新建(系列管理 edit/delete/添加成员
+//   统一走编辑模式侧栏 SidebarSeriesView,v2.x 起不再在本 tab 列已添加系列)
 //
 // **默认 tab**:「+ 作品」—— 加作品是主要场景(加系列从主入口也能一行表单搞定)。
 //
@@ -18,7 +19,7 @@
 // **footer 策略**:
 // - 「作品」tab: 「取消」+「保存」 —— 由 BookFormFields 内部 form id="book-form"
 //   触发提交(同原 BookForm)
-// - 「系列」tab: 无 footer —— SeriesView 自身有 CRUD 按钮;关闭走右上 × 或 Esc
+// - 「系列」tab: 无 footer —— SeriesView 顶部 inline 新建;关闭走右上 × 或 Esc
 //
 // **键盘 / 焦点**(与 v1.7 一致):Modal 包装层处理 Esc + 点 backdrop 关闭;
 // 「系列」tab 内 inline input 回车 = 新建(SeriesView 自带)。
