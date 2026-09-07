@@ -376,12 +376,13 @@ export function BookList(): JSX.Element {
         <SidebarSeriesView
           series={selectedSeries}
           books={books}
+          selectedBookId={selectedId}
           onBack={handleBackToList}
           onSelectBook={(id) => {
+            // 选 book 只切右侧 BookDetail,**左栏留在 series 视图**并高亮该成员 ——
+            // 用户诉求"点了系列里的某本后还能接着点下一本",退回默认列表会丢失位置。
+            // 退出 series 视图只有一个显式入口:头部「← 返回」按钮(handleBackToList)。
             select(id)
-            // 选 book 进 BookDetail —— 切走后清 series 视图态,避免下次回 EditMode 还卡在 series 视图
-            setSelectedSeriesId(null)
-            setRemovingMemberId(null)
           }}
           onRemoveMember={handleRemoveMember}
           removingId={removingMemberId}

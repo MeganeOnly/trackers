@@ -3249,16 +3249,25 @@ ul.book-grid {
   gap: 2px;
 }
 .sidebar-series-view-row {
+  position: relative; /* × 按钮绝对定位基准(右上角) */
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px;
+  padding: 4px 16px 4px 6px; /* 右侧留出 × 的位置,长标题不会被盖 */
   border-radius: 4px;
   border: 1px solid transparent;
   transition: background 120ms ease;
 }
 .sidebar-series-view-row:hover {
   background: var(--bg);
+}
+/* 选中态 —— 跟 .book-list-group li.selected 同款反馈(左栏留在系列视图时标出当前详情项) */
+.sidebar-series-view-row.selected {
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+.sidebar-series-view-row.selected .title {
+  color: var(--accent);
 }
 .sidebar-series-view-row.is-removing {
   opacity: 0.55;
@@ -3292,22 +3301,27 @@ ul.book-grid {
 .sidebar-series-view-row-main .tracker-id {
   font-size: 11px;
 }
+/* × 移除成员 —— 极简版:小尺寸 + 无边框无白底 + 绝对定位到 row 右上角
+ * (跟「上一季 / 下一季」的 .prev-season-remove / .next-season-remove 同款视觉) */
 .sidebar-series-view-remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 8px;
-  font-size: 14px;
+  border: none;
+  border-radius: 3px;
+  padding: 1px 3px;
+  font-size: 11px;
+  line-height: 1;
   color: var(--muted);
   cursor: pointer;
-  min-width: 28px;
+  min-width: 0;
   text-align: center;
-  line-height: 22px;
-  transition: color 120ms ease, border-color 120ms ease;
+  transition: color 120ms ease, background 120ms ease;
 }
 .sidebar-series-view-remove:hover {
   color: var(--danger, #c0392b);
-  border-color: var(--danger, #c0392b);
+  background: rgba(0, 0, 0, 0.04); /* 极淡 hover 反馈,没白底 */
 }
 .sidebar-series-view-remove:disabled {
   opacity: 0.5;

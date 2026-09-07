@@ -6,6 +6,110 @@
 
 ---
 
+## 2026-09：[book-tracker] BookNotesModal 「一按删除键就会出问题」修复
+
+### 1. 现象
+
+用户报告"作品追踪在编辑笔记的时候,总是会有一些 bug",最诡异的就是"**一按删除键就会出问题**"。经复现定位到 3 个非 wikilink 路径的根因(用户明确"和 link 没什么关系",wikilink Backspace bug 留作单独 PR):
+
+- **按 Esc 退出编辑时整个 modal 跟着关闭** —— 用户敲了一段笔记,按 Esc(可能记成"删除/退出键"),期望"退出编辑态",结果 modal 整个关闭,内容静默丢失。
+- **点 × / backdrop 关闭 modal 时,有未保存改动也不警告** —— 用户敲了笔记忘了保存,随手关 modal,内容静默丢失。
+- **保存 IPC 进行中关闭 modal** —— update Promise 在 unmount 组件上 resolve,setState silent drop,用户不知道 save 是否成功。
+
+### 2. 根因(三条独立)
+
+- **bug 1**:Modal 的 window-level Esc listener 没区分焦点元素。textarea onKeyDown 只 `e.preventDefault()` 没 stopPropagation,且 React SyntheticEvent 的 stopPropagation 不影响原生 window listener —— **两个 handler 同时触发**,既"退出编辑态"又"关闭整个 modal"。
+- **bug 2**:onClose 直接调 `onClose()`,没拦截 `hasUnsavedChanges`。注释里写了"主笔记独立保存,不触发整本保存" 但**没说"关闭前要拦截"**。
+- **bug 3**:`handleSaveNotes` 没跟踪 in-flight Promise,关闭时 IPC 在 unmount 组件上 resolve,React 18 silent drop。
+
+### 3. 修复(治标 + 治本)
+
+#### 3.1 治本:Modal Esc 区分焦点元素(`packages/tracker-ui/src/Modal.tsx`)
+
+```ts
+const onKey = (e: KeyboardEvent): void => {
+  if (e.key !== 'Escape') return
+  const t = e.target as HTMLElement | null
+  // 焦点在 INPUT / TEXTAREA / contenteditable 内 → 不主动关闭
+  // (Esc 留给元素自己处理:textarea 退出编辑 / picker 关 / 清搜索 等)
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  onClose()
+}
+```
+
+一处改,所有 modal 受益(book-tracker + life-tracker)。`preventDefault` 是不够的,因为 React SyntheticEvent 的 stopPropagation 不影响原生 window listener —— 必须从源头判断 target。
+
+#### 3.2 治标:`BookNotesModal` 三层防御
+
+1. **`handleClose` 包一层**:`hasUnsavedChanges` 时 `window.confirm('主笔记有未保存修改,确定关闭?')`,用户取消则不关。
+2. **beforeunload 监听**:`hasUnsavedChanges` 时挂 `window.addEventListener('beforeunload', ...)` —— 现代浏览器(Chrome 119+ / Firefox / Safari)只认 `preventDefault() + returnValue = ''`,return-only 是 no-op。
+3. **in-flight IPC 跟踪**:`inFlightRef.current` 存正在进行的 Promise,关闭时若 IPC未完成,**await 它完成再 unmount**,避免 setState 在 unmount 组件上的 silent drop;**失败状态显示成 "保存失败 — 重试"**,textarea 内容 + dirty 保留,用户可重试。
+
+#### 3.3 `NotesSaveStatus` 类型扩展
+
+加 `'error'` 变体,对应"保存失败 — 重试"按钮文案;`hasUnsavedChanges` 仍为 `notesDirty && notes !== cur.notes`,error 状态下保留用户输入可重试。
+
+### 4. 回归测试
+
+`apps/book-tracker/src/renderer/components/__tests__/BookNotesModal.close.test.tsx` 4 个 case:
+- bug 1:Esc 在 textarea 不关闭 modal
+- bug 2:× 关闭未保存弹 confirm
+- bug 3:无未保存改动关闭不弹 confirm
+- bug 4:Backspace 反复删字符不触发任何诡异行为
+
+测试基建踩坑(jsdom 下 `useBooksStore.getState` vi.spyOn 改不动 React hook 内部调用 —— 改用 `setState` 注入 mock 数据 + mock update action 走 setState 回灌 notes 模拟 IPC,稳妥)。
+
+### 5. 通用教训 [共享]
+
+**Modal 的 window-level Esc listener 必须检查 target 元素** —— 跟 §十.40 v1.8 Modal-in-Modal 反模式同根:**任何「window / document 级别的全局 listener」都必须对「target 是 INPUT/TEXTAREA/contenteditable」做豁免**,否则会跟这些元素的本地 Esc 处理打架。这条不限于 Esc —— future 类似全局 keyboard handler(快捷键 / 历史导航等)同样需要。
+
+**关闭路径三件套**:
+1. close handler 包 confirm
+2. beforeunload 监听(关 app / 刷新页)
+3. in-flight IPC 等待(避免 unmount 后 setState silent drop)
+
+任何"未保存内容"的 modal / form 都该上,不仅是笔记 modal —— 这是 [react-unsaved](https://github.com/jason90929/react-unsaved) / [react-beforeunload-component](https://npmjs.com/package/react-beforeunload-component) 等行业标准模式。
+
+### 6. 回归验证
+
+- `apps/book-tracker` 全量 237 个测试通过(233 旧 + 4 新)
+- `apps/life-tracker` 全量 228 个测试通过(Modal.tsx 改动未影响)
+- `tsc -p apps/book-tracker --noEmit` 0 error
+
+---
+
+## 2026-09：[book-tracker] 编辑模式侧栏系列视图 —— 点成员后的「浏览位置」应该保留
+
+### 1. 现象
+
+编辑模式下点侧栏系列徽章进入系列成员列表，再点其中一个条目：右侧详情正确切到该条目，但**左栏跳回按状态分组的默认列表**。用户观感是「侧栏卡在那个旧页面」——因为已归入系列的作品在默认列表里被主动过滤掉（避免和系列徽章重复展示），退回后连刚点的那本都找不到，也无法继续点系列里的下一本。
+
+### 2. 根因
+
+侧栏系列视图的 `onSelectBook` 回调里除 `select(id)` 外还清了 `selectedSeriesId`，原意是「避免下次回编辑模式仍停在系列视图」。这条清理把「用户当前的浏览位置」当成了「需要复位的临时状态」，与「已归系列的作品从默认列表隐藏」这条过滤规则叠加后直接导致导航死角。
+
+### 3. 修复
+
+- `onSelectBook` 只调 `select(id)`，不再动 `selectedSeriesId`；退出系列视图只保留头部「← 返回」一个显式入口（该入口同时清 `removingId` 这类进行中操作态）。
+- 成员列表行接收当前选中的条目 id，命中时加 `selected` 类，样式复用默认列表 row 选中态（`accent-soft` 底 + 强调色标题），让「左栏位置 + 右栏详情」始终对应。
+- 成员行的「× 移除」按钮同步极简化：去边框 / 去白底 + 字号缩到 11px + 绝对定位到 row 右上角（row 设 `position: relative` 且右侧留 padding，长标题不会被盖）。视觉直接沿用详情页「上一季 / 下一季」× 已有的极简样式，避免同一产品里出现两种 × 语汇。
+- 遗留副作用可接受：切到日常模式再回来时侧栏组件卸载重挂，自然复位到默认列表，不存在"永久卡住"。
+
+### 4. 通用教训 [共享]
+
+**「切视图时要不要清局部状态」应按状态语义分类，不要一刀切**：
+
+- **浏览位置类**（当前打开的分组 / 子视图 / 滚动锚点）→ **保留**，否则用户每次操作都被弹回顶层；
+- **进行中操作类**（loading / 删除中 / 批量选中集合）→ **必清**，否则切回来会看到永远转圈的按钮或过期选中。
+
+判断办法：问「用户下一步大概率还想在这里做第二次同类操作吗？」是 → 保留。另外，凡是某个列表**主动隐藏了一部分条目**（本例：已归系列的作品不在默认列表出现），任何"退回该列表"的跳转都要先确认目标条目在那儿看得见，否则跳转等于把用户丢进空白区。
+
+### 5. 回归验证
+
+`npm run typecheck`（node + web 两段）通过；手动路径：进系列视图 → 连续点两个成员 → 左栏保持成员列表且高亮随之切换 → 点「← 返回」回默认列表。
+
+---
+
 ## 2026-09：[book-tracker] 大文件拆分 —— DSH 插件 700 行 / 30KB 阈值的 React 适配
 
 ### 1. 现象 / 需求

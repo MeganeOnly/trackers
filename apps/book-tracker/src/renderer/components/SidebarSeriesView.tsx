@@ -2,7 +2,8 @@
 // 整左侧栏切到这个视图,展示该系列下的成员。
 //
 // **职责**:从侧栏入口直接展示 series 元信息 + 成员列表,供用户:
-// 1. 跳到成员详情(点 title)
+// 1. 跳到成员详情(点 title)—— **左栏保持在本视图**并高亮该成员,便于连续点下一本;
+//    退出本视图只有头部「← 返回」一个显式入口
 // 2. 一键 × 移除成员(走现有 setSeries IPC,无 confirm,与 BookDetail/SeriesDetailBody 同款)
 //
 // **设计取舍(粗糙版)**:v2.x 把"展示方式"放进设置项留位置(后续可切换 inline-row / 其它
@@ -30,6 +31,8 @@ import type { Book, Series } from '@shared/types'
 interface SidebarSeriesViewProps {
   series: Series
   books: Book[]
+  /** 当前 BookDetail 选中的 book.id —— 高亮对应成员行(语义同 BookList 的 book row.selected) */
+  selectedBookId: string | null
   onBack: () => void
   onSelectBook: (bookId: string) => void
   /** 把某个 book 从该 series 移除(走 setSeries(bookId, null)) */
@@ -41,6 +44,7 @@ interface SidebarSeriesViewProps {
 export function SidebarSeriesView({
   series,
   books,
+  selectedBookId,
   onBack,
   onSelectBook,
   onRemoveMember,
@@ -108,7 +112,8 @@ export function SidebarSeriesView({
           {members.map((b) => (
             <li
               key={b.id}
-              className={`sidebar-series-view-row kind-${b.kind}${removingId === b.id ? ' is-removing' : ''}`}
+              className={`sidebar-series-view-row kind-${b.kind}${selectedBookId === b.id ? ' selected' : ''}${removingId === b.id ? ' is-removing' : ''}`}
+              aria-current={selectedBookId === b.id ? 'true' : undefined}
             >
               <span
                 className="sidebar-series-view-row-main"

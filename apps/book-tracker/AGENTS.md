@@ -375,7 +375,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
     - **去重 key 用 Set 还是 Map**:`firstStatusForSeries: Map<seriesId, BookStatus>` —— 用 Map 不用 ref,因为 React 渲染函数里不能用 ref 跨函数调用传递;"first status"是纯派生,每次 render 重算代价可忽略
     - **worksFilter 对 series 的影响**:`worksFilter !== 'all'` 时,series 是否展示 = 至少有一本 book.kind 符合;不要"全集都为该 kind 才展示"——系列可能跨类型(电视剧 + 小说 + 电影),只看动画时只展示"有动画成员"的,而不是"全集都是动画"的"
     - **collapsed 不影响徽章**:某 book `collapsed = true` 时它从原 status 分组被移到"已收起"分组,但它**仍然属于原 status**,所以徽章依然在原 status 分组展示该 series(徽章代表"该 status 有成员",不管该成员是否被收起)
-47. **v2.x series 视图切走时清 selectedSeriesId + removingMemberId 双重清理**(2026-09):BookList 在 series 视图时,如果用户点了某成员(`onSelectBook`)进 BookDetail,会同时 `select(id)` + `setSelectedSeriesId(null)` ——**不清会导致下次回到 EditMode 时还卡在 series 视图**(看起来像"跳过去再回来还在 series 视图")。`handleBackToList` + `handleSeriesClick` + 选成员走 onSelectBook 三处都清。`removingMemberId` 同款,因为移除进行中切走会让对应 × 按钮永远卡在 loading 态。**判定**:任何"切视图要带走的局部状态"都要显式清,不依赖组件 unmount。
+47. **v2.x series 视图的「点成员」不退出视图(v2.1 修正 —— 原策略是清 selectedSeriesId)**(2026-09):BookList 在 series 视图时,用户点某成员(`onSelectBook`)**只调 `select(id)`**,`selectedSeriesId` 保持不变 —— 左栏留在系列成员列表并用 `.sidebar-series-view-row.selected` 高亮当前详情项。理由:用户在系列里通常连续点多本(看完 A 点 B),退回默认列表会丢失位置,而且**已归系列的书在默认列表里被过滤掉**(见 §十一 series 章),退回后连刚点的那本都看不到,观感像"侧栏卡在旧页面"。退出视图的唯一显式入口是头部「← 返回」(`handleBackToList`,同时清 `removingMemberId`)。**副作用可接受**:切 CleanMode 再回来 BookList 会 unmount 重置回默认列表,不存在"永久卡住"。**判定**:"切视图要带走的局部状态"要不要清,取决于该状态是不是用户当前的浏览位置 —— 浏览位置类状态(series 视图)保留,进行中操作类状态(`removingMemberId` loading 态)必清。
 48. **v2.x 系列徽章不重写 book row 选择态**:`SeriesRowInSidebar` 是「切换 series 视图」入口,不是「选中某本 book」入口 —— 所以 BookList 选中态(selectedId)不会被 series 徽章影响。点 series 徽章 → selectedSeriesId 切,但 selectedId 不动(用户切到 series 视图时,BookDetail 还是显示上次选中的 book)。**判定**:任何"切换侧栏视图"行为跟"选中某项"行为必须解耦,共享同一个 selectedId 会让 UI 状态错乱。
 49. **v2.x SidebarSeriesView 不复用 SeriesDetailBody 的取舍**(2026-09):SeriesDetailBody 是 AddModal 内的成员管理 body,带「+ 添加作品」+「删除系列」按钮;SidebarSeriesView 是侧栏只读版,只展示成员 + × 移除。**不复用 SeriesDetailBody**,因为(1) 视觉上下文不同(侧栏 vs modal);(2) 行为子集不同(不要 +添加 / 不要删除);(3) props 兼容成本不如另写一个 ~110 行的小组件。**判定**:组件复用性看「视觉 + 行为是否同源」,而不是「名字相似」就强行复用。
 50. **v2.x `selectedSeriesId` 用 BookList 局部 useState 而非 zustand store**(2026-09):侧栏 series 视图纯粹是 BookList 的 UI 视图态,没有跨组件读写的需求(SeriesRowInSidebar / SidebarSeriesView 都是 BookList 的子组件,直接 props 传)。用局部 useState 而非 zustand:避免污染全局 store + 自动 unmount 清零 + 渲染路径短。**判定**:"切视图"类状态如果不跨组件读写,**永远先用局部 useState**,能进 store 再进。
@@ -383,7 +383,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 - TS 端 typecheck 不过(字段缺)
 - 老 config.json 缺字段 → Rust 端反序列化 fail(没 `#[serde(default)]`)
 - 垃圾值从前端发过来 → Rust 端被静默写入(没白名单过滤)
-- 测试覆盖不全 → 后续 refactor 误改 fallback 路径无回归</new_string>
+- 测试覆盖不全 → 后续 refactor 误改 fallback 路径无回归
 
 ## 十一、已实现功能清单
 
@@ -528,7 +528,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - collapsed 不影响:某 book `collapsed = true` 时仍属原 status,该 series 徽章依然在原 status 展示
   - **点徽章 → 整左侧栏切到 series 视图**(`SidebarSeriesView`,跟 SeriesDetailBody 同款风格 + × 移除,无 confirm,跟 BookDetail/SeriesDetailBody 同款)
   - **点 ← 返回 → 回到 status 分组视图**
-  - **点成员 → 跳到 BookDetail**(同时清 selectedSeriesId / removingMemberId)
+  - **点成员 → 右侧跳 BookDetail,左栏留在系列视图并高亮该成员**(v2.1 改;退出只走「← 返回」)
   - **删除/重命名系列 → 脏引用兜底**(跟 SeriesDetailBody 同款:selectedSeries === undefined → 自动回 status 分组)
   - **新组件**:
     - `SeriesRowInSidebar.tsx` —— 系列徽章 row(chip 风格,accent 边框 + expanded 态背景)
