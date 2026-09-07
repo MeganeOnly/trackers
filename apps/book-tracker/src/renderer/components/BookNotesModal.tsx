@@ -3,6 +3,7 @@
 // 用途:日常模式(CleanMode)点击作品时打开,聚合该作品的笔记相关功能:
 // - 主笔记(Book.notes)—— 预览 / 编辑二态 + wikilink `[[]]` 支持
 // - 集笔记(EpisodesPanel)—— tv/anime 才显示
+// - 时间戳笔记(BookStampsPanel)—— 目前仅 movie 实际使用(v2.x 新增)
 // - 角色笔记(CharactersPanel)—— 所有类型都显示
 //
 // 设计要点:
@@ -22,6 +23,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal } from './Modal'
 import { EpisodesPanel } from './EpisodesPanel'
+import { BookStampsPanel } from './BookStampsPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
@@ -73,6 +75,8 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
   const book = useBooksStore((s) => s.books.find((b) => b.id === bookId))
   const allBooks = useBooksStore((s) => s.books)
   const update = useBooksStore((s) => s.update)
+  // v2.x 顶层 stamps action(目前仅 movie 实际使用)
+  const setStamps = useBooksStore((s) => s.setStamps)
 
   // 主笔记本地 draft + 预览/编辑二态
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
@@ -327,6 +331,20 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
       {(cur.kind === 'tv' || cur.kind === 'anime') && (
         <section className="book-notes-section">
           <EpisodesPanel book={cur} />
+        </section>
+      )}
+
+      {/* 顶层时间戳笔记 —— 目前仅 movie 实际使用(v2.x 新增);
+          复用 BookStampsPanel,内部走 StampList 渲染(跟 EpisodesPanel 内 stamp 列表一致)。
+          改 stamps 不刷 book.updated(沿用 EpisodeRecord.stamps 同款语义)。 */}
+      {cur.kind === 'movie' && (
+        <section className="book-notes-section">
+          <BookStampsPanel
+            book={cur}
+            allBooks={allBooks}
+            stamps={cur.stamps}
+            onChange={(s) => setStamps(cur.id, s)}
+          />
         </section>
       )}
 

@@ -87,6 +87,14 @@ interface BooksState {
    * - 走专用 IPC `books_set_series`(跟 setNextSeason 同款;不进 update() patch 路径)
    */
   setSeries: (id: string, seriesId: string | null) => Promise<Book>
+  /**
+   * 整段替换作品的顶层 `stamps` 数组(v2.x 新增;目前仅 movie 实际使用)。
+   *
+   * 走专用 IPC `books_set_stamps`(跟 setNextSeason / setSeries 同款,关联字段不进 update() patch 路径)。
+   * 与 `charactersSet` 的设计对齐:**前端组合 + 服务端整段写 + 兜底排序**。
+   * 改 stamps 不刷 `book.updated`(与 `EpisodeRecord.stamps` 同款语义)。
+   */
+  setStamps: (id: string, stamps: TimeStamp[], lastModified?: number) => Promise<Book>
 }
 
 /**
@@ -200,6 +208,12 @@ export const useBooksStore = create<BooksState>((set) => ({
   // -------- v1.7 「所属系列」actions 实现 --------
   setSeries: async (id, seriesId) => {
     const book = await api.books.setSeries(id, seriesId)
+    upsertBook(set, book)
+    return book
+  },
+  // -------- v2.x 顶层 stamps actions 实现 --------
+  setStamps: async (id, stamps, lastModified) => {
+    const book = await api.books.setStamps(id, stamps, lastModified)
     upsertBook(set, book)
     return book
   },

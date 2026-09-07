@@ -361,6 +361,64 @@ pub fn set_characters(
     data::update_book(books_dir, id, &patch)
 }
 
+// ==================== v2.x 顶层 stamps 业务方法 ====================
+
+/// 整段替换作品的顶层 `stamps` 数组(v2.x 新增;目前仅 movie 实际使用)。
+///
+/// 语义与 `set_episode_stamps` 完全平行(整段替换 + 排序 + 刷 last_modified):
+/// - `stamps = vec![]` → 等同"清空所有顶层 stamp";稀疏写盘时整个 `stamps` 字段不写盘
+/// - `stamps = non_empty` → 整体替换(不是 append),由前端先合并再传过来;
+///   服务端按 `start` 升序重新排序(同 start 按 id 字典序),与前端 `sortStamps` 同步
+///
+/// **不联动 `updated`** —— 与 `EpisodeRecord.stamps` 同款语义:stamps
+/// 自带 per-row `last_modified`,parent 时间戳(`book.updated`)不该被
+/// stamps 改动频繁触发(用户在侧栏看到 `updated` 仍是"上次编辑元数据 / 主笔记"的时间)。
+/// `last_modified` 参数是 *某条* stamp 的新时间戳 —— 只对**实际写入内容**的 stamp 刷。
+///
+/// 服务端只做"读 → 改 → 写"三步,不做单条 stamp 级别的"add / update / delete"
+/// (那都是前端组合:list → 改 → 整体传过来)。与 set_episode_stamps 同款 IPC 语义。
+///
+/// 不走 BookPatch —— `stamps` 跟 `nextSeasonId` / `seriesId` / `characters` 同款,
+/// 关联 / 数组型字段走专用 IPC 便于集中加校验 + last_modified 边界 + 数据迁移。
+pub fn set_stamps(
+    books_dir: impl AsRef<Path>,
+    id: &str,
+    mut stamps: Vec<TimeStamp>,
+    last_modified: Option<u64>,
+) -> std::io::Result<Book> {
+    let books_dir = books_dir.as_ref();
+    let mut existing = data::read_book(books_dir, id)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("book not found: {id}")))?;
+
+    if stamps.is_empty() {
+        existing.stamps = None;
+    } else {
+        // 按 start 升序排序;同 start 按 id 字典序(保证稳定排序,跟前端 sortStamps 一致)
+        stamps.sort_by(|a, b| {
+            if a.start != b.start {
+                return a.start.cmp(&b.start);
+            }
+            a.id.cmp(&b.id)
+        });
+        existing.stamps = Some(stamps);
+        if let Some(ts) = last_modified {
+            if ts > 0 {
+                // 注意:这个 ts 是 *某条* 新增/修改的 stamp 的时间戳。
+                // 单 stamp 增 / 改场景下,前端会传这条 stamp 的 ts;Book 层不单独存顶层 stamps
+                // 的 lastModified 字段(粒度跟 EpisodeRecord 同款 —— 单 stamp 自带,parent 不刷新)。
+                // 这里只刷 *该 stamp 自己* 的 last_modified,需要在 service 层把 ts 应用到 stamps 数组里。
+                // 但 stamps 已经被前端构造时填好 last_modified,所以 service 层不需要再刷。
+                // 保留参数是为了 API 与 set_episode_stamps 对齐,语义留给前端控制。
+            }
+        }
+    }
+
+    // 直接走 persist 路径(不走 update_book patch)—— 跟 set_next_season / set_series 同款,
+    // 关联字段不走 BookPatch;同时**不刷 `updated`**(stamps 改动不该触发 book 元数据时间戳)。
+    crate::data::books::persist(books_dir, &existing)?;
+    Ok(existing)
+}
+
 // ==================== v1.6 「下一季」业务方法 ====================
 
 /// 设置 / 清除「下一季」关联(v1.6 新增;仅 tv/anime 实际使用,其他类型也允许)。
@@ -797,5 +855,72 @@ mod tests {
         set_next_season(&books_dir, &a.id, Some(b.id.clone())).unwrap();
         let c_after = crate::data::books::read_book(&books_dir, &c.id).unwrap().unwrap();
         assert!(c_after.prev_season_id.is_none(), "非显式 prev 应被自动清");
+    }
+
+    /// v2.x:`set_stamps` 业务方法行为测试(v2.x 新增,目前仅 movie 实际使用)。
+    /// 不变量:
+    /// - 非空 stamps → 整体替换 + 服务端按 start 升序排序(同 start 按 id 字典序)
+    /// - 空 stamps 数组 → 清空(field 为 None);写盘时整段不写 frontmatter
+    /// - **不联动 `book.updated`** —— stamps 改动不刷顶层时间戳
+    ///   (与 `set_episode_stamps` 同款语义:stamps 自带 per-row last_modified,
+    ///   parent 时间戳不该被 stamps 改动频繁触发)
+    /// - 不存在的 book → NotFound
+    #[test]
+    fn set_stamps_basic_and_no_updated_sync() {
+        use crate::types::WorkKind;
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+        let mut existing = HashSet::new();
+        // 复用 sample_input 但改 kind = movie
+        let mut movie_input = sample_input();
+        movie_input.kind = WorkKind::Movie;
+        let movie = crate::data::books::write_book(&books_dir, &movie_input, &mut existing).unwrap();
+        let updated_before = movie.updated.clone();
+
+        // 等 1 秒确保 ISO 时间戳会变(若 updated 会被刷,这里能检测到)
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // 1) set_stamps 写入 2 条(打乱顺序)
+        let stamps = vec![
+            TimeStamp { id: "a".to_string(), start: 500, end: None, note: "中段".to_string(), last_modified: Some(1730000000000) },
+            TimeStamp { id: "b".to_string(), start: 100, end: Some(200), note: "开头".to_string(), last_modified: None },
+        ];
+        let after = set_stamps(&books_dir, &movie.id, stamps, Some(1730000000000)).unwrap();
+        // 排序后:b(100) 在前, a(500) 在后(跟前端 sortStamps 一致)
+        let s = after.stamps.as_ref().unwrap();
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].id, "b");
+        assert_eq!(s[1].id, "a");
+        // **关键不变量**:`book.updated` 没有被刷新(与 EpisodeRecord.stamps 同款语义)
+        assert_eq!(
+            after.updated, updated_before,
+            "stamps 改动不刷 book.updated(避免侧栏 updated 频繁波动)"
+        );
+
+        // 持久化校验:raw 含排序后的 start 顺序
+        let raw = std::fs::read_to_string(book_path(&books_dir, &movie.id)).unwrap();
+        // 找 b(100) 的 start 出现位置应在 a(500) 之前 —— 用 "start": 100 应在 "start": 500 之前
+        let pos_b = raw.find("\"start\": 100").unwrap();
+        let pos_a = raw.find("\"start\": 500").unwrap();
+        assert!(pos_b < pos_a, "持久化排序后 100 应在 500 之前");
+
+        // 2) set_stamps 传空数组 → 清空
+        let cleared = set_stamps(&books_dir, &movie.id, vec![], None).unwrap();
+        assert!(cleared.stamps.is_none(), "空数组 → stamps 字段清空");
+        let raw2 = std::fs::read_to_string(book_path(&books_dir, &movie.id)).unwrap();
+        assert!(!raw2.contains("\"stamps\""), "清空后 frontmatter 不应再含 stamps 字段");
+
+        // 3) 不存在的 book → NotFound
+        let err = set_stamps(&books_dir, "nope", vec![], None).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+
+        // 4) 改 stamps 不影响其他字段(title / author / notes / kind 等保持原值)
+        //    —— 走专用 IPC 而非 BookPatch,语义对齐 set_next_season / set_series / set_prev_season
+        let still_unchanged = crate::data::books::read_book(&books_dir, &movie.id).unwrap().unwrap();
+        assert_eq!(still_unchanged.title, movie_input.title);
+        assert_eq!(still_unchanged.kind, movie_input.kind);
+        assert_eq!(still_unchanged.notes, movie_input.notes);
+        assert_eq!(still_unchanged.starring, movie_input.starring);
+        assert_eq!(still_unchanged.updated, movie.updated); // updated 没被刷(同关键不变量)
     }
 }

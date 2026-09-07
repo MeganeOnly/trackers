@@ -77,6 +77,7 @@ mod tauri_app {
                 commands::books_episode_set_stamps,
                 commands::books_episodes_set,
                 commands::books_characters_set,
+                commands::books_set_stamps,
                 commands::books_set_next_season,
                 commands::books_set_prev_season,
                 commands::books_set_series,

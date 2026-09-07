@@ -17,6 +17,7 @@ import { useUnlocked } from '../store/selectors'
 import { PrereqEditor } from './PrereqEditor'
 import { EpisodesPanel } from './EpisodesPanel'
 import { CharactersPanel } from './CharactersPanel'
+import { BookStampsPanel } from './BookStampsPanel'
 import { useSeriesStore } from '../store/series'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
 import { progressPercent } from '@core'
@@ -52,6 +53,8 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
   const setPrevSeason = useBooksStore((s) => s.setPrevSeason)
   // v1.7 「所属系列」action —— 走专用 IPC
   const setSeries = useBooksStore((s) => s.setSeries)
+  // v2.x 顶层 stamps action —— 走专用 IPC(目前仅 movie 实际使用)
+  const setStamps = useBooksStore((s) => s.setStamps)
   // v1.7 读 series 列表(BookDetail 显示所属系列名 + SeriesPickerModal 候选用)
   const seriesList = useSeriesStore((s) => s.series)
   const loadSeries = useSeriesStore((s) => s.load)
@@ -474,6 +477,18 @@ export function BookDetail({ bookId }: BookDetailProps): JSX.Element {
 
       {/* 集笔记 —— 仅 tv/anime 显示,放在前置依赖之前(用户最关心的进度信息) */}
       {(kind === 'tv' || kind === 'anime') && <EpisodesPanel book={cur} />}
+
+      {/* 顶层时间戳笔记 —— 目前仅 movie 实际使用(v2.x 新增);放在 EpisodesPanel 之后,CharactersPanel 之前
+          (跟「剧集笔记 / 章节笔记」属于同一类「分场景笔记」聚合)。book / other 暂不在 UI 暴露。
+          改 stamps 走专用 IPC `books_set_stamps`,不刷 book.updated(沿用 EpisodeRecord.stamps 同款语义) */}
+      {kind === 'movie' && (
+        <BookStampsPanel
+          book={cur}
+          allBooks={books}
+          stamps={cur.stamps}
+          onChange={(s) => setStamps(cur.id, s)}
+        />
+      )}
 
       {/* 角色笔记 —— 所有类型都能用(v1.5 起);在集笔记 / detail-form 之后,前置依赖之前 */}
       <CharactersPanel book={cur} />

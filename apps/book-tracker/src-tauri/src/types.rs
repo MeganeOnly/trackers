@@ -350,6 +350,28 @@ pub struct Book {
     /// 不整体 `rename_all = "camelCase"`。
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "seriesId")]
     pub series_id: Option<String>,
+    /// 顶层时间戳笔记数组(v2.x 新增;目前仅 movie 实际使用)。
+    ///
+    /// 与 `EpisodeRecord.stamps`(tv/anime 每集一层)的区别:
+    /// - 本字段是作品级别的"片段笔记",不分集
+    /// - tv/anime 仍用 `EpisodeRecord.stamps`(粒度更细),本字段通常为空
+    /// - movie 没 episodes 结构,只能用本字段
+    /// - book / other:本字段预留,UI 暂不暴露
+    ///
+    /// `start` / `end` 统一用**秒**存(同 `TimeStamp`),`TimeStamp` 自身
+    /// 已带 `#[serde(rename_all = "camelCase")]`,所以 IPC payload 的
+    /// `start` / `end` / `note` / `lastModified` 自动走 camelCase;
+    /// 本字段顶层就是 `stamps` 字面量,无需额外 rename。
+    ///
+    /// 写盘策略:空数组 → 不写 frontmatter(`skip_serializing_if = "Option::is_none"` +
+    /// data 层 `is_some() && !is_empty()` 双重保护);老数据缺字段 → None(`serde(default)`)。
+    /// 单条 stamp 的稀疏语义同 `EpisodeRecord.stamps`:`parse_stamps` /
+    /// `persist` 复用现有实现,**零代码重复**。
+    ///
+    /// **不联动 `updated`** —— 与 `EpisodeRecord.stamps` 同款语义:stamps
+    /// 自带 per-row `last_modified`,parent 时间戳不该被 stamps 改动频繁触发。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamps: Option<Vec<TimeStamp>>,
 }
 
 /// 创建作品的用户输入。`Omit<Book, 'id' | 'created' | 'updated' | 'read_count' | 'tags' | 'episodes' | 'series_id'>`

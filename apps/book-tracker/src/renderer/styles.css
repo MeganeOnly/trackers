@@ -688,6 +688,21 @@ button:focus-visible {
  * 跟相邻 <span> 文字基线对齐;preview / input 按钮的 padding 已经够小,
  * 不会撑高整行。 */
 
+/* ============ Book Stamps Panel (BookDetail: movie 等,v2.x 新增) ============ */
+/* 跟 EpisodesPanel / CharactersPanel 同款「上分隔线 + 上 padding」视觉;
+   内部完全复用 .stamp-list 的 stamp 渲染样式(参见 EpisodesPanel.StampList.tsx)。 */
+.book-stamps-panel {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+/* BookNotesModal 内嵌版:去掉顶部 margin / 上分隔线(Modal 已有 section 间距) */
+.book-notes-section .book-stamps-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 /* ============ Characters Panel (BookDetail: 所有类型) ============ */
 .characters-panel {
   margin-top: 24px;

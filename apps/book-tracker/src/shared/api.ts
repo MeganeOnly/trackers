@@ -82,6 +82,27 @@ export interface BookAPI {
    * - **不走 update()**:关联字段走专用命令(便于将来加校验 / 系列删除时的反向引用清理)
    */
   setSeries(id: string, seriesId: string | null): Promise<Book>
+  // -------- v2.x 顶层时间戳笔记 --------
+  /**
+   * 整段替换作品的顶层 `stamps` 数组(v2.x 新增;目前仅 movie 实际使用)。
+   *
+   * 与 `episodeSetStamps` 的关键区别:
+   * - 作用于 **Book 顶层**(不分集);movie 没 episodes 结构,只能用本命令
+   * - tv/anime 通常用 episodeSetStamps(粒度更细到集)
+   * - book / other:本命令在 IPC 层可用,但 UI 暂未暴露
+   *
+   * - `stamps: []` → 清空所有顶层 stamp(整段不写 frontmatter)
+   * - `stamps: [...]` → 整体替换;服务端按 start 升序重新排序
+   *   (同 start 按 id 字典序;与前端 `sortStamps` 同步)
+   * - `lastModified`(毫秒;可选)保留以对齐 `episodeSetStamps` API;
+   *   单 stamp 自带 per-row `lastModified`,book 层不刷顶层时间戳
+   * - **不联动 `book.updated`**:与 EpisodeRecord.stamps 同款语义
+   *   (stamps 自带 per-row 时间戳,parent 时间戳不该被 stamps 改动触发)
+   *
+   * 设计:与 `episodeSetStamps` 同款「前端组合 + 服务端整段写」模型
+   * (读 list → 改 → 整体传过来;服务端兜底排序)。
+   */
+  setStamps(id: string, stamps: TimeStamp[], lastModified?: number): Promise<Book>
 }
 
 export interface RelationsAPI {

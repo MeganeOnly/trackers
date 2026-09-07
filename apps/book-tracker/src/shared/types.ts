@@ -396,6 +396,28 @@ export interface Book {
    */
   prevSeasonExplicit?: boolean
   /**
+   * 顶层时间戳笔记数组(v2.x 新增;目前仅 movie 实际使用)。
+   *
+   * 与 `EpisodeRecord.stamps`(tv/anime 每集一层)的区别:
+   * - 本字段是作品级别的"片段笔记",不分集
+   * - tv/anime 仍用 `EpisodeRecord.stamps`(粒度更细),本字段通常为空
+   * - movie 没 episodes 结构,只能用本字段
+   * - book / other:本字段预留,UI 暂不暴露(后续如要支持书的"页码笔记",
+   *   复用同一 TimeStamp 类型,UI 文案切「页码笔记」即可)
+   *
+   * `start` / `end` 统一用**秒**存(同 TimeStamp),后续 UI 如果需要页码语义,
+   * 渲染层把"秒"重新解释为"页"即可(数字语义复用,无需新类型)。
+   *
+   * 写盘策略:空数组 → 不写 frontmatter;复用 TimeStamp 全部稀疏写盘规则
+   * (id/start/note 必填,end 可选,lastModified per-row)。
+   * 老数据缺字段 → undefined(向后兼容;`parse_stamps` 容错)。
+   *
+   * **不联动 `updated`** —— 与 `EpisodeRecord.stamps` 同款语义:stamps
+   * 自带 per-row `lastModified`,parent 时间戳不该被 stamps 改动频繁触发。
+   * 用户在侧栏 / 卡片看到 `updated` 仍是"上次编辑元数据 / 主笔记"的时间。
+   */
+  stamps?: TimeStamp[]
+  /**
    * 「所属系列」id(v1.7 新增;无序收藏夹分组)。
    *
    * 语义:这部作品属于 `seriesId` 这个 Series 集合(同一系列下可能有电视剧 / 电影 /

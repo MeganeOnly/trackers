@@ -50,7 +50,10 @@ export const api: ElectronAPI & {
       invoke<Book>('books_set_prev_season', { id, prevSeasonId }),
     // v1.7 「所属系列」
     setSeries: (id, seriesId) =>
-      invoke<Book>('books_set_series', { id, seriesId })
+      invoke<Book>('books_set_series', { id, seriesId }),
+    // v2.x 顶层 stamps(movie 实际使用;其他类型预留)
+    setStamps: (id, stamps, lastModified) =>
+      invoke<Book>('books_set_stamps', { id, stamps, lastModified })
   },
   relations: {
     get: () => invoke<Edge[]>('relations_get'),

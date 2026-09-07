@@ -189,6 +189,26 @@ pub fn books_characters_set(
     books::set_characters(&dir, &id, characters).map_err(|e| e.to_string())
 }
 
+// ==================== v2.x 顶层 stamps commands ====================
+
+/// 整体替换作品的顶层 `stamps` 数组(v2.x 新增;目前仅 movie 实际使用)。
+///
+/// - `stamps: []` → 清空(整段不写 frontmatter)
+/// - `stamps: [...]` → 整体替换 + 服务端按 start 升序重新排序
+/// - `last_modified` 参数保留以与 `books_episode_set_stamps` API 对齐;
+///   单 stamp 自带 per-row `last_modified`,book 层不单独刷顶层时间戳
+/// - **不联动 `book.updated`**:与 `EpisodeRecord.stamps` 同款语义
+///   (stamps 自带 per-row 时间戳,parent 时间戳不该被 stamps 改动触发)
+#[tauri::command]
+pub fn books_set_stamps(
+    id: String,
+    stamps: Vec<TimeStamp>,
+    last_modified: Option<u64>,
+) -> Result<Book, String> {
+    let dir = books_dir()?;
+    books::set_stamps(&dir, &id, stamps, last_modified).map_err(|e| e.to_string())
+}
+
 // ==================== v1.6 「下一季」commands ====================
 
 /// 设置 / 清除「下一季」关联(v1.6 新增)。

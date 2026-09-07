@@ -1,12 +1,121 @@
-# 开发经验与注意点（Dev Notes）
+# 开发经验与注意点(Dev Notes)
 
 > trackers monorepo 的**经验沉淀**文件。
-> 约定：每次整改 / 增添功能后，如有值得留档的经验、注意点、踩坑，**追加**到本文件
-> （新条目放在对应主题节的开头或按日期倒序排列）。
+> 约定:每次整改 / 增添功能后,如有值得留档的经验、注意点、踩坑,**追加**到本文件
+> (新条目放在对应主题节的开头或按日期倒序排列)。
 
 ---
 
-## 2026-09：[book-tracker] AddModal「+ 系列」tab 简化为单行 + 0 成员系列归「想看」
+## 2026-09:[book-tracker] 顶层时间戳笔记 —— 给电影复用 TimeStamp,跨 tv/anime/movie 统一片段笔记 (v2.x)
+
+### 1. 现象 / 需求
+
+book-tracker 的 `TimeStamp` 时间戳笔记 v1.3 已存在,但**只在 tv/anime 的 `EpisodeRecord.stamps`(每集数组)里**。电影没 episodes 结构,只能用 `Book.notes` 写自由文本,没法标"00:32:15 这里主角说了一句很关键的话"。诉求:**给电影也加上时间戳笔记能力**,且跟 tv/anime 的 stamp UI 复用一套。
+
+### 2. 关键设计决策
+
+#### 2.1 复用 `TimeStamp` 类型,不复制定义 —— 不引入"页码笔记 / 电影笔记" 等新类型
+
+`TimeStamp = { id: UUID, start: 秒, end?: 秒, note: 文本, lastModified?: 毫秒 }` 已足够抽象:
+- `start` / `end` 都是 `number`(TypeScript) / `u32`(Rust),**不带"单位"类型**
+- 单位语义由 UI 决定:UI 给 movie 显示「开始 MM:SS」,给未来的 book 显示「页码」,底层数据完全一样
+- **不**新增 `MediaStamp { unit: 'time' | 'page' }` 这种带单位的类型 —— 边界判定会持续扯皮(漫画算 page 还是秒?audiobook 算 page 还是秒?),而且 Rust / TS 两端都要多一个枚举 + serde rename + 持久化兼容
+
+代价:用户需要在 UI 上记住"这个数字是秒还是页"。**接受这个代价**(跟 Obsidian 一样,数字就是数字,语义由用户/UI 决定),不增加类型复杂度。
+
+#### 2.2 新字段放在 `Book` 顶层,不走 `BookPatch`
+
+- **不走 BookPatch**:跟 `nextSeasonId` / `prevSeasonId` / `seriesId` / `characters` / `seasons` / `episodes` 同款 —— 关联 / 数组型字段走专用 IPC `books_set_stamps`,**不进 BookPatch**。理由:`BookPatch` 只承载"基础字段原子更新";数组型字段加进 patch 后会出现「更新一个 stamp 元素 vs 整段替换」的语义混乱(Option<Vec> 三态语义不够用)
+- **专用 IPC**:便于集中加校验 + lastModified 边界 + 后续数据迁移。跟 `set_episode_stamps` 严格对称,只是作用范围从"某集"变成"整本书"
+
+#### 2.3 "**不联动 `book.updated`**" —— 与 `EpisodeRecord.stamps` 同款语义
+
+stamps 自带 per-row `lastModified`(v1.6 决定),parent 时间戳不该被 stamps 改动频繁触发 —— 否则用户在侧栏看到「这本书刚才修改了」会以为我改了标题 / 状态,实际只是加了一条 stamp。**判定**:
+- 改 stamp → stamp 的 `lastModified` 刷 → 不刷 `book.updated`(避免侧栏 "上次修改" 频繁跳)
+- 改 title / notes / status → 刷 `book.updated`(用户预期)
+- 跟 v1.6 `EpisodeRecord.stamps` 不刷 `EpisodeRecord.lastModified` 的设计严格对齐(详见 dev-notes 同名条目)
+
+**实现**:`service::books::set_stamps` 走 `crate::data::books::persist(...)` 而不是 `update_book(patch)`,**不刷 updated**。`update_book` 内部 `merged.updated = now_iso()` 会无条件刷,这就是为啥不走 patch 路径。
+
+#### 2.4 UI 复用 `StampList` + `BookStampsPanel` 薄包装
+
+`EpisodesPanel.StampList.tsx` 的 `StampList` 组件**已经是 prop-driven**(`book` / `allBooks` / `stamps` / `onChange`),跟 episodes 解耦。**不**重写一份"book 级 stamp list",直接复用 + 薄包装一层 `<section class="panel book-stamps-panel">` 跟其他面板(CharactersPanel / EpisodesPanel)视觉对齐。
+
+**判定**:任何"看起来跟现有组件 90% 相似"的需求,先看现有组件是不是已经 prop-driven —— 如果是,薄包装一层即可;只有核心行为不同时才考虑抽取共性。
+
+#### 2.5 "movie 才暴露"的克制设计
+
+User 选了"只 movie 开放",book / other 暂不暴露。理由:
+- **book 的"页码笔记"语义**需要更慎重(用户原本进度就是用页数,加 stamps 会跟 `Progress.current` 重复);不如让用户先用主笔记里手动写"[P100] 关键转折"
+- **other 语义不明确**(用什么单位?),空面板会让人困惑
+- 类型层 `Book.stamps` 已经预留,future 加 UI 是零代码成本(改一行 conditional render + 标题文案)
+
+**判定**:**功能可达性 ≠ UI 必暴露**。类型 / IPC / 数据层全部支持,UI 按 kind 选暴露 —— 让用户需要时随时扩展。
+
+### 3. 实施清单
+
+```
+apps/book-tracker/src/shared/types.ts                   Book 加 stamps?: TimeStamp[] (~30 行注释)
+apps/book-tracker/src-tauri/src/types.rs                Book.stamps: Option<Vec<TimeStamp>> 镜像
+apps/book-tracker/src-tauri/src/data/books.rs           parse_stamps + persist 序列化 (~40 行)
+apps/book-tracker/src-tauri/src/service/books.rs        set_stamps(走 persist,不刷 updated) (~50 行)
+apps/book-tracker/src-tauri/src/commands.rs             books_set_stamps IPC (~10 行)
+apps/book-tracker/src-tauri/src/lib.rs                  invoke_handler 注册 (~1 行)
+apps/book-tracker/src/shared/api.ts                     BookAPI.setStamps type + 注释 (~25 行)
+apps/book-tracker/src/renderer/lib/api.ts               api.books.setStamps shim (~3 行)
+apps/book-tracker/src/renderer/store/books.ts           setStamps action (~10 行)
+apps/book-tracker/src/renderer/components/BookStampsPanel.tsx   新建,薄包装 StampList (~70 行)
+apps/book-tracker/src/renderer/components/BookDetail.tsx        按 kind === 'movie' 渲染 (~12 行)
+apps/book-tracker/src/renderer/components/BookNotesModal.tsx   Modal 内聚合 BookStampsPanel (~12 行)
+apps/book-tracker/src/renderer/styles.css               .book-stamps-panel + Modal 内版本 (~12 行)
+apps/book-tracker/src-tauri/src/data/books.rs           book_stamps_round_trip_and_sparse 测试 (~140 行)
+apps/book-tracker/src-tauri/src/service/books.rs        set_stamps_basic_and_no_updated_sync 测试 (~70 行)
+```
+
+### 4. 关键判定表
+
+| 决策点 | 选项 | 选择 | 理由 |
+|---|---|---|---|
+| 新字段名 | `stamps` / `timeStamps` / `sceneNotes` | `stamps` | 跟 `EpisodeRecord.stamps` 完全对齐,渲染层零分支判断"是不是 episode 路径" |
+| 新数据类型 | 复用 `TimeStamp` / 新增 `MediaStamp { unit }` | 复用 `TimeStamp` | 单位语义由 UI 决定;新枚举会引入 serde / IPC / 持久化 3 处改造 |
+| 走 IPC 类型 | `BookPatch` 加字段 / 专用 IPC `books_set_stamps` | 专用 IPC | 数组型字段不走 patch(跟 characters / episodes / seasons 同款);便于集中校验 |
+| 联动 `updated` | 刷 / 不刷 | 不刷 | 与 `EpisodeRecord.stamps` 严格对齐,parent 时间戳不该被 stamps 改动频繁触发 |
+| UI 暴露范围 | movie / book / other 全开 / 只 movie / movie+book | 只 movie | type / IPC / 数据层全部支持,UI 按需暴露;book 暂保留字段不加 UI(克制原则) |
+| 组件复用 | 新写一份 / 复用 StampList | 薄包装 StampList | StampList 已 prop-driven,核心行为完全相同 |
+| TS / Rust 端数据格式 | 同名 `stamps` / camelCase rename | 同名 `stamps` | `Book` 顶层 snake_case 等同字段名;无需单字段 rename |
+| 关闭路径处理 | 走通用 patch / 走专用 IPC | 专用 IPC | 跟 seasons / episodes / characters 一致,所有"数组型字段"统一走专用命令 |
+
+### 5. 共享边界判定
+
+- **全程留在 apps/book-tracker** —— `TimeStamp` 已是 book-tracker 领域类型,life-tracker 不需要"时间戳笔记"(goals 是抽象目标,没有"看 / 听"的场景)
+- **不走 tracker-core** —— 跟 `Series` 同款判定:life-tracker 没有"电影分场景"诉求,核心层不应持有任何领域专属概念
+- **未来扩展路径**:若 life-tracker 后续加"里程碑时间戳"(如"国奖 deadline"这类时间点),再考虑抽共性到 tracker-core;当前 book-tracker 单 app 独占即可
+
+### 6. 回归验证
+
+- **Rust 测试**:93 / 93 通过(原 91 + 新增 2)
+  - `data::books::tests::book_stamps_round_trip_and_sparse`(6 条不变量):写盘 / 排序 / 空数组不写盘 / 老文件缺字段 / 坏数据跳过 / per-row lastModified 稀疏
+  - `service::books::tests::set_stamps_basic_and_no_updated_sync`(3 条不变量):非空整段替换 + 排序 + 不刷 `book.updated` / 空数组清空 / NotFound
+- **TS typecheck**:book-tracker + life-tracker + tracker-core 三端全过
+- **vitest**:book-tracker 237 / 237 通过(零改动,纯 UI 集成);tracker-core 148 / 148;life-tracker 228 / 228
+- **验收流程**(待你重启 app 验证):
+  1. 编辑模式 → 加一部电影(或者选现有 movie)→ 详情页底部出现「时间戳笔记」面板(在主笔记 / 角色笔记附近)
+  2. 输入 MM:SS → 输入笔记 → 点 + → 新 stamp 出现在面板,按 start 升序
+  3. 单击 stamp 时间戳 → 进入编辑态 → 改 MM/SS → blur / 回车 → 保存成功;Esc 取消
+  4. 日常模式(CleanMode)点同一部电影 → 弹「笔记 · 电影名」Modal → 底部有「时间戳笔记」面板,跟编辑模式行为一致
+  5. 改几条 stamp → book.updated **没**刷(在侧栏 / 卡片看)
+  6. 写盘后关闭 / 重启 app → 再开同一部电影 → stamps 仍按 start 升序展示,lastModified 正常
+
+### 7. 教训(共享 / 单 app)
+
+- **[单 app book-tracker] 复用 prop-driven 组件 = 薄包装,不复写**:`StampList` 已经是 `book / allBooks / stamps / onChange` prop 驱动,新需求只是「换数据源 + 换容器」,**薄包装一层**(`<section class="book-stamps-panel">`)即可,不必抽取共性或重写。判定:任何"看起来跟现有组件 90% 相似"的需求,先检查现有组件是不是已经 prop-driven;如果是,薄包装;如果核心行为不同,才考虑抽取共性。
+- **[单 app book-tracker] "复用类型 / 复用 UI"不等于"复用语义"**:`TimeStamp` 字段语义在 tv/anime 是"片段时间戳",在 movie 是"片段时间戳",book 未来可能是"页码注释"。**类型复用 OK**(数字就是数字),**UI 文案 / 暴露范围按需**。一刀切"全暴露"会让 book 用户困惑("页码笔记"对他们是新概念),一刀切"全不暴露"会让 movie 用户每次都得跳进详情页。**判定**:类型层 / 数据层充分支持;UI 暴露按 kind 选最小集合,future 扩展零成本。
+- **[共享] "关联 / 数组型字段走专用 IPC,不走 BookPatch"**:这是一条反复应用的规(从 seasons / episodes / characters / nextSeasonId / seriesId 到现在的 stamps)。`BookPatch` 三态(`None` / `Some(None)` / `Some(Some)`)语义对单个字段够用,对数组型字段会引发"增量更新 vs 整段替换"的语义混乱。**判定**:任何 `Vec<T>` / `Option<T>` 的字段,如果语义是"整体替换"(而不是"单字段原子更新"),就走专用 IPC + 整段替换语义。
+- **[单 app book-tracker] "不联动 book.updated"是 stamps 字段的硬约束**:跟 v1.6 `EpisodeRecord.lastModified` 解耦同款语义。**判定**:`lastModified` 字段被谁刷,要在数据层 + service 层 + UI 层 3 处显式标注;不能让 `update_book` 的 `merged.updated = now_iso()` 默默刷新导致用户疑惑。
+
+---
+
+## 2026-09:[book-tracker] AddModal「+ 系列」tab 简化为单行 + 0 成员系列归「想看」
 
 ### 1. 现象 / 需求
 

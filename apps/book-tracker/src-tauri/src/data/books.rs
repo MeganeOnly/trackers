@@ -114,6 +114,12 @@ fn normalize_book(id: &str, data: &serde_json::Value) -> Book {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
+        // v2.x:顶层 stamps —— 复用 `parse_stamps` 与 EpisodeRecord.stamps 完全等价。
+        // 字段缺损 / 非数组 → None(向后兼容;老数据无此字段)。
+        // 注意:本字段对 tv/anime 也有意义(只是 UI 不暴露),但语义跟 EpisodeRecord.stamps
+        // 完全独立 —— 一本 tv 作品可以同时有"第 3 集的 00:32 标了一个点"(per-episode)
+        // 和"整部剧 00:00 开场"(book-level)。
+        stamps: parse_stamps(data.get("stamps")),
     }
 }
 
@@ -306,6 +312,9 @@ pub fn write_book(
         prev_season_explicit: false,
         // series_id(v1.7 起):从 BookInput 透传;新建作品时可为 None(等同"无所属系列")
         series_id: input.series_id.as_ref().filter(|s| !s.is_empty()).cloned(),
+        // 顶层 stamps(v2.x 起):新建作品时为空,详情页独占编辑(走专用 IPC books_set_stamps,不走 BookPatch)
+        // 同 seasons / episodes / characters 一致 —— 创建时不动,后续 patch / 专用命令写。
+        stamps: None,
     };
     persist(&books_dir, &book)?;
     Ok(book)
@@ -653,6 +662,35 @@ pub(crate) fn persist(books_dir: impl AsRef<Path>, book: &Book) -> std::io::Resu
     if let Some(sid) = &book.series_id {
         if !sid.is_empty() {
             fm.insert("seriesId".into(), serde_json::Value::String(sid.clone()));
+        }
+    }
+    // 顶层 stamps(v2.x 新增;目前仅 movie 实际使用):与 EpisodeRecord.stamps
+    // 共享完全相同的序列化结构 —— 每个 stamp 含 id / start / [end] / note / [lastModified]。
+    // 仅在 Some(non_empty) 时写盘;空数组视为 None,稀疏策略。
+    // **不刷 updated** —— stamps 自带 per-row timeStamp(详见 Book.stamps 字段注释 + AGENTS.md §v1.5)。
+    if let Some(stamps) = &book.stamps {
+        if !stamps.is_empty() {
+            let arr: Vec<serde_json::Value> = stamps
+                .iter()
+                .map(|s| {
+                    let mut s_obj = serde_json::Map::new();
+                    s_obj.insert("id".into(), serde_json::Value::String(s.id.clone()));
+                    s_obj.insert("start".into(), serde_json::Value::Number(s.start.into()));
+                    if let Some(end) = s.end {
+                        s_obj.insert("end".into(), serde_json::Value::Number(end.into()));
+                    }
+                    // note 允许空串(保留字段,语义 = "有时间戳无笔记")
+                    s_obj.insert("note".into(), serde_json::Value::String(s.note.clone()));
+                    // last_modified:Some(非 0) 才写;None / 0 视为无(向后兼容老数据)
+                    if let Some(ts) = s.last_modified {
+                        if ts > 0 {
+                            s_obj.insert("lastModified".into(), serde_json::Value::Number(ts.into()));
+                        }
+                    }
+                    serde_json::Value::Object(s_obj)
+                })
+                .collect();
+            fm.insert("stamps".into(), serde_json::Value::Array(arr));
         }
     }
 
@@ -1353,6 +1391,122 @@ mod tests {
         assert_eq!(legacy5_stamps[0].id, "old");
         assert!(legacy5_stamps[0].last_modified.is_none(), "老 stamp 缺字段 → None");
     }
+
+    /// Book 顶层 `stamps` 字段(v2.x 新增,目前仅 movie 实际使用)的回归测试。
+    /// 与 `episode_stamps_round_trip_and_omit_when_empty` 同款不变量,但作用于作品顶层:
+    /// - 非空 → 写盘;读回按 start 升序(同 start 按 id 字典序)
+    /// - 空数组 / None → 不写 stamps 字段;读回 None(最稀疏策略)
+    /// - 老文件缺 stamps 字段 → 读回 None(向后兼容,容错)
+    /// - 缺 id / start / note 字段的 stamp → 跳过该条(整本仍可读)
+    /// - per-stamp lastModified:Some(非 0) 写盘 + 读回同值;None / 0 / 缺损 → None
+    ///
+    /// **不联动 `updated`** —— 走 `service::books::set_stamps` 专用 IPC 路径
+    /// (不走 BookPatch),`persist` 不会刷新 `book.updated`。
+    #[test]
+    fn book_stamps_round_trip_and_sparse() {
+        let dir = temp_books_dir();
+        let books_dir = dir.path().join("books");
+
+        // 1) 写顶层 stamps(打乱顺序)→ 读回按 start 升序排序
+        let mut input = sample_input();
+        input.kind = WorkKind::Movie; // 顶层 stamps 主要给 movie 用
+        let book = write_book(&books_dir, &input, &HashSet::new()).unwrap();
+        // 直接走 persist 路径写入顶层 stamps(走 service.set_stamps 模拟)
+        let mut existing = read_book(&books_dir, &book.id).unwrap().unwrap();
+        existing.stamps = Some(vec![
+            TimeStamp { id: "ts-002".to_string(), start: 1945, end: Some(2200), note: "追车".to_string(), last_modified: None },
+            TimeStamp { id: "ts-001".to_string(), start: 100, end: None, note: "开场".to_string(), last_modified: None },
+            TimeStamp { id: "ts-003".to_string(), start: 5000, end: Some(5500), note: "高潮".to_string(), last_modified: Some(1730000000000) },
+        ]);
+        persist(&books_dir, &existing).unwrap();
+
+        let read_back = read_book(&books_dir, &book.id).unwrap().unwrap();
+        let stamps = read_back.stamps.as_ref().unwrap();
+        assert_eq!(stamps.len(), 3);
+        // 顺序按 start 升序
+        assert_eq!(stamps[0].id, "ts-001");
+        assert_eq!(stamps[0].start, 100);
+        assert_eq!(stamps[0].end, None);
+        assert_eq!(stamps[0].note, "开场");
+        assert_eq!(stamps[1].id, "ts-002");
+        assert_eq!(stamps[1].start, 1945);
+        assert_eq!(stamps[1].end, Some(2200));
+        assert_eq!(stamps[2].id, "ts-003");
+        assert_eq!(stamps[2].last_modified, Some(1730000000000));
+
+        // 2) raw 写盘:顶层 stamps 字段存在;字段名跟 EpisodeRecord.stamps 完全一致
+        let raw = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(raw.contains("\"stamps\""), "顶层 stamps 应写盘");
+        assert!(raw.contains("\"id\": \"ts-001\""), "顶层 stamp id 应写盘");
+        assert!(raw.contains("\"start\": 100"), "顶层 stamp start 应写盘");
+        assert!(raw.contains("\"end\": 2200"), "顶层 stamp end 应写盘");
+        assert!(raw.contains("\"lastModified\": 1730000000000"), "顶层 stamp lastModified 应写盘");
+
+        // 3) stamps = Some(vec![]) → 不写盘,读回 None(最稀疏)
+        let mut existing2 = read_back;
+        existing2.stamps = Some(vec![]);
+        persist(&books_dir, &existing2).unwrap();
+        let raw2 = std::fs::read_to_string(books_dir.join(format!("{}.md", book.id))).unwrap();
+        assert!(!raw2.contains("\"stamps\""), "空 stamps 数组不应写盘");
+        let read2 = read_book(&books_dir, &book.id).unwrap().unwrap();
+        assert!(read2.stamps.is_none(), "空数组持久化后再读回应是 None");
+
+        // 4) 老文件缺顶层 stamps 字段 → 读回 None(向后兼容)
+        let legacy = books_dir.join("legacy-movie.md");
+        std::fs::write(
+            &legacy,
+            "---\n{\"id\":\"legacy-movie\",\"title\":\"老电影\",\"status\":\"finished\",\"kind\":\"movie\",\"starring\":\"周星驰\"}\n---\n# 老电影\n",
+        ).unwrap();
+        let legacy_book = read_book(&books_dir, "legacy-movie").unwrap().unwrap();
+        assert!(legacy_book.stamps.is_none(), "老文件缺顶层 stamps → None");
+
+        // 5) 老文件顶层 stamps 含坏数据(缺 id / start)→ 跳过该条,整本仍可读
+        let mut input5 = sample_input();
+        input5.kind = WorkKind::Movie;
+        let book5 = write_book(&books_dir, &input5, &HashSet::new()).unwrap();
+        std::fs::write(
+            books_dir.join(format!("{}.md", book5.id)),
+            "---\n{\"id\":\"100\",\"title\":\"测试电影\",\"status\":\"finished\",\"kind\":\"movie\",\"stamps\":[{\"start\":10,\"note\":\"缺id\"},{\"id\":\"ok\",\"start\":5,\"note\":\"完整\"}]}\n---\n# 测试电影\n",
+        ).unwrap();
+        let broken_read = read_book(&books_dir, &book5.id).unwrap().unwrap();
+        let broken_stamps = broken_read.stamps.as_ref().unwrap();
+        assert_eq!(broken_stamps.len(), 1, "缺 id 的 stamp 应被跳过");
+        assert_eq!(broken_stamps[0].id, "ok");
+        assert_eq!(broken_stamps[0].start, 5);
+
+        // 6) per-stamp lastModified 稀疏语义:Some(非 0) 写 / None 不写 / Some(0) 不写
+        let mut input6 = sample_input();
+        input6.kind = WorkKind::Movie;
+        let book6 = write_book(&books_dir, &input6, &HashSet::new()).unwrap();
+        let mut existing6 = read_book(&books_dir, &book6.id).unwrap().unwrap();
+        existing6.stamps = Some(vec![
+            TimeStamp { id: "ts-with".to_string(), start: 100, end: None, note: "带时间戳".to_string(), last_modified: Some(1730000000000) },
+            TimeStamp { id: "ts-none".to_string(), start: 200, end: None, note: "无时间戳".to_string(), last_modified: None },
+            TimeStamp { id: "ts-zero".to_string(), start: 300, end: None, note: "零时间戳".to_string(), last_modified: Some(0) },
+        ]);
+        persist(&books_dir, &existing6).unwrap();
+        let raw6 = std::fs::read_to_string(books_dir.join(format!("{}.md", book6.id))).unwrap();
+        // 只有 ts-with 写 lastModified
+        assert!(raw6.contains("\"lastModified\": 1730000000000"));
+        let lm_count = raw6.matches("\"lastModified\"").count();
+        assert_eq!(lm_count, 1, "只有带非 0 时间戳的 stamp 才写 lastModified; raw={raw6}");
+
+        // 读回验证
+        let read6 = read_book(&books_dir, &book6.id).unwrap().unwrap();
+        let stamps6 = read6.stamps.as_ref().unwrap();
+        assert_eq!(stamps6.len(), 3);
+        assert_eq!(stamps6[0].id, "ts-with");
+        assert_eq!(stamps6[0].last_modified, Some(1730000000000));
+        assert_eq!(stamps6[1].id, "ts-none");
+        assert_eq!(stamps6[1].last_modified, None);
+        assert_eq!(stamps6[2].id, "ts-zero");
+        assert_eq!(stamps6[2].last_modified, None, "Some(0) 应被 filter 视为 None");
+    }
+
+    /// `service::books::set_stamps` 测试放到 service 模块(见 `service::books::tests::set_stamps_basic_and_no_updated_sync`),
+    /// 因为它需要直接调 service::books::set_stamps(data 模块不持有那个名字)。
+    /// 本模块聚焦 data 层 parse / persist / round-trip,service 层走专 IPC 行为测试。
+
 
     /// v1.5 角色笔记 + lastModified 字段的回归测试。
     /// 不变量:
