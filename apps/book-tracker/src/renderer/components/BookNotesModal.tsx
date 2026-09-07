@@ -36,8 +36,8 @@ interface BookNotesModalProps {
 
 const MODAL_WIDTH = 920
 
-/** 主笔记本地保存状态:`idle` 默认 / `saving` 提交中 / `saved` 成功并短暂显示后回到 idle */
-type NotesSaveStatus = 'idle' | 'saving' | 'saved'
+/** 主笔记本地保存状态:`idle` 默认 / `saving` 提交中 / `saved` 成功并短暂显示后回到 idle / `error` 失败(按钮变 "保存失败 — 重试",textarea 内容保留) */
+type NotesSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 /**
  * 作品笔记 Modal 容器
@@ -52,6 +52,21 @@ type NotesSaveStatus = 'idle' | 'saving' | 'saved'
  *   保留本地草稿,避免外部保存吞掉用户在 Modal 里的输入
  * - 保存成功后保留 noteEditing=true 短暂显示「已保存」反馈,1.5s 后再切回预览
  *   —— 立即 setNoteEditing(false) 会让按钮所在 section 立刻消失,反馈看不见
+ *
+ * v2.x「按删除键就会出问题」类 bug 修复(book-tracker §10 经验沉淀):
+ * - **关闭未保存拦截**:× / backdrop / Esc 关闭路径都过 `handleClose`,
+ *   有 hasUnsavedChanges 时 `window.confirm('主笔记有未保存修改,确定关闭?')`,
+ *   用户取消则不关闭。Modal Esc 在 editable 元素内已经不会主动关闭
+ *   (Modal.tsx),这条兜底 × / backdrop 两路。
+ * - **beforeunload 监听**:hasUnsavedChanges 时挂 `window.addEventListener('beforeunload', ...)`,
+ *   `e.preventDefault() + e.returnValue = ''`(现代浏览器只认这个组合,
+ *   return-only 不行,见 docs/dev-notes.md 2026-09 §X)。
+ *   防止用户用 Alt+F4 / Tauri 关闭按钮 / 刷新 dev 页面 直接关 app 时静默丢数据。
+ * - **in-flight IPC 防护**:用 `inFlightRef` 跟踪正在进行的 update Promise。
+ *   关闭时若 IPC 未完成,**不立即 unmount**(延迟到 IPC resolve),避免 React 18
+ *   在 unmount 组件上 setState 的 silent drop + 用户不知 save 是否成功。
+ *   IPC 失败时 `saveStatus='error'` 留在 textarea 旁边显示错误,textarea 内容 + dirty
+ *   状态保留,用户可重试点保存按钮。
  */
 export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.Element {
   // 从 store 实时订阅 —— book 被删除 / 字段被外部更新都能反映
@@ -63,6 +78,8 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
   const [notes, setNotes] = useState<string>(book?.notes ?? '')
   const [noteEditing, setNoteEditing] = useState(false)
   const [saveStatus, setSaveStatus] = useState<NotesSaveStatus>('idle')
+  // in-flight IPC 引用 —— 关闭路径上等待其完成,避免 unmount 组件上 setState 的 silent drop
+  const inFlightRef = useRef<Promise<unknown> | null>(null)
   // v2.x:notesDirty 跟踪 —— 与 BookDetail.notesDirty 严格对称(同名同语义):
   // - dirty=false:本地草稿未动 → store 更新可同步刷新本地
   // - dirty=true :本地有用户未保存输入 → 禁止 useEffect 覆盖本地草稿,
@@ -148,8 +165,15 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
   async function handleSaveNotes(): Promise<void> {
     if (saveStatus === 'saving') return
     setSaveStatus('saving')
+    // v2.x:把 in-flight Promise 存到 ref,关闭路径上 await 它(避免 unmount 后 setState)
+    const p = update(cur.id, { notes }).catch((e) => {
+      console.error('save notes failed:', e)
+      setSaveStatus('error')
+      // 出错时保留 textarea 内容 + dirty,textarea 旁边显示错误,用户可重试
+    })
+    inFlightRef.current = p
     try {
-      await update(cur.id, { notes })
+      await p
       setSaveStatus('saved')
       // v2.x:保存成功后本地 draft 已写盘 → 重置 dirty,允许后续外部 notes 更新同步回来。
       // setNotesDirty(false) **不**会触发同步 effect(notesDirty 故意不放进依赖,
@@ -163,17 +187,55 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
         setSaveStatus((s) => (s === 'saved' ? 'idle' : s))
         setNoteEditing(false)
       }, 1500)
-    } catch (e) {
-      console.error('save notes failed:', e)
-      // 出错时回到 idle,textarea 内容 + dirty 状态保留,用户可重试
-      setSaveStatus('idle')
+    } finally {
+      if (inFlightRef.current === p) inFlightRef.current = null
     }
   }
+
+  /**
+   * 关闭路径统一入口:× / backdrop / Modal-onClose 全部走这里。
+   * 有未保存改动 → window.confirm 拦截(用户选取消则不关闭)。
+   * 同时:若 in-flight IPC 还在跑,await 它完成再关闭,避免 unmount 组件上 setState
+   * 的 silent drop,以及用户看不到保存结果。
+   */
+  const handleClose = useCallback((): void => {
+    if (hasUnsavedChanges) {
+      const ok = window.confirm('主笔记有未保存修改,确定关闭?')
+      if (!ok) return
+    }
+    // 在 unmount 之前等 IPC 完成 —— 重要:用户点 × 关闭后看到笔记被保存,
+    // 不然 IPC 在 unmount 组件上 resolve 时 setState 会 silent drop。
+    if (inFlightRef.current) {
+      void inFlightRef.current.finally(() => {
+        // 等 IPC 完成后再调 onClose(unmount BookNotesModal)
+        onClose()
+      })
+    } else {
+      onClose()
+    }
+  }, [hasUnsavedChanges, onClose])
+
+  /**
+   * beforeunload 监听:防止用户 Alt+F4 / 关 Tauri 窗口 / 刷新 dev 页面时
+   * 未保存笔记静默丢失。hasUnsavedChanges 时挂上,变 false 时摘下。
+   *
+   * 现代浏览器(Chrome 119+ / Firefox / Safari)只认 `preventDefault() + returnValue = ''`,
+   * return-only 是 no-op。Message 文案浏览器会忽略(规范要求),只显示通用提示。
+   */
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsavedChanges])
 
   return (
     <Modal
       title={`笔记 · ${cur.title}`}
-      onClose={onClose}
+      onClose={handleClose}
       width={MODAL_WIDTH}
       className="modal-card--notes"
     >
@@ -223,7 +285,9 @@ export function BookNotesModal({ bookId, onClose }: BookNotesModalProps): JSX.El
                   ? '保存中…'
                   : saveStatus === 'saved'
                     ? '已保存'
-                    : '保存笔记'}
+                    : saveStatus === 'error'
+                      ? '保存失败 — 重试'
+                      : '保存笔记'}
               </button>
             </div>
           )}
