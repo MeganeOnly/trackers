@@ -20,7 +20,7 @@
 // - **v1.6 移除 「+ 季」按钮 + tabs 切换**:用户加新季的路径改为"新建一本 book + 设下一季"
 // - 同步策略:**不**联动改 book.progress.total / progress.current;理由见 AGENTS.md §十.24
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBooksStore } from '../store/books'
 import { useEpisodeStats, useEpisodesForBook, useSeasonsForBook } from '../store/selectors'
 import { episodeKey, formatLastModified } from '@shared/types'
@@ -321,24 +321,59 @@ function EpisodeEditor({
   const watched = record?.watched ?? false
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // v2025-09:notesDirty 标记 —— 用户在 EpisodeEditor 改过本地 noteDraft(未保存)。
+  // 当 store 里的 record.note 被外部更新时:
+  // - dirty=false:本地草稿未动 → 同步刷新到本地(用户能看到 modal 的最新结果)
+  // - dirty=true :本地有用户未保存输入 → 不覆盖(避免 IPC 异步回灌吞掉用户草稿,
+  //   经典「乐观更新 + 异步回灌」竞态的治本模式 —— 主笔记 BookNotesModal /
+  //   BookDetail 已有同款保护,见 apps/book-tracker/AGENTS.md §十 + dev-notes 2026-09)。
+  const [notesDirty, setNotesDirty] = useState(false)
+  // v2025-09:lastSentNoteRef —— 记录最后一次发出去的 note 值。
+  // 当 IPC 异步回灌时:
+  // - 回灌的 record.note === lastSentNoteRef.current → 是我刚发的旧值,放心同步
+  // - 回灌的 record.note !== lastSentNoteRef.current → 说明用户在 IPC 期间又敲了新字符,
+  //   不能用回灌的旧值覆盖本地 noteDraft(dirty flag 不够,因为 setNoteDraft 之后
+  //   dirty=true,IPC 回灌时 record.note 仍是 old,lastSentRef=old,效果一样;
+  //   但若用户在 IPC 期间敲了又删干净,noteDraft===lastSent 但 dirty=true,这层拦截救命)
+  const lastSentNoteRef = useRef<string>(record?.note ?? '')
 
   // record 变化(外部 store 更新)→ 同步本地 draft(避免覆盖用户正在敲的内容)
+  // v2025-09 加 dirty flag + lastSentRef 双闸门:
+  // - dirty=true → 不动(用户在敲,IPC 回灌不能覆盖)
+  // - record.note === lastSentNoteRef → 是自己刚发的,放心同步
+  // - 否则 → 不动(IPC 回灌比我刚发的还旧,用户在持续敲)
   useEffect(() => {
     setTitleDraft(record?.title ?? '')
   }, [record?.title])
   useEffect(() => {
-    setNoteDraft(record?.note ?? '')
+    if (notesDirty) return
+    const incoming = record?.note ?? ''
+    if (incoming === lastSentNoteRef.current) {
+      // IPC 回灌的是我刚发的旧值 → 同步刷新(同时重置 lastSentRef,因为这次同步后
+      // 本地与 store 一致了)
+      setNoteDraft(incoming)
+      lastSentNoteRef.current = incoming
+    } else if (incoming !== noteDraft) {
+      // 完全外部的更新(如其他面板编辑、保存返回等)→ 同步刷新
+      setNoteDraft(incoming)
+      lastSentNoteRef.current = incoming
+      setNotesDirty(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- notesDirty / noteDraft 故意不放进依赖(见上方注释)
   }, [record?.note])
 
   // v1.7 wikilink —— `[[` 触发 picker;book 透传自父组件
   const allBooks = useBooksStore((s) => s.books)
+  // v2025-09:setNotesWithDirty —— useCallback 包装,setNoteDraft 同步 setNotesDirty(true),
+  // 让 effect 看到 dirty=true 早退(IPC 回灌不覆盖用户草稿)。
+  const setNotesWithDirty = useCallback((v: string): void => {
+    setNoteDraft(v)
+    setNotesDirty(true)
+  }, [])
   const { handleChange: handleNoteChange, taRef: noteTaRef } = useWikilinkTextarea({
     book,
     value: noteDraft,
-    setValue: (v) => {
-      setNoteDraft(v)
-      scheduleNoteFlush()
-    }
+    setValue: setNotesWithDirty
   })
 
   function flushTitle(): void {
@@ -349,7 +384,11 @@ function EpisodeEditor({
   }
   function flushNote(): void {
     if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+    // 记录最后一次发出去的值,effect 用它判断 IPC 回灌是不是「自己刚发的旧值」
+    lastSentNoteRef.current = noteDraft
     onSetNote(noteDraft)
+    // IPC 已发出 → 重置 dirty,允许后续外部 store 更新正常同步回来
+    setNotesDirty(false)
   }
   function scheduleTitleFlush(): void {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)

@@ -286,6 +286,10 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
 
 ## 十、踩过的坑（避免重复踩）
 
+52. **v2.x「本地 useState 草稿 + useEffect 同步外部 + debounce flush」组件必备 dirty + lastSentRef 双闸门**(2026-09):集笔记 / 时间戳笔记「完全无法编辑」根因。详细时序图 + 治本模式见 `docs/dev-notes.md` 2026-09 第 1 条。**判定**:**任何**「受控 input + debounce 异步 IPC + useEffect 同步外部 store」组件都要这套保护;本仓已覆盖 EpisodeEditor / StampRow note / StampRow time editing / CharacterEditor(已 audit);**新增第 5 处此类组件前先 grep `notesDirty / lastSentRef / setNotesWithDirty` 找同款模式抄,别再写裸 useState 草稿**。
+
+53. **v2.x 测试 jsdom + React 18 受控 input 的 commit 时序陷阱(升级版 §十.44)**:沿用 §十.44 原则——**不**依赖 `user.type` 末位字符断言(commit 时序不可靠,user.type 'new' 可能只触发 'ne');改为:props 切换测试组件响应 / store action 驱动 + spy 观察 / 验证 DOM 结构(data-testid)+ 关键交互的最终态。本仓新增「测试笔记编辑」场景时第一版掉这个坑(参考 `__tests__/notes-editing-race.test.tsx` git history)。
+
 1. **v1.9 SeriesView 三态 view 状态机替代 Modal 嵌套**(2026-09 加 series drill-down 时踩):SeriesView 已经在 AddModal 内(AddModal 是 v1.8 唯一 Modal),新增「往系列里加/减成员」入口时,如果按直觉把 SeriesDetailModal / SeriesPickBooksModal 写成自含 Modal,会变成「AddModal 里嵌 Modal」—— backdrop 双重叠加、Esc 关闭竞态、点 backdrop 关两次(v1.8 §十.35 已踩)。**正确做法**:**用 view 状态机**(`'list' | 'detail' | 'picker'`)+ 把每个 view 抽成「无 Modal 包装的 body 组件」(SeriesDetailBody / SeriesPickBooksBody),全部由 SeriesView 在 `return` 处按 view 分派,**AddModal 始终是唯一 Modal**。判据:任何「我想在 Modal 内弹新 Modal」的冲动,先看能不能用 view state + body 组件表达 —— 通常可以。
 2. **v1.9 行可点击 + 子按钮 stopPropagation 模式**:list 行做成 `onClick={openDetail}` 的可点击 li 后,行内的「编辑」/「删除」按钮如果不阻断冒泡,点按钮会先触发行 onClick(进 detail)再触发按钮 onClick(编辑/删除),用户困惑。**正确做法**:按钮的 `onClick` 里 `e.stopPropagation()`,**外层 li 不需要任何额外判断**;另外行处于 inline edit 模式时(`isEditing`),整个 li 设 `cursor: default` + `onClick={undefined}`(避免点 input 也进 detail)。CSS 上 `:hover { background; border-color: var(--accent); }` 给视觉反馈,`:focus-visible` 给键盘用户焦点环。
 3. **v1.9 批量 setSeries 部分失败用 alert 列出失败清单**(2026-09):从 SeriesView 一侧批量加入系列时(单次可能 5~20 本),如果用 `Promise.all`,失败的会一起 reject,成功的 books store 已 upsert 但前端不知道哪本失败哪本成功,用户不知道哪些要重试。**正确做法**:**串行 for-loop + 累积 failures 数组**:
@@ -420,6 +424,14 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - 自动按 `start` 升序排序(同 start 按 id 字典序);服务端读回时再排序一次兜底
   - 写盘策略:stamp 数组为空 → 不写字段;单条 stamp 的 `end`/`note` 允许空串/null
   - 设计选择:**整体替换式回写**(不再做单条 IPC),add/edit/delete 都构造新数组 + sortStamps;简单 / 可恢复 / 避免并发冲突
+- [x] **顶层时间戳笔记**（`Book.stamps: TimeStamp[]`,v2.x 新增,目前仅 movie 实际使用）—— 详情页 / BookNotesModal 的「时间戳笔记」面板
+  - **与 `EpisodeRecord.stamps` 平行**:tv/anime 仍用每集 stamps(粒度更细到集);movie 没 episodes 结构,只能用本字段;book / other 字段已预留,UI 暂不暴露
+  - **复用 `TimeStamp` 类型**:字段语义(ss/mm:ss/hh:mm:ss 解析、排序、per-row lastModified、`[[]]` wikilink、note 自动撑高等)全部继承自 v1.3 单集 stamps —— **零代码重复**
+  - **专用 IPC `books_set_stamps`**:跟 `set_episode_stamps` 同款语义(整段替换 + 服务端排序 + 刷 per-row `last_modified`),但作用于 Book 顶层而非 EpisodeRecord;**不走 BookPatch**(数组型字段走专用 IPC,与 `set_characters` / `set_seasons` 同款)
+  - **不联动 `book.updated`**:与 `EpisodeRecord.stamps` 不刷 `EpisodeRecord.lastModified` 的策略严格对齐 —— parent 时间戳不该被 stamps 改动频繁触发(用户在侧栏看到 `updated` 仍是"上次编辑元数据/主笔记"的时间)
+  - **UI 复用 `EpisodesPanel.StampList`**:薄包装一层 `<section class="panel book-stamps-panel">`,核心渲染零改动;`BookNotesModal`(日常模式点作品)同样按 `kind === 'movie'` 渲染该面板
+  - **写盘策略**:`stamps` 数组为空 → 不写 frontmatter(最稀疏);老数据缺字段 → `undefined`(向后兼容,`parse_stamps` 容错);坏 stamp(缺 id/start/note)整条跳过(防御性)
+  - **per-row `lastModified`**:沿用 v1.6 语义,每条 stamp 独立"最后修改时间";`book.updated` 不被刷
 - [x] **笔记实际修改日期保留**（`EpisodeRecord.lastModified` / `SeasonInfo.lastModified`,v1.5 新增）—— 用户核心诉求"点进去但什么都没改,老时间不变"
   - `lastModified: number`(毫秒)出现在 EpisodeRecord 和 SeasonInfo 顶层;note / title / stamps 任一被改时刷
   - **关键决策**:`watched` toggle / `episode_bump` 联动 / 季号 / 集数变化**不刷** `lastModified`(用户期望"什么都没改,老时间不变")

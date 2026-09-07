@@ -6,6 +6,123 @@
 
 ---
 
+## 2026-09:[book-tracker] 集笔记 / 时间戳笔记「完全无法编辑」—— IPC 异步回灌竞态的治本模式 (v2.x)
+
+### 1. 现象
+
+用户报告(在 v2.x「顶层时间戳笔记」工作中暴露):
+- **集笔记**(tv/anime EpisodeEditor 的笔记 textarea)→ 完全无法编辑
+- **时间戳笔记**(EpisodeEditor / BookStampsPanel 里的 stamp note + 时间戳 inline 编辑)→ **创建正常,但编辑无效**
+- **主笔记**(BookNotesModal / BookDetail 顶部)→ 相对正常
+- 必现(每个用户都遇到)
+
+### 2. 根因分析
+
+三个组件共用同一种 state machine 模式(以 StampRow 为例,EpisodeEditor / StampRow time editing 同款):
+
+```ts
+const [noteDraft, setNoteDraft] = useState<string>(stamp.note)
+useEffect(() => { setNoteDraft(stamp.note) }, [stamp.note])  // ← 竞态源头
+function flushNote() {
+  if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+  if (noteDraft === stamp.note) return
+  onEditNote(noteDraft)
+}
+function scheduleNoteFlush() { /* setTimeout 500ms */ }
+```
+
+**Bug 时序(以 stamp 笔记为例)**:
+```
+t=0:     用户敲 'a' → setNoteDraft('a') + scheduleFlush (debounce 500ms)
+t=500:   flushNote → onEditNote('a') → setStamps IPC 启动(带 'a')
+t=600:   用户敲 'b' → setNoteDraft('b') + scheduleFlush
+t=700:   IPC 返回(带 'a') → store 更新 → EpisodeEditor/StampRow 收到新 stamp prop (note='a')
+         useEffect 触发 → setNoteDraft('a')  ← **覆盖用户正在敲的 'b'**
+t=1100:  flushNote 触发 → onEditNote('b') → IPC 带 'b'
+t=1200:  IPC 返回 → store 更新 → useEffect → setNoteDraft('b' 恢复)
+```
+中间 t=700~1100 共 400ms 用户看到旧值「'a'」,主观感觉「编辑没生效」。
+
+**为什么主笔记「相对正常」**:主笔记用同步 `setNotesWithDirty` + 显式 Save 按钮,setNotesDirty(true) 后 IPC 异步返回时 effect 看到 `notesDirty=true` 早退(BookNotesModal.tsx:129;BookDetail.tsx:146 同样的保护),**EpisodeEditor/StampRow 缺这一层保护**。
+
+### 3. 治本:dirty flag + lastSentRef 双闸门
+
+任何「本地 useState 草稿 + useEffect 同步外部 + debounce flush」组件,都加这两个保护:
+
+```ts
+const [notesDirty, setNotesDirty] = useState(false)
+const lastSentNoteRef = useRef<string>(stamp.note)
+
+const setNotesWithDirty = useCallback((v: string): void => {
+  setNoteDraft(v)        // 同步草稿
+  setNotesDirty(true)    // 标记脏 → IPC 异步回灌不覆盖
+}, [])
+
+useEffect(() => {
+  if (notesDirty) return                                    // 闸门 1:用户在敲
+  const incoming = stamp.note
+  if (incoming === lastSentNoteRef.current) {              // 闸门 2:回灌是我刚发的
+    setNoteDraft(incoming)                                 // 放心同步
+    lastSentNoteRef.current = incoming
+  } else if (incoming !== noteDraft) {                     // 闸门 3:完全外部更新
+    setNoteDraft(incoming)
+    lastSentNoteRef.current = incoming
+    setNotesDirty(false)
+  }
+  // notesDirty / noteDraft 故意不放进依赖(见下方 flushNote)
+}, [stamp.note])
+
+function flushNote() {
+  if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+  if (noteDraft === stamp.note) return
+  lastSentNoteRef.current = noteDraft    // 记录我刚发的值
+  onEditNote(noteDraft)
+  setNotesDirty(false)                  // IPC 发出 → 重置 dirty,允许后续外部更新正常同步
+}
+```
+
+**三闸门的逻辑**:
+- **dirty=true** → 早退(用户在敲,IPC 回灌不能动)
+- **store 值 === lastSentRef** → 是自己刚发的旧值,放心同步(并把 lastSentRef 同步到 store 值)
+- **store 值 !== lastSentRef 且 !== noteDraft** → 完全外部更新(如其他面板编辑、保存返回),同步 + 重置 dirty + 更新 lastSentRef
+
+### 4. 适用范围(本仓所有这类组件都要补)
+
+- ✅ `BookNotesModal` 主笔记(早就有 notesDirty 保护,已 audit 通过)
+- ✅ `BookDetail` 主笔记(早就有 notesDirty 保护,已 audit 通过)
+- ❌→✅ `EpisodeEditor` 集笔记(本次修)
+- ❌→✅ `StampRow` stamp note(本次修)
+- ❌→✅ `StampRow` 时间戳 inline 编辑(本次修,同款 timeDirty + lastSentStartRef / lastSentEndRef)
+- ❌→✅ `CharacterEditor` 角色笔记(已有 dirty 保护,审计通过——`useEffect [character.notes] + notesDirty`)
+
+### 5. 实施清单
+
+```
+apps/book-tracker/src/renderer/components/EpisodesPanel.tsx            EpisodeEditor: notesDirty + lastSentNoteRef + 闸门 useEffect
+apps/book-tracker/src/renderer/components/EpisodesPanel.StampList.tsx  StampRow note + time editing 同款修复
+apps/book-tracker/src/renderer/components/__tests__/notes-editing-race.test.tsx  新建,11 个回归测试
+```
+
+### 6. 共享边界判定
+
+属于 book-tracker 领域专属 bug,留 `apps/book-tracker/`。不动 `tracker-core` / `tracker-ui` / life-tracker(它们没有同款「useState 草稿 + useEffect 同步 + debounce flush」模式)。
+
+### 7. 测试基建踩坑(留底)
+
+按 AGENTS.md §十.44 原则,本仓库 vitest + jsdom **不**依赖 fireEvent 模拟受控 input 改值,只测**可稳定断言的部分**:
+- DOM 结构(data-testid 检查)
+- 单击交互的最终态(进入编辑态时 input.value 回填原值)
+- 不依赖 commit 时序的断言(IPC 调用次数 + 最终参数)
+
+`notes-editing-race.test.tsx` 第 1 版尝试用 `user.type` 模拟用户敲键,发现末位字符被 React 18 受控 input commit 时序陷阱吞掉('new' → 'ne'),改为:
+- 不直接模拟 keystroke
+- 改为 props 切换测试组件响应(测 IPC 回灌场景)
+- 或用 store action 驱动(setStamps 直接调用)+ spy 观察 IPC
+
+**判定**:任何「测试用户敲键 → 验证 IPC 最终参数」路径,在本仓 jsdom 下都不稳定(commit 时序不可靠),直接 props / store 驱动更稳。
+
+---
+
 ## 2026-09:[book-tracker] 顶层时间戳笔记 —— 给电影复用 TimeStamp,跨 tv/anime/movie 统一片段笔记 (v2.x)
 
 ### 1. 现象 / 需求

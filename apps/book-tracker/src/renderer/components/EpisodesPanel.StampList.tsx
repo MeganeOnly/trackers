@@ -15,7 +15,7 @@
 //
 // 测试入口:`export const StampRow` 给 __tests__ 用(产品代码走 <StampList> 内部渲染)。
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Book, TimeStamp } from '@shared/types'
 import { formatLastModified, formatStamp, parseStamp, sortStamps } from '@shared/types'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
@@ -314,19 +314,45 @@ function StampRowInner({
   // input 吞连续 keystroke 的问题
   const [noteDraft, setNoteDraft] = useState<string>(stamp.note)
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // v2025-09:notesDirty 标记 —— 用户改过本地 noteDraft(未保存)。
+  // 跟 EpisodeEditor / CharacterEditor 同款(见 EpisodeEditor 注释):脏状态下禁止
+  // useEffect 用外部 store 更新覆盖本地草稿,治本「乐观更新 + 异步回灌」竞态。
+  const [notesDirty, setNotesDirty] = useState(false)
+  // v2025-09:lastSentNoteRef —— 记录最后一次发出去的 note 值,用于区分
+  // 「IPC 回灌的是我刚发的旧值」vs「IPC 回灌的是比我还旧的版本」。
+  const lastSentNoteRef = useRef<string>(stamp.note)
 
   // 外部 store 更新(IPC flush 回来 / wikilink 插入 / 其他 stamp 改动)→ 同步本地 draft;
   // 配合下面 flushNote 的判断("draft 跟当前 stamp.note 一致 → 跳过 IPC")避免覆盖用户
   // 正在敲的内容
+  //
+  // v2025-09 加 dirty flag + lastSentRef 双闸门(跟 EpisodeEditor 严格对齐):
+  // - dirty=true → 不动(用户在敲)
+  // - store 值 === lastSentRef → 是自己刚发的旧值,放心同步
+  // - 否则 → 完全外部更新,同步刷新 + 重置 dirty + 更新 lastSentRef
   useEffect(() => {
-    setNoteDraft(stamp.note)
+    if (notesDirty) return
+    const incoming = stamp.note
+    if (incoming === lastSentNoteRef.current) {
+      setNoteDraft(incoming)
+      lastSentNoteRef.current = incoming
+    } else if (incoming !== noteDraft) {
+      setNoteDraft(incoming)
+      lastSentNoteRef.current = incoming
+      setNotesDirty(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- notesDirty / noteDraft 故意不放进依赖
   }, [stamp.note])
 
   function flushNote(): void {
     if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
     // 没改 → 不发 IPC(避免无谓 IPC;跟 CharacterEditor 的"什么都没改,老时间不变"语义一致)
     if (noteDraft === stamp.note) return
+    // 发送前记录:这是「我刚发出去」的值。IPC 回灌后 effect 用此判断能不能覆盖本地草稿
+    lastSentNoteRef.current = noteDraft
     onEditNote(noteDraft)
+    // IPC 已发出 → 重置 dirty,允许后续外部 stamp.note 更新正常同步回来
+    setNotesDirty(false)
   }
   function scheduleNoteFlush(): void {
     if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
@@ -344,15 +370,18 @@ function StampRowInner({
     ta.style.height = `${ta.scrollHeight}px`
   }, [stamp.note])
 
-  // v1.7 wikilink —— `[[` 触发 picker。setValue 走 setNoteDraft + scheduleFlush,
-  // 跟 CharacterEditor 同款;不直接 onEditNote 避免 React 18 controlled input 吞 keystroke
+  // v1.7 wikilink —— `[[` 触发 picker。setValue 走 setNotesWithDirty + scheduleFlush,
+  // 跟 CharacterEditor / EpisodeEditor 同款;不直接 onEditNote 避免 React 18
+  // controlled input 吞 keystroke。setNotesWithDirty 同步 setNotesDirty(true),
+  // 让 IPC 异步回灌时 effect 早退不覆盖本地草稿。
+  const setNotesWithDirty = useCallback((v: string): void => {
+    setNoteDraft(v)
+    setNotesDirty(true)
+  }, [])
   const { handleChange: handleNoteChange, taRef: wikilinkTaRef } = useWikilinkTextarea({
     book,
     value: noteDraft,
-    setValue: (v) => {
-      setNoteDraft(v)
-      scheduleNoteFlush()
-    }
+    setValue: setNotesWithDirty
   })
 
   // 合并两个 ref —— 撑高需要 textareaRef,wikilink hook 也需要 ref。
@@ -375,6 +404,35 @@ function StampRowInner({
   const endSecRef = useRef<HTMLInputElement | null>(null)
   // v2025-09:用 ref 标记"用户主动取消",避免 Esc 后 onBlur 仍触发 flushEditTime 把数据写出去
   const cancelledRef = useRef<boolean>(false)
+  // v2025-09:timeDirty 标记 —— 用户在 inline 编辑态改了 MM/SS(未保存)。
+  // 当 store 里的 stamp.start / stamp.end 被外部更新时(IPC 回灌),保护本地编辑草稿。
+  // 跟 noteDirty 同款模式,见 EpisodeEditor 注释 + dev-notes 2026-09。
+  const [timeDirty, setTimeDirty] = useState(false)
+  // v2025-09:lastSentStartRef / lastSentEndRef —— 记录最后一次发出去的 start/end 值。
+  // 用于区分 IPC 回灌的「自己刚发的旧值」vs「比我还旧的版本」。
+  const lastSentStartRef = useRef<number>(stamp.start)
+  const lastSentEndRef = useRef<number | undefined>(stamp.end)
+
+  // v2025-09:stamp.start / stamp.end 外部更新 → 同步本地 state。
+  // 编辑态(exitingTime=true)不清 MM/SS,避免覆盖用户正在敲的字符;
+  // dirty=true 也保护(用户刚改了 MM/SS,IPC 还没发出去,不能动)。
+  // 退出编辑态后清空 MM/SS draft(下次 beginEditTime 会重新回填新值)。
+  useEffect(() => {
+    if (editingTime) return
+    if (timeDirty) return
+    const incomingStart = stamp.start
+    const incomingEnd = stamp.end
+    if (incomingStart !== lastSentStartRef.current || incomingEnd !== lastSentEndRef.current) {
+      // 完全外部更新(IPC 回灌或其他 stamp 改动)→ 清 MM/SS draft + 同步 lastSent
+      setStartMin('')
+      setStartSec('')
+      setEndMin('')
+      setEndSec('')
+      lastSentStartRef.current = incomingStart
+      lastSentEndRef.current = incomingEnd
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editingTime/timeDirty 故意不放依赖
+  }, [stamp.start, stamp.end])
 
   /** 把秒数拆成 mm / ss 两段(用于进入编辑态时回填) */
   function secondsToPair(totalSec: number): { min: string; sec: string } {
@@ -396,6 +454,7 @@ function StampRowInner({
       setEndMin('')
       setEndSec('')
     }
+    setTimeDirty(false) // 进入编辑态 → 重置 dirty(等待用户改)
     setEditingTime(true)
     // 自动聚焦到 start 的 mm 输入(下一 tick 让 React 先 commit)
     setTimeout(() => startMinRef.current?.focus(), 0)
@@ -436,7 +495,11 @@ function StampRowInner({
       if (parsed === null) {
         // end 解析失败 → 仅写 start,保留原 end
         setEditingTime(false)
-        if (startSecNum !== stamp.start) onEditStart(startSecNum)
+        if (startSecNum !== stamp.start) {
+          lastSentStartRef.current = startSecNum
+          onEditStart(startSecNum)
+        }
+        setTimeDirty(false)
         return
       }
       endSecNum = parsed
@@ -451,14 +514,44 @@ function StampRowInner({
     // CharacterEditor.flushNote("draft 跟当前 stamp.note 一致 → 跳过")同款语义)
     const startChanged = startSecNum !== stamp.start
     const endChanged = endSecNum !== stamp.end
-    if (!startChanged && !endChanged) return
-    if (startChanged) onEditStart(startSecNum)
-    if (endChanged) onEditEnd(endSecNum)
+    if (!startChanged && !endChanged) {
+      setTimeDirty(false)
+      return
+    }
+    // 发送前记录:这是「我刚发出去」的值。IPC 回灌后 effect 用此判断能不能覆盖本地草稿
+    if (startChanged) {
+      lastSentStartRef.current = startSecNum
+      onEditStart(startSecNum)
+    }
+    if (endChanged) {
+      lastSentEndRef.current = endSecNum
+      onEditEnd(endSecNum)
+    }
+    // IPC 已发出 → 重置 dirty,允许后续外部 stamp.start/end 更新正常同步回来
+    setTimeDirty(false)
   }
 
   function digitsOnly(raw: string, maxLen: number): string {
     return raw.replace(/\D/g, '').slice(0, maxLen)
   }
+
+  // v2025-09:MM/SS 修改 → 同步 setTimeDirty(true),让 IPC 异步回灌不覆盖本地编辑草稿
+  const setStartMinWithDirty = useCallback((v: string): void => {
+    setStartMin(v)
+    setTimeDirty(true)
+  }, [])
+  const setStartSecWithDirty = useCallback((v: string): void => {
+    setStartSec(v)
+    setTimeDirty(true)
+  }, [])
+  const setEndMinWithDirty = useCallback((v: string): void => {
+    setEndMin(v)
+    setTimeDirty(true)
+  }, [])
+  const setEndSecWithDirty = useCallback((v: string): void => {
+    setEndSec(v)
+    setTimeDirty(true)
+  }, [])
 
   return (
     <li className="stamp-row">
@@ -471,7 +564,7 @@ function StampRowInner({
             value={startMin}
             onChange={(e) => {
               const v = digitsOnly(e.target.value, 2)
-              setStartMin(v)
+              setStartMinWithDirty(v)
               if (v.length === 2) startSecRef.current?.focus()
             }}
             onKeyDown={(e) => {
@@ -498,7 +591,7 @@ function StampRowInner({
             ref={startSecRef}
             className="stamp-edit-ss"
             value={startSec}
-            onChange={(e) => setStartSec(digitsOnly(e.target.value, 2))}
+            onChange={(e) => setStartSecWithDirty(digitsOnly(e.target.value, 2))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
@@ -522,7 +615,7 @@ function StampRowInner({
             value={endMin}
             onChange={(e) => {
               const v = digitsOnly(e.target.value, 2)
-              setEndMin(v)
+              setEndMinWithDirty(v)
               if (v.length === 2) endSecRef.current?.focus()
             }}
             onKeyDown={(e) => {
@@ -545,7 +638,7 @@ function StampRowInner({
             ref={endSecRef}
             className="stamp-edit-ss"
             value={endSec}
-            onChange={(e) => setEndSec(digitsOnly(e.target.value, 2))}
+            onChange={(e) => setEndSecWithDirty(digitsOnly(e.target.value, 2))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
