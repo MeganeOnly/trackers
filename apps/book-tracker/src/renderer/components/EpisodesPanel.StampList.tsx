@@ -39,6 +39,13 @@ export interface StampListProps {
    *   已经有自己的 EpisodesPanel 标题 trigger,不在子层重复)
    */
   withStickyTrigger?: boolean
+  /**
+   * 是否显示底部"时间填分:秒(秒位需 < 60);留空结束 = 单时间点"提示文案。
+   * - true(默认)→ BookStampsPanel / EpisodesPanel 内部用(新手引导)
+   * - false → 独立便签窗口(EpisodeNotesSticky)用 —— 紧凑形态,
+   *   用户在主面板已经看过提示,这里再显示就是冗余
+   */
+  withHint?: boolean
 }
 
 /**
@@ -52,7 +59,7 @@ export interface StampListProps {
  * - **id 用 `crypto.randomUUID()`**:稳定 UUID,让 edit/delete 能精确锁定单条
  * - **v1.7 wikilink**:每条 stamp 的 note textarea 集成 `[[` 触发 picker
  */
-export function StampList({ book, allBooks, stamps, onChange, withStickyTrigger }: StampListProps): JSX.Element {
+export function StampList({ book, allBooks, stamps, onChange, withStickyTrigger, withHint = true }: StampListProps): JSX.Element {
   // 已排序的展示列表 —— 每次 props.stamps 变化重排(防止外部不按序传入)
   const sortedStamps = useMemo(() => sortStamps(stamps), [stamps])
 
@@ -277,9 +284,11 @@ export function StampList({ book, allBooks, stamps, onChange, withStickyTrigger 
         </button>
       </div>
       {inputError && <div className="stamp-add-error">{inputError}</div>}
-      <p className="stamp-list-hint muted">
-        时间填分:秒(秒位需 &lt; 60);留空结束 = 单时间点(标记"这一刻")
-      </p>
+      {withHint && (
+        <p className="stamp-list-hint muted">
+          时间填分:秒(秒位需 &lt; 60);留空结束 = 单时间点(标记"这一刻")
+        </p>
+      )}
     </div>
   )
 }

@@ -22,7 +22,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Book, TimeStamp } from '@shared/types'
-import { WORK_KIND_LABELS } from '@shared/types'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useBooksStore } from '../store/books'
 import { useEpisodeStickyStore } from '../store/episodeSticky'
@@ -224,10 +223,7 @@ export function EpisodeNotesSticky(): JSX.Element {
           data-testid="sticky-title-btn"
         >
           {book ? (
-            <>
-              《{book.title}》
-              <span className={`kind-tag kind-${book.kind}`}>{WORK_KIND_LABELS[book.kind]}</span>
-            </>
+            <>《{book.title}》</>
           ) : (
             <span className="muted">选作品</span>
           )}
@@ -289,6 +285,7 @@ export function EpisodeNotesSticky(): JSX.Element {
             book={book}
             allBooks={allBooks}
             stamps={stamps}
+            withHint={false}
             onChange={(next) => {
               // 整体替换式 IPC(StampList 已按 start 升序排好)
               if (selectedKind === 'movie') {

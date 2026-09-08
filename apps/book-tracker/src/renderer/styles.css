@@ -3795,15 +3795,23 @@ ul.book-grid {
   font-weight: 600;
   font-size: 13px;
   padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--accent);
+  /* 去掉黑框框:用户反馈"01 不需要黑框框起来" —— 改为透明背景,
+     只在 hover/focus 时给淡背景提示可点击 */
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 4px;
   color: var(--accent);
   min-width: 32px;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .sticky-episode-btn:hover:not(:disabled) {
-  background: var(--accent);
-  color: white;
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--accent);
+}
+.sticky-episode-btn:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--accent);
 }
 .sticky-episode-btn:disabled {
   cursor: not-allowed;
