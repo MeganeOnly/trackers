@@ -132,15 +132,18 @@ export function EpisodeNotesSticky(): JSX.Element | null {
     [allBooks, selectedBookId]
   )
 
-  // 当前 stamp list 来自哪个路径
-  const stamps: TimeStamp[] | undefined = useMemo(() => {
-    if (!book) return undefined
-    if (selectedKind === 'movie') return book.stamps
+  // 当前 stamp list 来自哪个路径 —— **永远返回数组**(即使 episode record 不存在
+  // 也返回 []),这样 StampList 始终能渲染 + 暴露添加区,允许用户给"还没记录的集"
+  // 添加第一条 stamp。首次添加会触发 setEpisodeStamps → Rust 端自动创建 episode record
+  // (v1.5 sparse 策略 + per-stamp lastModified 写盘逻辑已覆盖空 record 场景)。
+  const stamps: TimeStamp[] = useMemo(() => {
+    if (!book) return []
+    if (selectedKind === 'movie') return book.stamps ?? []
     if (selectedKind === 'episode') {
       const key = `${selectedSeason}-${selectedEpisode}`
-      return book.episodes?.[key]?.stamps
+      return book.episodes?.[key]?.stamps ?? []
     }
-    return undefined
+    return []
   }, [book, selectedKind, selectedSeason, selectedEpisode])
 
   // ---------- 拖拽 ----------
@@ -362,7 +365,7 @@ export function EpisodeNotesSticky(): JSX.Element | null {
 
       {/* 内容区 */}
       <div className="sticky-body">
-        {book && stamps !== undefined && (
+        {book && (
           <StampList
             book={book}
             allBooks={allBooks}
@@ -376,11 +379,6 @@ export function EpisodeNotesSticky(): JSX.Element | null {
               }
             }}
           />
-        )}
-        {book && stamps === undefined && (
-          <p className="muted sticky-empty-hint">
-            该集暂无时间戳笔记 — 在下方添加
-          </p>
         )}
         {!book && (
           <div className="sticky-no-book">

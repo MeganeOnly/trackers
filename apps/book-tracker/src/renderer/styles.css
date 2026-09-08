@@ -3734,9 +3734,11 @@ ul.book-grid {
   max-width: calc(100vw - 16px);
   max-height: 70vh;
   background: #fffbe6;          /* 暖黄底,便签纸观感 */
-  border: 1px solid var(--accent);
+  /* 去掉黑粗 border + 重 box-shadow —— 用户反馈"太重"。
+     改用单层柔和阴影 + 1px 极淡边框,跟便签纸贴在空气里的轻盈感更搭。 */
+  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3746,10 +3748,11 @@ ul.book-grid {
 .sticky-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--accent-soft);
-  border-bottom: 1px solid var(--accent);
+  gap: 4px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.4);
+  /* 去掉黑色分隔线,跟去掉 border 协调 —— header 跟 body 视觉连贯 */
+  border-bottom: none;
   cursor: grab;
   user-select: none;
   flex-shrink: 0;
@@ -3758,8 +3761,10 @@ ul.book-grid {
   cursor: grabbing;
 }
 .sticky-title-btn {
-  flex: 1;
+  /* 不要 flex: 1 —— 让标题 content-width,集数紧贴右侧(issue 3:01 靠左到《X》右边) */
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 200px;
   text-align: left;
   font-weight: 600;
   font-size: 13px;
@@ -3784,6 +3789,7 @@ ul.book-grid {
   background: rgba(255, 255, 255, 0.6);
 }
 .sticky-episode-btn {
+  /* 不需要 margin-left:auto —— 紧贴 title btn 右侧 */
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 13px;
@@ -3806,6 +3812,7 @@ ul.book-grid {
   font-size: 13px;
   padding: 3px 8px;
 }
+/* 关闭按钮用 margin-left:auto 推到 header 最右 */
 .sticky-close-btn {
   font-size: 18px;
   line-height: 1;
@@ -3814,6 +3821,7 @@ ul.book-grid {
   background: transparent;
   border: none;
   flex-shrink: 0;
+  margin-left: auto;
 }
 .sticky-close-btn:hover {
   color: var(--fg);
