@@ -212,39 +212,64 @@ export function EpisodeNotesSticky(): JSX.Element {
       data-testid="episode-sticky-window"
     >
       <div className="sticky-header" data-testid="sticky-header">
-        {/* 作品标题(可点击切换)—— movie 时也显示但 picker 内只列 movie 一类 */}
-        <button
-          type="button"
-          className="sticky-title-btn sticky-popover-trigger"
-          onClick={() => {
-            setWorkPickerOpen((v) => !v)
-            setEpisodePickerOpen(false)
-          }}
-          data-testid="sticky-title-btn"
-        >
-          {book ? (
-            <>《{book.title}》</>
-          ) : (
-            <span className="muted">选作品</span>
+        {/* 作品标题(可点击切换)—— 包一层 .sticky-trigger-wrap (position: relative)
+            让 popover 的 top:100% 相对 trigger 自身,而不是相对整张卡片(原来会跑到
+            卡片底部导致 picker 出现在不该出现的位置)。 */}
+        <div className="sticky-trigger-wrap">
+          <button
+            type="button"
+            className="sticky-title-btn sticky-popover-trigger"
+            onClick={() => {
+              setWorkPickerOpen((v) => !v)
+              setEpisodePickerOpen(false)
+            }}
+            data-testid="sticky-title-btn"
+          >
+            {book ? (
+              <>《{book.title}》</>
+            ) : (
+              <span className="muted">选作品</span>
+            )}
+          </button>
+          {workPickerOpen && (
+            <WorkPickerPopover
+              currentBookId={selectedBookId}
+              popoverRef={workPickerRef}
+              onClose={() => setWorkPickerOpen(false)}
+            />
           )}
-        </button>
-        {/* 集数(可点击切换;movie 不可点) */}
+        </div>
+        {/* 标题 ↔ 集数视觉连接符: 短横线 - 居中显示,movie 模式不显示(无集数) */}
+        {selectedKind !== 'movie' && <span className="sticky-sep" aria-hidden="true">-</span>}
+        {/* 集数(可点击切换;movie 显示 — 占位且不可点) */}
         {selectedKind === 'movie' ? (
           <span className="sticky-episode-display muted" title="电影无集数">—</span>
         ) : (
-          <button
-            type="button"
-            className="sticky-episode-btn sticky-popover-trigger"
-            onClick={() => {
-              if (!book) return
-              setEpisodePickerOpen((v) => !v)
-              setWorkPickerOpen(false)
-            }}
-            disabled={!book || seasons.length === 0}
-            data-testid="sticky-episode-btn"
-          >
-            {String(selectedEpisode).padStart(2, '0')}
-          </button>
+          <div className="sticky-trigger-wrap">
+            <button
+              type="button"
+              className="sticky-episode-btn sticky-popover-trigger"
+              onClick={() => {
+                if (!book) return
+                setEpisodePickerOpen((v) => !v)
+                setWorkPickerOpen(false)
+              }}
+              disabled={!book || seasons.length === 0}
+              data-testid="sticky-episode-btn"
+            >
+              {String(selectedEpisode).padStart(2, '0')}
+            </button>
+            {episodePickerOpen && book && (
+              <EpisodePickerPopover
+                book={book}
+                seasons={seasons}
+                currentSeason={selectedSeason}
+                currentEpisode={selectedEpisode}
+                popoverRef={episodePickerRef}
+                onClose={() => setEpisodePickerOpen(false)}
+              />
+            )}
+          </div>
         )}
         {/* 隐藏(OS 标题栏 × 按钮 = 销毁窗口;我们这里只隐藏,允许 trigger 重新聚焦) */}
         <button
@@ -258,25 +283,6 @@ export function EpisodeNotesSticky(): JSX.Element {
           ×
         </button>
       </div>
-
-      {/* popover 层 */}
-      {workPickerOpen && (
-        <WorkPickerPopover
-          currentBookId={selectedBookId}
-          popoverRef={workPickerRef}
-          onClose={() => setWorkPickerOpen(false)}
-        />
-      )}
-      {episodePickerOpen && book && (
-        <EpisodePickerPopover
-          book={book}
-          seasons={seasons}
-          currentSeason={selectedSeason}
-          currentEpisode={selectedEpisode}
-          popoverRef={episodePickerRef}
-          onClose={() => setEpisodePickerOpen(false)}
-        />
-      )}
 
       {/* 内容区 */}
       <div className="sticky-body">

@@ -3767,6 +3767,25 @@ ul.book-grid {
   user-select: none;
   flex-shrink: 0;
 }
+/* 标题 / 集数 trigger 的 inline-flex wrapper —— 提供 position: relative
+   让 popover(top: 100%)相对 trigger 自身定位(而不是相对整张 card,
+   否则 picker 跑到卡片底部,跟 StampList 重叠混乱) */
+.sticky-trigger-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;  /* 防止 flex item 撑出 viewport */
+}
+/* 标题 ↔ 集数视觉连接符 —— 用户要求"《xx》- 01"格式,中间一个短横线
+   当 separator。比无 separator 紧贴时更清楚"同一行",又不挡两个 trigger 各自的点击区。 */
+.sticky-sep {
+  color: #999;
+  font-size: 13px;
+  font-weight: 400;
+  user-select: none;
+  flex-shrink: 0;
+  margin: 0 1px;  /* 比 gap 略紧,让短横线视觉上贴住两边 */
+}
 .sticky-title-btn {
   /* 不要 flex: 1 —— 让标题 content-width,集数紧贴右侧(issue 3:01 靠左到《X》右边) */
   flex: 0 1 auto;
@@ -3877,25 +3896,29 @@ ul.book-grid {
 /* ============ Popover (浮窗内嵌下拉) ============ */
 .sticky-popover {
   position: absolute;
-  top: 100%;
+  top: 100%;          /* 相对最近的 .sticky-trigger-wrap (position: relative) */
   z-index: 160;
   background: white;
-  border: 1px solid var(--accent);
+  border: 1px solid #d0d0d0;
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   padding: 8px;
   max-height: 320px;
   overflow-y: auto;
+  margin-top: 2px;   /* 跟 trigger 留 2px 视觉间距,避免紧贴 */
 }
-/* 作品 picker 在标题按钮下方(左对齐) */
+/* 作品 picker 在标题按钮下方 —— left:0 让左边缘对齐 trigger 左边缘,跟旧版 left:10px 相比
+   更贴齐"《xxx》"字宽,视觉连接更紧 */
 .sticky-work-picker {
-  left: 10px;
+  left: 0;
   width: 320px;
   max-width: calc(100vw - 32px);
 }
-/* 集数 picker 在「01」按钮下方(右对齐) */
+/* 集数 picker 在「01」按钮下方 —— right:0 让右边缘对齐 trigger 右边缘,
+   跟旧版 right:36px(避开 close btn)相比,因为 picker 已在 wrap 内不与 close btn 冲突,
+   改为 right:0 紧贴 trigger 右边缘 */
 .sticky-episode-picker {
-  right: 36px;        /* 避开关闭按钮 */
+  right: 0;
   width: 280px;
   max-width: calc(100vw - 48px);
 }
