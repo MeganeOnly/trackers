@@ -3733,10 +3733,11 @@ ul.book-grid {
   position: relative;
   width: 100%;
   height: 100vh;
-  /* 配色 v2.x:更亮的暖奶油底 —— 用户反馈原 #fffbe6 偏暗。
-     改用 #fff8e1 + 整体偏暖的 amber/yellow 调色板,跟 Post-it 便签纸的
-     明亮感更接近,而不是旧色系(浅奶油+白底叠加)那种发暗的观感。 */
-  background: #fff8e1;
+  /* 配色 v2.x 第三版:换成中性灰冷调 —— 用户反馈"更灰冷一些 / 上下颜色不要求差异大"。
+     之前 amber 暖色 + 高饱和 header 太扎眼。改用 #fafafa body + #efefef header
+     (差 10 个亮度单位,几乎只是细微区分),整体走极简灰冷白风格,
+     跟 macOS 备忘录 / Bear 这类工具的"无存在感"配色对齐。 */
+  background: #fafafa;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3750,18 +3751,18 @@ ul.book-grid {
   height: 100vh;
   padding: 24px;
   text-align: center;
-  background: #fff8e1;
+  background: #fafafa;
   font-size: 13px;
 }
 /* sticky-header:不再是拖拽手柄,只作为视觉顶部条 + 容纳 picker trigger 按钮。
-   **配色关键**:header 用 #ffe082 饱和暖黄,跟 body #fff8e1 形成明显色差
-   (饱和度 + 亮度都更突出),让"标题区"和"内容区"一眼可分。 */
+   配色:跟 body 几乎同色(#efefef 略深一档),不抢戏 —— 让内容区(StampList)
+   的 01 数字 + stamp 列表成为视觉焦点。 */
 .sticky-header {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 6px 8px;
-  background: #ffe082;
+  background: #efefef;
   border-bottom: none;
   user-select: none;
   flex-shrink: 0;
@@ -3805,21 +3806,22 @@ ul.book-grid {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  /* 配色 v2.x:跟新便签调色板对齐 —— #b45309 是 Tailwind amber-700,
-     暖琥珀色,跟 header #ffe082 + body #fff8e1 同色系,跟"灰冷"的
-     var(--accent) 比起来更轻盈 + 跟便签主题一致 */
-  color: #b45309;
+  /* 配色 v2.x 第三版:跟中性灰冷主题对齐 —— 文字用 #555 中性灰,
+     跟 amber 主题拉开距离,跟 body #fafafa / header #efefef 同冷调。
+     不用主题 var(--accent) 是因为它在 classic 主题下偏深绿/深蓝,
+     跟整体灰冷风格冲突 —— 便签窗口独立用 hard-coded 中性色更稳。 */
+  color: #555;
   min-width: 32px;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 .sticky-episode-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.6);
-  border-color: #d97706;  /* Tailwind amber-600,跟 01 文字色协调 */
+  background: rgba(0, 0, 0, 0.06);
+  border-color: #d0d0d0;
 }
 .sticky-episode-btn:focus-visible {
   outline: none;
-  background: rgba(255, 255, 255, 0.6);
-  border-color: #d97706;
+  background: rgba(0, 0, 0, 0.06);
+  border-color: #d0d0d0;
 }
 .sticky-episode-btn:disabled {
   cursor: not-allowed;
