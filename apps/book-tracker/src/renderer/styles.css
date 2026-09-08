@@ -3903,9 +3903,13 @@ ul.book-grid {
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   padding: 8px;
-  max-height: 320px;
+  /* max-height 跟窗口高度联动 —— 旧 320px 写死导致小窗口时 picker 底部被窗口边
+     裁掉,用户看不到 100+ 集。改成 calc(100vh - 70px) = 视口高 - 头部(30) -
+     trigger(30) - 上下 margin/padding(10),确保 picker 始终完整在窗口内;
+     内容超出时走 overflow-y: auto 内部滚动(用户可滚到 123 集)。 */
+  max-height: calc(100vh - 70px);
   overflow-y: auto;
-  margin-top: 2px;   /* 跟 trigger 留 2px 视觉间距,避免紧贴 */
+  margin-top: 2px;
 }
 /* 作品 picker 在标题按钮下方 —— left:0 让左边缘对齐 trigger 左边缘,跟旧版 left:10px 相比
    更贴齐"《xxx》"字宽,视觉连接更紧 */
