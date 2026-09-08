@@ -1,6 +1,6 @@
 // 集笔记便签 —— 独立 Tauri 窗口版(v2.x 新增)
 //
-// 形态:在独立 OS 窗口中渲染(label='sticky',400x480,always_on_top)。
+// 形态:在独立 OS 窗口中渲染(label='sticky',400x480)。
 // 窗口本身由 OS 提供标题栏 + 拖拽 + 关闭按钮(decorations=true);
 // 本组件**不**自己管位置(position: fixed 去掉,window 提供位置)。
 //

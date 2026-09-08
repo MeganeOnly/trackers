@@ -394,19 +394,22 @@ pub fn data_reveal_in_explorer<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
 ///   由 React 检测 hash 渲染只含 `<EpisodeNotesSticky />` 的简化版 app
 ///
 /// 设计意图:
-/// - 用户场景:看剧时随手记时间戳,**真正独立于主 app**(可拖到第二屏幕、置顶、
+/// - 用户场景:看剧时随手记时间戳,**真正独立于主 app**(可拖到第二屏幕、
 ///   关主 app 后仍可见)。不是主 app 内的浮层。
 /// - 两个窗口共享 localStorage(zustand `episodeSticky` store 自动 hydrate),
 ///   所以主 app 选定的 book / 季 / 集 在 sticky 窗口打开后立刻可见;
-///   sticky 窗口里的改动(选 book / 切集 / 加 stamp)也通过 localStorage + IPC
-///   同步到主 app,主 app 重新打开或 hydrate 后看到最新状态。
+///   sticky 窗口里的改动(选 book / 切集 / 加 stamp)通过 emit 'book-changed'
+///   事件 + IPC 同步到主 app(主 app 监听后 loadBooks() 刷新)。
 ///
 /// 配置参数:
 /// - 400x480(便签大小,可拖拽 resize)
-/// - `always_on_top: true` —— 置顶,看剧时不被其他窗口挡住
 /// - `skip_taskbar: true` —— 不在任务栏占位(避免 1 个便签挤占一个任务栏图标)
 /// - `decorations: true` —— 保留 OS 标题栏,用户可原生拖拽 + 最小化 + 关闭
 ///   (× 按钮和 OS 关闭按钮都能关窗口)
+///
+/// **不**用 always_on_top:用户反馈"感觉不像普通窗口"——置顶窗口会被其他 app 盖不到,
+/// 跟 macOS Stickies / Windows 记事贴的"普通窗口"心智不符。改成"可以被其他 app
+/// 盖住"的正常行为后,用户自己用 OS 切到便签窗口时仍是顶层(OS 焦点机制)。
 #[tauri::command]
 pub async fn open_sticky_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     use tauri::WebviewUrl;
@@ -426,7 +429,6 @@ pub async fn open_sticky_window<R: Runtime>(app: AppHandle<R>) -> Result<(), Str
         .title("集笔记便签")
         .inner_size(400.0, 480.0)
         .min_inner_size(320.0, 280.0)
-        .always_on_top(true)
         .skip_taskbar(true)
         .decorations(true)
         .build()

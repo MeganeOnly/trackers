@@ -433,7 +433,7 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - **写盘策略**:`stamps` 数组为空 → 不写 frontmatter(最稀疏);老数据缺字段 → `undefined`(向后兼容,`parse_stamps` 容错);坏 stamp(缺 id/start/note)整条跳过(防御性)
   - **per-row `lastModified`**:沿用 v1.6 语义,每条 stamp 独立"最后修改时间";`book.updated` 不被刷
 - [x] **集笔记便签**(独立窗口,`EpisodeNotesSticky`,v2.x 新增)—— 便签条风格的轻量时间戳入口,**独立 Tauri OS 窗口**(不是主 app 内嵌浮层),与 BookNotesModal 互补
-  - **形态**:**真正的 OS 窗口**(label='sticky',400x480,always_on_top,skip_taskbar=true),Rust `WebviewWindowBuilder` 创建;OS 标题栏提供原生拖拽 + 最小化 + 关闭;UI 内的 × 按钮 = `getCurrentWindow().hide()`(隐藏,trigger 可重新聚焦)
+  - **形态**:**真正的 OS 窗口**(label='sticky',400x480,skip_taskbar=true),Rust `WebviewWindowBuilder` 创建;OS 标题栏提供原生拖拽 + 最小化 + 关闭;UI 内的 × 按钮 = `getCurrentWindow().hide()`(隐藏,trigger 可重新聚焦)。**不**用 always_on_top:用户反馈"感觉不像普通窗口",改成"可以被其他 app 盖住"的普通窗口行为,符合 macOS Stickies / Windows 记事贴的心智
   - **触发**:EpisodesPanel 的「集笔记」h3 右侧 + BookStampsPanel 的「时间戳笔记」右侧各放一个 14x14 黄色小圆点;点击调 `api.app.openStickyWindow()` 让 Rust 端创建 / 聚焦窗口;Rust 端走「已存在 → 聚焦 / 不存在 → 新建」幂等逻辑,不会创建多个窗口
   - **顶部一行**:`《作品名》· 01` —— 标题/集数都可点击 → 内嵌 popover(浮在 trigger 下方,**不**嵌 Modal —— 避开 §十.40 Modal-in-Modal 反模式)
   - **内容**:直接复用 `StampList`(`withStickyTrigger` prop 控制 trigger 槽位),stamps 从 `useBooksStore` 直接读,改走 `setEpisodeStamps` / `setStamps` —— v2.x 治本模式(notesDirty + lastSentRef)在 StampList 内部已具备,便签组件不重复造轮子
