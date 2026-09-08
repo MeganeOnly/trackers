@@ -29,6 +29,7 @@ import { WikilinkText } from './WikilinkText'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
 import { InlineField } from './InlineField'
 import { StampList } from './EpisodesPanel.StampList'
+import { StickyTrigger } from './EpisodeNotesSticky'
 
 interface EpisodesPanelProps {
   book: Book
@@ -122,7 +123,10 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
   if (!currentSeason) {
     return (
       <section className="episodes-panel">
-        <h3 className="episodes-panel-title">集笔记</h3>
+        <div className="episodes-panel-title-row">
+          <h3 className="episodes-panel-title">集笔记</h3>
+          <StickyTrigger book={book} kind="episode" />
+        </div>
         <p className="muted">这部作品暂无季信息 —— 在编辑表单里加季后才能记录单集笔记。</p>
       </section>
     )
@@ -132,7 +136,10 @@ export function EpisodesPanel({ book }: EpisodesPanelProps): JSX.Element {
 
   return (
     <section className="episodes-panel">
-      <h3 className="episodes-panel-title">集笔记</h3>
+      <div className="episodes-panel-title-row">
+        <h3 className="episodes-panel-title">集笔记</h3>
+        <StickyTrigger book={book} kind="episode" />
+      </div>
       {/* 顶部统计 + 快速操作 —— 「已看 X / Y」中的 Y 用 InlineField 内联替换,
           点上去改本季集数;空值/非法值 blur 自动还原。
           Enter / 失焦 → flushSeasonCount(即时写盘);onChange → scheduleCountFlush(500ms debounce)。

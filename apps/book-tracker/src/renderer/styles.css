@@ -3648,3 +3648,308 @@ ul.book-grid {
   padding: 40px 16px;
   text-align: center;
 }
+
+/* =============================================================
+ * 集笔记便签浮窗 (v2.x) —— EpisodesPanel / BookStampsPanel 标题
+ * 右侧小圆点 + 便签条风格的轻量浮窗
+ * ============================================================= */
+
+/* 标题行容器:让「集笔记」+ trigger 在同一行 */
+.episodes-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+/* StampList 头部右侧加 trigger 时,把 count 推到中间 */
+.stamp-list-head {
+  /* 与原有 flex 不变;只新增 trigger 占位 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  gap: 8px;
+}
+.stamp-list-head .sticky-trigger {
+  margin-left: auto;
+}
+
+/* 小圆点触发器 —— 14x14,黄色 (accent-soft),hover 放大 + 描边 */
+.sticky-trigger {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  cursor: pointer;
+  padding: 0;
+  vertical-align: middle;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.sticky-trigger:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  border-color: var(--accent);
+}
+.sticky-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+}
+.sticky-trigger.is-open {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.2);
+}
+
+/* ============ 便签浮窗本体 ============ */
+.episode-sticky-card {
+  position: fixed;
+  /* top / left 由内联 style 控制(可拖拽) */
+  z-index: 150;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: 70vh;
+  background: #fffbe6;          /* 暖黄底,便签纸观感 */
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+/* 拖拽手柄 header */
+.sticky-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.sticky-header:active {
+  cursor: grabbing;
+}
+.sticky-title-btn {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sticky-title-btn:hover {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--accent);
+}
+.sticky-title-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.6);
+}
+.sticky-episode-btn {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  min-width: 32px;
+}
+.sticky-episode-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: white;
+}
+.sticky-episode-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.sticky-episode-display {
+  font-size: 13px;
+  padding: 3px 8px;
+}
+.sticky-close-btn {
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  flex-shrink: 0;
+}
+.sticky-close-btn:hover {
+  color: var(--fg);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+}
+
+/* ============ 内容区 ============ */
+.sticky-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 8px;
+}
+.sticky-body .stamp-list {
+  /* 浮窗内的 stamp-list 不需要外边距 */
+  margin-top: 0;
+}
+.sticky-empty-hint {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 0;
+}
+.sticky-no-book {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+/* ============ Popover (浮窗内嵌下拉) ============ */
+.sticky-popover {
+  position: absolute;
+  top: 100%;
+  z-index: 160;
+  background: white;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+/* 作品 picker 在标题按钮下方(左对齐) */
+.sticky-work-picker {
+  left: 10px;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+}
+/* 集数 picker 在「01」按钮下方(右对齐) */
+.sticky-episode-picker {
+  right: 36px;        /* 避开关闭按钮 */
+  width: 280px;
+  max-width: calc(100vw - 48px);
+}
+.sticky-popover:focus {
+  outline: none;
+}
+.sticky-popover-search {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  background: white;
+  margin-bottom: 6px;
+}
+.sticky-popover-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.sticky-popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sticky-popover-empty {
+  margin: 0;
+  padding: 16px 8px;
+  text-align: center;
+  font-size: 12px;
+}
+.sticky-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.sticky-popover-item:hover,
+.sticky-popover-item:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+.sticky-popover-item.is-selected {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.sticky-popover-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ EpisodePickerPopover: 季 + 集网格 ============ */
+.sticky-episode-season {
+  margin-bottom: 8px;
+}
+.sticky-episode-season:last-child {
+  margin-bottom: 0;
+}
+.sticky-episode-season-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+  padding: 0 2px;
+}
+.sticky-episode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+  gap: 3px;
+}
+.sticky-episode-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.1s, border-color 0.1s;
+}
+.sticky-episode-cell:hover {
+  border-color: var(--accent);
+  background: white;
+}
+.sticky-episode-cell.is-current {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  font-weight: 600;
+}

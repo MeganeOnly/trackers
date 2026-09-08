@@ -6,6 +6,107 @@
 
 ---
 
+## 2026-09:[book-tracker] 集笔记便签浮窗 —— 便签条形态的轻量时间戳入口 (v2.x)
+
+### 1. 现象 / 需求
+
+BookNotesModal 是 v2.x「完整聚合视图」(主笔记 + 集笔记 + 角色笔记),但用户高频场景是"看剧时随手记一个时间戳",BookNotesModal 的打开路径太长(进 EditMode / BookNotesModal 都要展开整本);诉求是:**面板内一键唤出小浮窗**,便签条风格,标题 + 集数可切换,内容直接是 StampList。
+
+### 2. 设计决策
+
+#### 2.1 触发位置选面板内而非 TopBar
+
+直觉方案是在 TopBar 加图标按钮,但跟用户对齐后改为:**EpisodesPanel 的「集笔记」h3 右侧 + BookStampsPanel 的「时间戳笔记」右侧各放一个 14x14 黄色小圆点**。
+
+理由:
+- **便签贴在上下文旁**心智(像真的便签纸贴在笔记本标题旁)—— 比全局入口更精准
+- 触发位置跟功能强绑定,用户"看到哪里能改时间戳 → 就在点旁边的圆点",零学习成本
+- 不抢 TopBar 已有按钮位(`设置`/`待选`/`图`/`排`/`+ 添加` + mode toggle)
+- 跟 AGENTS §十.50「切视图类状态局部 useState 而非 zustand」思路同款:**状态/入口属于哪就放哪**,BookDetail / BookNotesModal 的面板是便签触发的自然上下文
+
+**判定**:任何"全局 X 入口"冲动,先看是不是只在某个上下文里被需要 —— 通常是。
+
+#### 2.2 picker 用 popover 而非 Modal
+
+浮窗内的「《xx》」和「01」点击后**不**弹 Modal,**弹 position: absolute 下拉 popover**(浮在 trigger 下方,浮窗外点击关闭)。理由:
+- 避开 AGENTS §十.40「Modal-in-Modal 反模式」—— backdrop 双重叠加 / Esc 关闭竞态 / 点 backdrop 关两次
+- 便签心智本身就是"轻量",嵌一个 Modal 立刻"重",违和
+- popover 跟浮窗同一坐标系,Esc / 点空白 / 选完自动关的语义天然
+
+**判定**:任何"我想在浮层里弹个选择器"的冲动,先看 popover 能不能表达 —— 通常能。
+
+#### 2.3 复用 StampList 自带 v2.x 治本模式
+
+浮窗**不**自己持有 stamps 草稿。stamps 是 React props from `useBooksStore`,改走 `setEpisodeStamps` / `setStamps`(整体替换式 IPC)。v2.x 治本模式(`notesDirty + lastSentRef` 双闸门)在 `EpisodesPanel.StampList` 内部已具备,浮窗直接复用,自动继承 IME 选词 / debounce flush 全部保护。
+
+**判定**:**任何**「受控 input + debounce 异步 IPC + useEffect 同步外部 store」组件都要这套保护;新增 stamp UI 前 grep `notesDirty / lastSentRef / setNotesWithDirty` 找同款模式抄,别再写裸 useState 草稿(AGENTS §十.52)。
+
+#### 2.4 localStorage 而非 config.json
+
+浮窗位置 + 选中的 book/季/集进 localStorage,跟 `tracker-theme` / `tracker-format` 同款;不进 `config.json`。
+
+理由:
+- 浮窗 UI 状态属于"用户视觉偏好",跟"数据仓元数据"语义错位,混进 config.json 会污染数据仓
+- config.json 是用户数据,需要 git init 跟踪;浮窗位置跟版本管理无关
+- 跟 settings store 同款 `LS_KEY` 常量 + try/catch 隐私模式忽略 + JSON.parse 容错
+
+**判定**:**任何** UI 状态(主题 / 格式 / 浮窗位置 / 选中态),用 localStorage;**任何** 业务数据(作品 / 关系 / 排名 / 系列),用 config.json + IPC。
+
+#### 2.5 拖拽用原生 mousedown → 不引入 react-draggable
+
+浮窗可拖拽,但**不**用 `react-draggable`。理由:
+- AGENTS §二「刻意保持小」原则 —— 拖拽就 mousedown/mousemove/mouseup ~30 行,引入 ~5KB 依赖不值
+- `react-draggable` 的边界检测 / transform 处理对"绝对定位 fixed 浮窗"是 overkill
+- 写原生还顺带把"mousemove 期间实时跟手 + mouseup 时统一写 localStorage"的性能优化做掉
+
+实现要点:
+- mousedown 仅在 `.sticky-header` 空白处生效,跳过 `.sticky-trigger-ignore`(关闭按钮 / popover trigger 等)
+- 移动 < 3px 不算 drag,避免误触
+- mousemove 期间直接改 DOM `card.style.left/top`(不走 React render),拖拽手感丝滑
+- mouseup 时调 `setPosition` 触发 store + localStorage(clamp 在 store 层统一处理)
+
+#### 2.6 `open` 状态不持久化,`position` + `selection` 持久化
+
+浮窗的 `open` 是**会话级临时 UI 状态**,不写 localStorage;`position` + `selectedBookId/Kind/Season/Episode` 才持久化。
+
+理由:
+- 重启 App 后浮窗是关的,符合"启动清爽"心智(不会一打开就被旧浮窗挡住主界面)
+- 选中的作品/位置持久化 → 用户再次触发 trigger 直接看到上次的便签状态,无缝接续
+
+### 3. 实施清单
+
+```
+apps/book-tracker/src/renderer/
+├── store/episodeSticky.ts                 新增 zustand store + localStorage 同步
+├── components/EpisodeNotesSticky.tsx       新增 浮窗主组件 + StickyTrigger 命名导出
+├── components/EpisodeNotesSticky.Popovers.tsx  新增 WorkPickerPopover + EpisodePickerPopover
+├── components/EpisodesPanel.tsx             改 h3 → flex 行 + 加 <StickyTrigger book={book} kind="episode" />
+├── components/EpisodesPanel.StampList.tsx   改 加 withStickyTrigger?: boolean 可选 prop
+├── components/BookStampsPanel.tsx           改 传 withStickyTrigger 给 StampList
+├── App.tsx                                  改 渲染 <EpisodeNotesSticky />
+├── styles.css                               改 新增 .sticky-trigger / .episode-sticky-* / .sticky-popover-* 样式块
+└── components/__tests__/EpisodeNotesSticky.test.tsx  新增 10 个回归测试
+```
+
+### 4. 测试基建踩坑(留底)
+
+- **jsdom 不触发 document.addEventListener('mousemove') 注册的 native handler**:测试 8 第一版用 `fireEvent.mouseMove(document, ...)` 模拟拖拽,期望 position 被 setPosition 写 localStorage;失败 —— jsdom 的 fireEvent.mouseMove 不触发 `document.addEventListener` 注册的 native 监听器(与 React SyntheticEvent 不同)。**修正**:跳过拖拽 handler 集成测试,直接测 `setPosition` store action(覆盖"写盘 + clamp"逻辑)。**判定**:jsdom 下任何「document.addEventListener 注册的 native handler」用 fireEvent 都不可靠,测对应 store action 更稳。
+- **EpisodesPanel + 浮窗 + WikilinkProvider 三层 wrapper**:测试 mount EpisodesPanel 时 `useEffect(() => { useEpisodeStickyStore.getState().hydrate() }, [])` 会跑 → 触发 localStorage 读 → `useBooksStore.setState({ books: [] })` 注入 mock 前 hydrate 已跑完 → store 用 books=[] 渲染降级路径。**修正**:测试 fixture 在 `useBooksStore.setState` 之前调 `resetStores()` 把 `hydrated: true` 预设掉(避免 hydrate 跑),然后 setState mock 数据。
+- **`selectBook` 测试触发顺序**:测试 4 测 `selectBook` 重置集数,模拟"先选 A 第 3 集"需 `setState({ selectedSeason: 3, selectedEpisode: 7 })` 在 `selectBook` 之后,不能直接连续两个 `selectBook` 触发,因 `selectBook` 内部硬性设 `season: 1, episode: 1`。
+
+### 5. 共享边界判定
+
+属于 book-tracker 领域专属 UI 增强,留 `apps/book-tracker/`。不动 `tracker-core` / `tracker-ui` / life-tracker。`tracker-ui` 不增加通用 `<StickyTrigger>` —— 触发器 + 浮窗是 book-tracker 领域概念(集笔记 + 时间戳 + 拖拽便签),life-tracker 不需要。
+
+### 6. 后续可选(留底)
+
+- **跨集粘贴复制**:选中某集的 stamps → 一键复制到另一集;暂未实现,等用户反馈
+- **多浮窗**:当前全局单例(zustand);如果用户想同时开 2 个(看 A 记 A,看 B 记 B)需要 state 重构
+- **浮窗分组折叠**:几十集都想开浮窗 → 浮窗列表;不太可能需要
+- **movie 模式 stamp 加「分镜」标签**:目前纯自由文本 note;后续可加 `kind` 字段(台词 / 画面 / 配乐)
+
+---
+
 ## 2026-09:[book-tracker] 集笔记 / 时间戳笔记「完全无法编辑」—— IPC 异步回灌竞态的治本模式 (v2.x)
 
 ### 1. 现象

@@ -8,6 +8,7 @@ import { RankingModal } from './components/RankingModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { CandidatesModal } from './components/CandidatesModal'
 import { BookNotesModal } from './components/BookNotesModal'
+import { EpisodeNotesSticky } from './components/EpisodeNotesSticky'
 import { WikilinkProvider } from './components/WikilinkContext'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
@@ -124,6 +125,11 @@ export default function App(): JSX.Element {
             onClose={() => setNotesBookId(null)}
           />
         )}
+        {/* v2.x:集笔记便签浮窗 —— 始终挂载(根据 store.open 决定显示/隐藏),
+            面板标题右侧黄色小圆点(EpisodesPanel / BookStampsPanel 内)触发。
+            App 树根挂载 → 不被 BookDetail / BookNotesModal 的 mount/unmount 影响,
+            用户中途切页面浮窗保持打开。 */}
+        <EpisodeNotesSticky />
       </div>
     </WikilinkProvider>
   )

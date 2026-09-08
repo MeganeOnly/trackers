@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Book, TimeStamp } from '@shared/types'
 import { formatLastModified, formatStamp, parseStamp, sortStamps } from '@shared/types'
 import { useWikilinkTextarea } from './useWikilinkTextarea'
+import { StickyTrigger } from './EpisodeNotesSticky'
 
 const DEBOUNCE_MS = 500
 
@@ -31,6 +32,13 @@ export interface StampListProps {
   allBooks: Book[]
   stamps: TimeStamp[]
   onChange: (stamps: TimeStamp[]) => void
+  /**
+   * v2.x:是否在头部右侧渲染便签浮窗触发器。
+   * - true  → 仅在 BookStampsPanel 顶层用(电影时间戳笔记入口)
+   * - false(默认)→ EpisodesPanel 内部用(EpisodeEditor 展开区内的 stamp 列表,
+   *   已经有自己的 EpisodesPanel 标题 trigger,不在子层重复)
+   */
+  withStickyTrigger?: boolean
 }
 
 /**
@@ -44,7 +52,7 @@ export interface StampListProps {
  * - **id 用 `crypto.randomUUID()`**:稳定 UUID,让 edit/delete 能精确锁定单条
  * - **v1.7 wikilink**:每条 stamp 的 note textarea 集成 `[[` 触发 picker
  */
-export function StampList({ book, allBooks, stamps, onChange }: StampListProps): JSX.Element {
+export function StampList({ book, allBooks, stamps, onChange, withStickyTrigger }: StampListProps): JSX.Element {
   // 已排序的展示列表 —— 每次 props.stamps 变化重排(防止外部不按序传入)
   const sortedStamps = useMemo(() => sortStamps(stamps), [stamps])
 
@@ -163,6 +171,7 @@ export function StampList({ book, allBooks, stamps, onChange }: StampListProps):
       <div className="stamp-list-head">
         <span>时间戳笔记</span>
         <span className="stamp-list-count">{sortedStamps.length} 条</span>
+        {withStickyTrigger && <StickyTrigger book={book} kind="movie" />}
       </div>
       {/* 已存在的 stamp —— 按 start 升序展示 */}
       {sortedStamps.length > 0 && (

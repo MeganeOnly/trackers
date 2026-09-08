@@ -58,6 +58,7 @@ export function BookStampsPanel({
         allBooks={allBooks}
         stamps={stamps ?? []}
         onChange={onChange}
+        withStickyTrigger
       />
     </section>
   )
