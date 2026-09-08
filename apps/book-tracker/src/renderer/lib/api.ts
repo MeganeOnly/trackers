@@ -15,11 +15,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Book, BookInput, Candidate, Character, Config, Edge, PromoteStatus, RankingFile, Series, SeriesInput, SeriesPatch, TimeStamp } from '@shared/types'
 import type { BrokenEntry, ElectronAPI } from '@shared/api'
 
-export const api: ElectronAPI & {
-  app: {
-    ensureDataDir: () => Promise<string>
-  }
-} = {
+export const api: ElectronAPI = {
   books: {
     list: () => invoke<{ books: Book[]; broken: BrokenEntry[] }>('books_list'),
     get: (id) => invoke<Book | null>('books_get', { id }),
@@ -86,6 +82,13 @@ export const api: ElectronAPI & {
     revealInExplorer: () => invoke<void>('data_reveal_in_explorer')
   },
   app: {
-    ensureDataDir: () => invoke<string>('app_ensure_data_dir')
+    ensureDataDir: () => invoke<string>('app_ensure_data_dir'),
+    /**
+     * 打开 / 聚焦「集笔记便签」独立小窗。
+     * - 不存在 → Rust 端创建 webview window,加载 `index.html#/sticky` 路由
+     * - 已存在 → Rust 端 unminimize + set_focus,**不**重建
+     *   (避免丢失 React state / zustand store hydrate 状态)
+     */
+    openStickyWindow: () => invoke<void>('open_sticky_window')
   }
 }

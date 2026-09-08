@@ -3725,40 +3725,41 @@ ul.book-grid {
   transform: scale(1.2);
 }
 
-/* ============ 便签浮窗本体 ============ */
+/* ============ 便签浮窗本体(独立窗口) ============ */
+/* v2.x:改为独立 Tauri 窗口后,本组件填满整个窗口内容区(OS 标题栏之下)。
+   不再 position: fixed(OS 窗口管位置)、不再 mousedown 拖拽(OS 标题栏管)。
+   只是把"卡片"作为 root container 直接铺满 —— 没有 border/shadow(窗口本身有 OS 边框)。 */
 .episode-sticky-card {
-  position: fixed;
-  /* top / left 由内联 style 控制(可拖拽) */
-  z-index: 150;
-  width: 360px;
-  max-width: calc(100vw - 16px);
-  max-height: 70vh;
+  position: relative;
+  width: 100%;
+  height: 100vh;
   background: #fffbe6;          /* 暖黄底,便签纸观感 */
-  /* 去掉黑粗 border + 重 box-shadow —— 用户反馈"太重"。
-     改用单层柔和阴影 + 1px 极淡边框,跟便签纸贴在空气里的轻盈感更搭。 */
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   font-size: 13px;
 }
-/* 拖拽手柄 header */
+/* sticky 窗口初始化错误时的 fallback */
+.sticky-init-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 24px;
+  text-align: center;
+  background: #fffbe6;
+  font-size: 13px;
+}
+/* sticky-header:不再是拖拽手柄,只作为视觉顶部条 + 容纳 picker trigger 按钮 */
 .sticky-header {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.4);
-  /* 去掉黑色分隔线,跟去掉 border 协调 —— header 跟 body 视觉连贯 */
   border-bottom: none;
-  cursor: grab;
   user-select: none;
   flex-shrink: 0;
-}
-.sticky-header:active {
-  cursor: grabbing;
 }
 .sticky-title-btn {
   /* 不要 flex: 1 —— 让标题 content-width,集数紧贴右侧(issue 3:01 靠左到《X》右边) */

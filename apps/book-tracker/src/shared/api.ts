@@ -165,6 +165,18 @@ export interface CandidatesAPI {
   promote(id: string, status: PromoteStatus): Promise<Book>
 }
 
+/**
+ * v2.x 应用级 API。
+ *
+ * - `ensureDataDir()` —— 首启时确保 data_dir 已选定
+ * - `openStickyWindow()` —— 打开/聚焦「集笔记便签」独立小窗;若已存在则聚焦,
+ *   不重建(避免 React state / 拖拽位置丢失)。Rust 端走 `WebviewWindowBuilder` 创建。
+ */
+export interface AppAPI {
+  ensureDataDir(): Promise<string>
+  openStickyWindow(): Promise<void>
+}
+
 export interface ElectronAPI {
   books: BookAPI
   relations: RelationsAPI
@@ -173,4 +185,5 @@ export interface ElectronAPI {
   series: SeriesAPI
   candidates: CandidatesAPI
   data: DataAPI
+  app: AppAPI
 }

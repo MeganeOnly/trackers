@@ -119,20 +119,19 @@ afterEach(() => {
 // =============================================================
 
 describe('EpisodeNotesSticky / StickyTrigger', () => {
-  it('1. 默认 open=false → DOM 中无浮窗卡片', () => {
+  it('1. 组件始终渲染(不再受 open 控制 —— 独立窗口打开 = 组件挂载)', () => {
+    useBooksStore.setState({ books: [TV_BOOK] })
     render(
       <WikilinkProvider>
         <EpisodeNotesSticky />
       </WikilinkProvider>
     )
-    // 浮窗挂载但 hidden(open=false 时返回 null)
-    expect(screen.queryByTestId('sticky-header')).toBeNull()
+    // v2.x:不在 if open 时返回 null;独立窗口整个 root 都是组件,组件始终挂载
+    expect(screen.getByTestId('sticky-header')).toBeTruthy()
   })
 
-  it('2. hydrate 后 position + selection 从 localStorage 恢复', () => {
-    // 预置 localStorage(注意:hydrate 会 mark hydrated=true,需先清掉)
+  it('2. hydrate 后 selection 从 localStorage 恢复(position 由 OS 管不再持久化)', () => {
     useEpisodeStickyStore.setState({ hydrated: false })
-    localStorage.setItem('tracker-episode-sticky-position', JSON.stringify({ x: 100, y: 200 }))
     localStorage.setItem(
       'tracker-episode-sticky-selection',
       JSON.stringify({ bookId: '1', kind: 'episode', season: 2, episode: 5 })
@@ -142,7 +141,6 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
 
     const state = useEpisodeStickyStore.getState()
     expect(state.hydrated).toBe(true)
-    expect(state.position).toEqual({ x: 100, y: 200 })
     expect(state.selectedBookId).toBe('1')
     expect(state.selectedSeason).toBe(2)
     expect(state.selectedEpisode).toBe(5)
@@ -150,33 +148,37 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
     expect(state.open).toBe(false)
   })
 
-  it('3. StickyTrigger 点击 → toggle open + 自动选当前 book', () => {
+  it('3. StickyTrigger 点击 → setOpen(true) + 自动选当前 book + 调 IPC', async () => {
     useBooksStore.setState({ books: [TV_BOOK] })
-    render(
-      <WikilinkProvider>
-        <StickyTrigger book={TV_BOOK} kind="episode" />
-      </WikilinkProvider>
-    )
-    const trigger = screen.getByTestId('sticky-trigger')
+    // mock api.app.openStickyWindow —— 避免 jsdom 拉 Tauri runtime
+    const openSpy = vi.fn().mockResolvedValue(undefined)
+    const apiMod = await import('../../lib/api')
+    const origOpen = apiMod.api.app.openStickyWindow
+    apiMod.api.app.openStickyWindow = openSpy
 
-    // 第一次点击 → open=true + 自动选 TV_BOOK
-    act(() => {
-      fireEvent.click(trigger)
-    })
-    let state = useEpisodeStickyStore.getState()
-    expect(state.open).toBe(true)
-    expect(state.selectedBookId).toBe(TV_BOOK.id)
-    expect(state.selectedKind).toBe('episode')
-    expect(state.selectedSeason).toBe(1)
-    expect(state.selectedEpisode).toBe(1)
+    try {
+      render(
+        <WikilinkProvider>
+          <StickyTrigger book={TV_BOOK} kind="episode" />
+        </WikilinkProvider>
+      )
+      const trigger = screen.getByTestId('sticky-trigger')
 
-    // 第二次点击 → open=false(选中保留,方便下次打开恢复)
-    act(() => {
-      fireEvent.click(trigger)
-    })
-    state = useEpisodeStickyStore.getState()
-    expect(state.open).toBe(false)
-    expect(state.selectedBookId).toBe(TV_BOOK.id) // 保留
+      await act(async () => {
+        fireEvent.click(trigger)
+        await Promise.resolve()
+      })
+
+      const state = useEpisodeStickyStore.getState()
+      expect(state.open).toBe(true)
+      expect(state.selectedBookId).toBe(TV_BOOK.id)
+      expect(state.selectedKind).toBe('episode')
+      expect(state.selectedSeason).toBe(1)
+      expect(state.selectedEpisode).toBe(1)
+      expect(openSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      apiMod.api.app.openStickyWindow = origOpen
+    }
   })
 
   it('4. selectBook 重置集数:tv/anime → [1,1];movie → [0,0]', () => {
@@ -204,11 +206,14 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
     expect(s.selectedEpisode).toBe(0)
   })
 
-  it('5. 浮窗打开后,WorkPicker 列出 tv / anime / movie,过滤 book / other', () => {
+  it('5. WorkPicker 列出 tv / anime / movie,过滤 book / other', () => {
     useBooksStore.setState({ books: [TV_BOOK, MOVIE_BOOK, BOOK_ONLY] })
-    // 打开浮窗
-    act(() => {
-      useEpisodeStickyStore.setState({ open: true })
+    // 选中一本后才能渲染 header
+    useEpisodeStickyStore.setState({
+      selectedBookId: TV_BOOK.id,
+      selectedKind: 'episode',
+      selectedSeason: 1,
+      selectedEpisode: 1
     })
     render(
       <WikilinkProvider>
@@ -216,22 +221,18 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
       </WikilinkProvider>
     )
 
-    // 点标题按钮 → 打开 picker
     act(() => {
       fireEvent.click(screen.getByTestId('sticky-title-btn'))
     })
 
-    // 应有 2 项(tv + movie);book 不在候选
     expect(screen.getByText('假面骑士龙骑')).toBeTruthy()
     expect(screen.getByText('盗梦空间')).toBeTruthy()
     expect(screen.queryByText('百年孤独')).toBeNull()
   })
 
-  it('6. book 删除降级 → 浮窗显示「作品已删除」+ 重选按钮', () => {
-    // 选中已删除的 book
+  it('6. book 删除降级 → 显示「作品已删除」+ 重选按钮', () => {
     useBooksStore.setState({ books: [] })
     useEpisodeStickyStore.setState({
-      open: true,
       selectedBookId: '999', // 不存在
       selectedKind: 'episode',
       selectedSeason: 1,
@@ -242,14 +243,12 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
         <EpisodeNotesSticky />
       </WikilinkProvider>
     )
-    // 应有「作品已删除 — 重选」按钮
     expect(screen.getByText(/作品已删除/)).toBeTruthy()
   })
 
   it('7. movie 模式下「01」位不可点 → 显示「—」', () => {
     useBooksStore.setState({ books: [MOVIE_BOOK] })
     useEpisodeStickyStore.setState({
-      open: true,
       selectedBookId: MOVIE_BOOK.id,
       selectedKind: 'movie',
       selectedSeason: 0,
@@ -260,10 +259,8 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
         <EpisodeNotesSticky />
       </WikilinkProvider>
     )
-    // 应有「—」占位
     const dash = screen.getAllByText('—')[0]
     expect(dash).toBeTruthy()
-    // 没有 sticky-episode-btn(movie 模式下不渲染)
     expect(screen.queryByTestId('sticky-episode-btn')).toBeNull()
   })
 
@@ -301,10 +298,9 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
     expect(clamped.y).toBeGreaterThanOrEqual(8)
   })
 
-  it('9. Esc 关闭(焦点在 body,非 editable 内)', () => {
+  it('9. Esc 关 popover(不关窗口 —— 窗口关闭走 OS 标题栏 × 按钮或 UI × 的 hide())', () => {
     useBooksStore.setState({ books: [TV_BOOK] })
     useEpisodeStickyStore.setState({
-      open: true,
       selectedBookId: TV_BOOK.id,
       selectedKind: 'episode',
       selectedSeason: 1,
@@ -316,11 +312,16 @@ describe('EpisodeNotesSticky / StickyTrigger', () => {
         <EpisodeNotesSticky />
       </WikilinkProvider>
     )
-    // 焦点在 body,按 Esc
+    // 先打开 work picker
+    act(() => {
+      fireEvent.click(screen.getByTestId('sticky-title-btn'))
+    })
+    expect(screen.getByPlaceholderText('搜索作品名...')).toBeTruthy()
+    // Esc 关闭 picker
     act(() => {
       fireEvent.keyDown(window, { key: 'Escape' })
     })
-    expect(useEpisodeStickyStore.getState().open).toBe(false)
+    expect(screen.queryByPlaceholderText('搜索作品名...')).toBeNull()
   })
 
   it('10. StickyTrigger 在 EpisodesPanel 标题行内渲染(贴「集笔记」右侧)', () => {

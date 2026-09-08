@@ -94,6 +94,7 @@ mod tauri_app {
                 commands::ranking_apply,
                 commands::data_pick_dir,
                 commands::data_reveal_in_explorer,
+                commands::open_sticky_window,
                 commands::candidates_list,
                 commands::candidates_add,
                 commands::candidates_remove,
