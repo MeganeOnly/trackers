@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Book, TimeStamp } from '@shared/types'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { emit } from '@tauri-apps/api/event'
 import { useBooksStore } from '../store/books'
 import { useEpisodeStickyStore } from '../store/episodeSticky'
 import { StampList } from './EpisodesPanel.StampList'
@@ -301,11 +302,19 @@ export function EpisodeNotesSticky(): JSX.Element {
             stamps={stamps}
             withHint={false}
             onChange={(next) => {
-              // 整体替换式 IPC(StampList 已按 start 升序排好)
+              // 整体替换式 IPC(StampList 已按 start 升序排好)。
+              // 写盘成功后 emit 'book-changed' 通知主 app 刷新该书 zustand
+              // (sticky 窗口是独立 webview,自身的 zustand state 跟主 app 不共享,
+              // 没有这个 event 主 app 里的 EpisodesPanel / BookNotesModal
+              // 不会显示新加的 stamp)。.catch 吞掉非 Tauri 环境的失败(jsdom 测试)。
               if (selectedKind === 'movie') {
-                void setStamps(book.id, next, undefined)
+                void setStamps(book.id, next, undefined).then(() => {
+                  emit('book-changed', { bookId: book.id }).catch(() => {})
+                })
               } else {
-                void setEpisodeStamps(book.id, selectedSeason, selectedEpisode, next, undefined)
+                void setEpisodeStamps(book.id, selectedSeason, selectedEpisode, next, undefined).then(() => {
+                  emit('book-changed', { bookId: book.id }).catch(() => {})
+                })
               }
             }}
           />

@@ -9,6 +9,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { CandidatesModal } from './components/CandidatesModal'
 import { BookNotesModal } from './components/BookNotesModal'
 import { WikilinkProvider } from './components/WikilinkContext'
+import { listen } from '@tauri-apps/api/event'
 import { useModeStore } from './store/mode'
 import { useBooksStore } from './store/books'
 import { useRelationsStore } from './store/relations'
@@ -63,6 +64,37 @@ export default function App(): JSX.Element {
       cancelled = true
     }
   }, [loadBooks, loadRelations, loadSeries, hydrateSettings])
+
+  // v2.x:监听 sticky 窗口的 'book-changed' 事件 —— sticky 窗口修改某本书的
+  // stamps/note 后 emit,主 app 收到后调 loadBooks() 重新拉一次全量数据
+  // (books 数量通常几十~几百,全量刷新成本可接受;比单本 update 简单稳定)。
+  // 没有这个 listener,sticky 窗口的改动只在它自己的 zustand 里生效,
+  // 主 app 的 EpisodesPanel / BookNotesModal / BookDetail 都看不到。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    let cancelled = false
+    ;(async () => {
+      try {
+        const u = await listen<{ bookId: string }>('book-changed', () => {
+          // 走 load 而非单本 update:全量 reload 从 disk 拿最新,避免漏更新
+          // 其他跨窗口的副作用(relations 重建、series 引用清理等)
+          void loadBooks()
+        })
+        if (cancelled) {
+          u()
+          return
+        }
+        unlisten = u
+      } catch (e) {
+        // listen 在非 Tauri 环境下会失败(jsdom 测试);吞掉,不影响主流程
+        console.warn('listen book-changed failed:', e)
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (unlisten) unlisten()
+    }
+  }, [loadBooks])
 
   function openAdd(): void {
     select(null)
