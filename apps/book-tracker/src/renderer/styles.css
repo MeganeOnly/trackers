@@ -3661,6 +3661,16 @@ ul.book-grid {
   gap: 8px;
   margin: 0 0 12px;
 }
+/* h3 默认 line-height > 1(浏览器标题 heading 通常 1.1~1.5),h3 box 实际高度 > 14px;
+   14px 圆形在 flex align-items: center 下被"几何居中"到更大的 box 中,
+   而中文字符光学中心在字符 box 顶部 —— 视觉上圆明显比字低。
+   **根治**:line-height = font-size,h3 box 与 circle 同高(都 14px),居中 = 字符光学居中。 */
+.episodes-panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 14px;
+}
 /* StampList 头部右侧加 trigger 时,把 count 推到中间 */
 .stamp-list-head {
   /* 与原有 flex 不变;只新增 trigger 占位 */
@@ -3671,6 +3681,11 @@ ul.book-grid {
   font-weight: 600;
   color: var(--fg);
   gap: 8px;
+}
+/* 同款问题:span 默认 line-height 也 > 1;line-height = 12px 让 span box 与 trigger(14px)尽量接近,
+   再配合 align-items: center → 字符中心 vs 圆心贴近 */
+.stamp-list-head > span {
+  line-height: 12px;
 }
 .stamp-list-head .sticky-trigger {
   margin-left: auto;
@@ -3688,9 +3703,10 @@ ul.book-grid {
   cursor: pointer;
   padding: 0;
   vertical-align: middle;
-  /* 视觉补偿:flex align-items: center 让 14px 圆跟文字光学中心对齐时,圆看起来比文字略低(中文字符上沿留白多)。
-  向上挪 3px 让圆点贴「集笔记」/「时间戳笔记」基线上方,跟标题光学中心更协调。 */
-  margin-top: -3px;
+  /* 上方 margin 已通过 line-height = font-size 在文字侧根治(line-height: 14px 让 h3 box = 14px,
+     跟 trigger 同高,flex 居中 = 字符光学居中)。这里保留 0 margin 让 CSS 干净,
+     后续若仍偏差再加视觉补偿。 */
+  margin-top: 0;
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 .sticky-trigger:hover {
