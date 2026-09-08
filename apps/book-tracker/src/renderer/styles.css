@@ -3756,8 +3756,12 @@ ul.book-grid {
 }
 /* sticky-header:不再是拖拽手柄,只作为视觉顶部条 + 容纳 picker trigger 按钮。
    配色:跟 body 几乎同色(#efefef 略深一档),不抢戏 —— 让内容区(StampList)
-   的 01 数字 + stamp 列表成为视觉焦点。 */
+   的 01 数字 + stamp 列表成为视觉焦点。
+   **v2.x 改造**:header 自身 position: relative 作为 popover 的 containing block,
+   popover 作为 header 直接子元素(不嵌在 trigger wrap 里)—— 让 left: 0 锚定到
+   card 左边,跟 work picker 同位置,小窗口下不被裁切。 */
 .sticky-header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -3767,14 +3771,13 @@ ul.book-grid {
   user-select: none;
   flex-shrink: 0;
 }
-/* 标题 / 集数 trigger 的 inline-flex wrapper —— 提供 position: relative
-   让 popover(top: 100%)相对 trigger 自身定位(而不是相对整张 card,
-   否则 picker 跑到卡片底部,跟 StampList 重叠混乱) */
+/* 标题 / 集数 trigger 的 inline-flex wrapper —— v2.x 不再 position: relative
+   (popover 已上移到 header 层级);wrapper 只承担 flex item 角色,
+   容纳一个 button + 控宽(只跟 button 同宽) */
 .sticky-trigger-wrap {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  min-width: 0;  /* 防止 flex item 撑出 viewport */
+  min-width: 0;
 }
 /* 标题 ↔ 集数视觉连接符 —— 用户要求"《xx》- 01"格式,中间一个短横线
    当 separator。比无 separator 紧贴时更清楚"同一行",又不挡两个 trigger 各自的点击区。 */
@@ -3894,37 +3897,38 @@ ul.book-grid {
 }
 
 /* ============ Popover (浮窗内嵌下拉) ============ */
+/* v2.x 改造:两个 popover 都作为 .sticky-header 的直接子元素(原在 trigger wrap 内),
+   这样 containing block 是 header(position: relative)—— left: 0 锚定到 card
+   左边,work picker 跟 episode picker 出现在完全相同的位置,
+   小窗口下都不会被裁切(用户反馈"无论怎么样都看不到")。 */
 .sticky-popover {
   position: absolute;
-  top: 100%;          /* 相对最近的 .sticky-trigger-wrap (position: relative) */
+  top: 100%;          /* 相对 .sticky-header 下边缘,紧贴 header */
   z-index: 160;
   background: white;
   border: 1px solid #d0d0d0;
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   padding: 8px;
-  /* max-height 跟窗口高度联动 —— 旧 320px 写死导致小窗口时 picker 底部被窗口边
-     裁掉,用户看不到 100+ 集。改成 calc(100vh - 70px) = 视口高 - 头部(30) -
-     trigger(30) - 上下 margin/padding(10),确保 picker 始终完整在窗口内;
+  /* max-height 跟窗口高度联动 —— calc(100vh - 50px) = 视口高 - header(~30) -
+     上下 margin/padding(~20),确保 picker 始终完整在窗口内;
      内容超出时走 overflow-y: auto 内部滚动(用户可滚到 123 集)。 */
-  max-height: calc(100vh - 70px);
+  max-height: calc(100vh - 50px);
+  max-width: calc(100vw - 16px);  /* 不超出 card 宽度,小窗口也能完整显示 */
   overflow-y: auto;
   margin-top: 2px;
 }
-/* 作品 picker 在标题按钮下方 —— left:0 让左边缘对齐 trigger 左边缘,跟旧版 left:10px 相比
-   更贴齐"《xxx》"字宽,视觉连接更紧 */
+/* 作品 picker —— left:0 锚定到 header 左边(也就是 card 左边) */
 .sticky-work-picker {
   left: 0;
   width: 320px;
-  max-width: calc(100vw - 32px);
 }
-/* 集数 picker 在「01」按钮下方 —— right:0 让右边缘对齐 trigger 右边缘,
-   跟旧版 right:36px(避开 close btn)相比,因为 picker 已在 wrap 内不与 close btn 冲突,
-   改为 right:0 紧贴 trigger 右边缘 */
+/* 集数 picker —— 同样 left:0 锚定到 header 左边,跟 work picker 完全同位置。
+   **关键**:这是用户诉求"学习《大宋提刑官》点击后的出现位置"的落地:
+   两个 picker 出现在完全一致的位置,不会被裁切,不再依赖 trigger 自身的 left/right。 */
 .sticky-episode-picker {
-  right: 0;
+  left: 0;
   width: 280px;
-  max-width: calc(100vw - 48px);
 }
 .sticky-popover:focus {
   outline: none;

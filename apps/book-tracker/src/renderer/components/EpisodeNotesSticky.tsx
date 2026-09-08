@@ -212,9 +212,12 @@ export function EpisodeNotesSticky(): JSX.Element {
       data-testid="episode-sticky-window"
     >
       <div className="sticky-header" data-testid="sticky-header">
-        {/* 作品标题(可点击切换)—— 包一层 .sticky-trigger-wrap (position: relative)
-            让 popover 的 top:100% 相对 trigger 自身,而不是相对整张卡片(原来会跑到
-            卡片底部导致 picker 出现在不该出现的位置)。 */}
+        {/* 作品标题(可点击切换) —— trigger wrap 不再 position: relative,
+            popover 改放在 header 内部、left: 0 锚定到 card 左边,跟《xx》点击
+            后 work picker 出现在完全一样的位置 —— 用户诉求"学习《大宋提刑官》
+            点击后的出现位置"。原 .trigger-wrap 内的 popover 会被 episode wrap
+            的 middle 位置带跑(extend left 越过 card 左边界裁切),新方案彻底
+            解决"无论如何都看不到"的问题。 */}
         <div className="sticky-trigger-wrap">
           <button
             type="button"
@@ -231,13 +234,6 @@ export function EpisodeNotesSticky(): JSX.Element {
               <span className="muted">选作品</span>
             )}
           </button>
-          {workPickerOpen && (
-            <WorkPickerPopover
-              currentBookId={selectedBookId}
-              popoverRef={workPickerRef}
-              onClose={() => setWorkPickerOpen(false)}
-            />
-          )}
         </div>
         {/* 标题 ↔ 集数视觉连接符: 短横线 - 居中显示,movie 模式不显示(无集数) */}
         {selectedKind !== 'movie' && <span className="sticky-sep" aria-hidden="true">-</span>}
@@ -259,16 +255,6 @@ export function EpisodeNotesSticky(): JSX.Element {
             >
               {String(selectedEpisode).padStart(2, '0')}
             </button>
-            {episodePickerOpen && book && (
-              <EpisodePickerPopover
-                book={book}
-                seasons={seasons}
-                currentSeason={selectedSeason}
-                currentEpisode={selectedEpisode}
-                popoverRef={episodePickerRef}
-                onClose={() => setEpisodePickerOpen(false)}
-              />
-            )}
           </div>
         )}
         {/* 隐藏(OS 标题栏 × 按钮 = 销毁窗口;我们这里只隐藏,允许 trigger 重新聚焦) */}
@@ -282,6 +268,28 @@ export function EpisodeNotesSticky(): JSX.Element {
         >
           ×
         </button>
+        {/* 两个 popover 都作为 header 的直接子元素 —— header 自身 position: relative
+            当 containing block,top: 100% 让 picker 紧贴 header 下边缘,left: 0
+            锚定到 card 左边 —— 跟 work picker 同位置,小窗口下也不被裁切。
+            Click outside 检测走 popoverRef + .sticky-popover-trigger 类,跟 DOM
+            结构无关,本结构变更不影响。 */}
+        {workPickerOpen && (
+          <WorkPickerPopover
+            currentBookId={selectedBookId}
+            popoverRef={workPickerRef}
+            onClose={() => setWorkPickerOpen(false)}
+          />
+        )}
+        {episodePickerOpen && book && (
+          <EpisodePickerPopover
+            book={book}
+            seasons={seasons}
+            currentSeason={selectedSeason}
+            currentEpisode={selectedEpisode}
+            popoverRef={episodePickerRef}
+            onClose={() => setEpisodePickerOpen(false)}
+          />
+        )}
       </div>
 
       {/* 内容区 */}
