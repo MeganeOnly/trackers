@@ -183,7 +183,7 @@ export function EpisodePickerPopover({
       ) : (
         seasons.map((s) => (
           <div key={s.number} className="sticky-episode-season">
-            <div className="sticky-episode-season-head">S{String(s.number).padStart(2, '0')} · {s.episodeCount} 集</div>
+            <div className="sticky-episode-season-head">{s.episodeCount} 集</div>
             <div className="sticky-episode-grid">
               {Array.from({ length: s.episodeCount }, (_, i) => i + 1).map((ep) => {
                 const isCurrent = s.number === currentSeason && ep === currentEpisode

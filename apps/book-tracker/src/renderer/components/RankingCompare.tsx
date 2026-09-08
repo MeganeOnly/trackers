@@ -241,11 +241,12 @@ interface CompareCardProps {
 /**
  * 单张候选卡片（正方形，`aspect-ratio: 1`）。
  *
- * 信息层级：类型 + 季徽标(tv/anime) + 池内排名 / 标题 / 字段表（主创·年份·地区·译者·主演·看过次数·收录时间）/
+ * 信息层级：类型 + 池内排名 / 标题 / 字段表（主创·年份·地区·译者·主演·看过次数·收录时间）/
  * 笔记摘录 / 标签 / 评分脚注（评分 + 预期胜率 + 交手战绩）。
  * 内容溢出时卡片内部滚动，不撑破正方形比例。
  *
- * v1.2:tv/anime 候选是按季拆分的,candidate.season 非空时标题右侧显示「S0X」徽标。
+ * v1.2:tv/anime 候选可按季拆分(candidate.season 非空),编号里带 `#${season.number}` 区分;
+ * v2.x:S0X 徽标移除(v1.6 起每本书追踪一季,S 语义冗余),编号仍保留以区分多季书的 ranking。
  */
 function CompareCard({
   candidate,
@@ -270,7 +271,6 @@ function CompareCard({
   if (kind === 'book' && book.translator) rows.push(['译者', book.translator])
   if ((kind === 'movie' || kind === 'tv') && book.starring) rows.push(['主演', book.starring])
   if ((kind === 'movie' || kind === 'tv') && book.screenwriter) rows.push(['编剧', book.screenwriter])
-  if (season) rows.push(['季', `S${String(season.number).padStart(2, '0')} · ${season.episodeCount} 集`])
   rows.push(['看过', book.read_count > 1 ? `${book.read_count} 次` : '1 次'])
   const finishedAt = shortDate(book.updated)
   if (finishedAt) rows.push(['最近更新', finishedAt])
@@ -291,11 +291,6 @@ function CompareCard({
     >
       <div className="ranking-compare-card-top">
         <span className="ranking-compare-card-kind">{WORK_KIND_LABELS[kind]}</span>
-        {season && (
-          <span className="ranking-compare-card-season">
-            S{String(season.number).padStart(2, '0')}
-          </span>
-        )}
         <span className="ranking-compare-card-rank">
           当前第 {rank} / {total}
         </span>

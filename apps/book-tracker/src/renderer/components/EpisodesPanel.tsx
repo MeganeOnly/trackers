@@ -12,7 +12,7 @@
 //
 // 拆分(svg-2026-09, 响应 DSH 插件 700 行/30KB 阈值):
 // - EpisodesPanel.StampList.tsx  StampList + StampRow + makeStampId(本文件原 1104 行 → 后续 ~480 行)
-// 本文件保留: EpisodesPanel 主组件 + EpisodeCell + EpisodeEditor + helpers(pad2 / collectSeasonEpisodes)
+// 本文件保留: EpisodesPanel 主组件 + EpisodeCell + EpisodeEditor + helpers(collectSeasonEpisodes)
 //
 // 季结构编辑(v1.4 保留 v1.6 + 进一步简化):
 // - 季集数 InlineField(在 stats 行内联):仅改当前季的 episodeCount,其他季不动
@@ -281,7 +281,7 @@ function EpisodeCell({
         e.preventDefault()
         onToggleWatched()
       }}
-      title={`S${pad2(season)}E${pad2(episode)}${hasTitle ? ` · ${record!.title}` : ''}${hasStamps ? ` · 含 ${record!.stamps!.length} 条时间戳笔记` : ''}\n单击展开 / 双击标记 watched`}
+      title={`${episode}${hasTitle ? ` · ${record!.title}` : ''}${hasStamps ? ` · 含 ${record!.stamps!.length} 条时间戳笔记` : ''}\n单击展开 / 双击标记 watched`}
     >
       <span className="episode-cell-num">{episode}</span>
       {watched && <span className="episode-cell-tick">✓</span>}
@@ -410,7 +410,7 @@ function EpisodeEditor({
     <div className="episode-editor">
       <div className="episode-editor-head">
         <span>
-          S{pad2(season)} E{pad2(episode)}
+          {episode}
         </span>
         <button type="button" className="episode-editor-close" onClick={onClose}>
           ×
@@ -462,7 +462,7 @@ function EpisodeEditor({
           type="button"
           className="btn-danger episode-delete"
           onClick={() => {
-            if (!confirm(`删除 S${pad2(season)}E${pad2(episode)} 的所有记录(watched / 笔记 / 标题 / 时间戳)?`)) return
+            if (!confirm(`删除第 ${episode} 集的所有记录(watched / 笔记 / 标题 / 时间戳)?`)) return
             // 四步清零:watched=false → 空 note → 空 title → 空 stamps(后三步空串/空数组会触发 service 删 key)
             onSetWatched(false)
             onSetNote('')
@@ -503,8 +503,4 @@ function collectSeasonEpisodes(
     list.push({ episode: e, record: episodes[episodeKey(season, e)] })
   }
   return list
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
 }

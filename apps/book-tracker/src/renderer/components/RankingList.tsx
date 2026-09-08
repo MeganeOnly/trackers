@@ -63,7 +63,6 @@ export function RankingList({ pool, kind }: RankingListProps): JSX.Element {
           const cand = findCandidate(candidates, id)
           if (!cand) return null
           const b = cand.book
-          const season = cand.season
           const score = scoreOf(id)
           const count = counts[id] ?? 0
           // 归一化到 0-1,画条形图
@@ -75,11 +74,6 @@ export function RankingList({ pool, kind }: RankingListProps): JSX.Element {
                 <span className="ranking-list-bar" style={{ width: `${norm * 100}%` }} />
                 <span className="ranking-list-title-text">
                   {b.title}
-                  {season && (
-                    <span className="ranking-list-season">
-                      S{String(season.number).padStart(2, '0')}
-                    </span>
-                  )}
                 </span>
               </span>
               <span className="col-author">{b.author || '—'}</span>

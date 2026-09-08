@@ -1901,16 +1901,6 @@ button:focus-visible {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   display: inline-flex; align-items: baseline; gap: 6px;
 }
-.ranking-list-season {
-  font-size: 11px;
-  padding: 1px 6px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-radius: 3px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
 .ranking-list-row .col-author { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-list-row .col-count { color: var(--muted); text-align: center; }
 .ranking-list-row .col-score { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
@@ -1985,14 +1975,6 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
-}
-.ranking-compare-card-season {
-  padding: 3px 10px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-radius: 999px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 .ranking-compare-card-rank {
   color: var(--accent);
