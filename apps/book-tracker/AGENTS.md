@@ -432,17 +432,18 @@ Tauri 构建产物在 `src-tauri/target/release/bundle/`（NSIS installer）和 
   - **UI 复用 `EpisodesPanel.StampList`**:薄包装一层 `<section class="panel book-stamps-panel">`,核心渲染零改动;`BookNotesModal`(日常模式点作品)同样按 `kind === 'movie'` 渲染该面板
   - **写盘策略**:`stamps` 数组为空 → 不写 frontmatter(最稀疏);老数据缺字段 → `undefined`(向后兼容,`parse_stamps` 容错);坏 stamp(缺 id/start/note)整条跳过(防御性)
   - **per-row `lastModified`**:沿用 v1.6 语义,每条 stamp 独立"最后修改时间";`book.updated` 不被刷
-- [x] **集笔记便签浮窗**（`EpisodeNotesSticky`,v2.x 新增）—— 便签条风格的轻量时间戳入口,与 BookNotesModal 互补
-  - **触发位置**:EpisodesPanel 的「集笔记」h3 右侧 + BookStampsPanel 的「时间戳笔记」右侧,各放一个 14x14 黄色小圆点(`accent-soft` 色);hover 放大 + tooltip「集笔记便签」
-  - **形态**:position: fixed 的小浮窗(360x 自适应高,最大 70vh,暖黄底),无 backdrop,可拖拽(header 空白处 mousedown → 整窗跟随;**不**引入 react-draggable,AGENTS §二"刻意保持小")
+- [x] **集笔记便签**(独立窗口,`EpisodeNotesSticky`,v2.x 新增)—— 便签条风格的轻量时间戳入口,**独立 Tauri OS 窗口**(不是主 app 内嵌浮层),与 BookNotesModal 互补
+  - **形态**:**真正的 OS 窗口**(label='sticky',400x480,always_on_top,skip_taskbar=true),Rust `WebviewWindowBuilder` 创建;OS 标题栏提供原生拖拽 + 最小化 + 关闭;UI 内的 × 按钮 = `getCurrentWindow().hide()`(隐藏,trigger 可重新聚焦)
+  - **触发**:EpisodesPanel 的「集笔记」h3 右侧 + BookStampsPanel 的「时间戳笔记」右侧各放一个 14x14 黄色小圆点;点击调 `api.app.openStickyWindow()` 让 Rust 端创建 / 聚焦窗口;Rust 端走「已存在 → 聚焦 / 不存在 → 新建」幂等逻辑,不会创建多个窗口
   - **顶部一行**:`《作品名》· 01` —— 标题/集数都可点击 → 内嵌 popover(浮在 trigger 下方,**不**嵌 Modal —— 避开 §十.40 Modal-in-Modal 反模式)
-  - **内容**:直接复用 `StampList`(`withStickyTrigger` prop 控制 trigger 槽位),stamps 从 `useBooksStore` 直接读,改走 `setEpisodeStamps` / `setStamps` —— v2.x 治本模式(notesDirty + lastSentRef)在 StampList 内部已具备,浮窗不重复造轮子
-  - **持久化**:`position` + `selectedBookId/Kind/Season/Episode` 全部进 localStorage(跟 `tracker-theme` 同款,非 config.json);`open` 状态**不**持久化(重启 App 浮窗是关的)
-  - **App 树根挂载**:`<EpisodeNotesSticky />` 在 App.tsx 顶层,不被 BookDetail/BookNotesModal 的 mount/unmount 影响,用户中途切页面浮窗保持打开
+  - **内容**:直接复用 `StampList`(`withStickyTrigger` prop 控制 trigger 槽位),stamps 从 `useBooksStore` 直接读,改走 `setEpisodeStamps` / `setStamps` —— v2.x 治本模式(notesDirty + lastSentRef)在 StampList 内部已具备,便签组件不重复造轮子
+  - **持久化**:`selectedBookId/Kind/Season/Episode` 进 localStorage(跟 `tracker-theme` 同款);**position 不再持久化**(由 OS 窗口管);`open` 状态本地乐观维护(trigger is-open 视觉用)
+  - **窗口初始化**:`EpisodeNotesStickyApp.tsx` 是独立窗口的 React 根;`main.tsx` 检测 `location.hash === '#/sticky'` 时渲染它(URL 由 Rust 创建时设置,运行中不变;无需 react-router)。`EpisodeNotesStickyApp` 同样首启 `ensureDataDir` + `loadBooks` + hydrate sticky store
+  - **主 app 不再内嵌任何便签 UI**:`App.tsx` 删除 `<EpisodeNotesSticky />` 挂载(只保留 StickyTrigger 在 EpisodesPanel / BookStampsPanel 里)
   - **picker 选作品自动重置集数**:tv/anime → (1, 1);movie → (0, 0) —— movie 模式下「01」位显示「—」且不可点
-  - **新 store**:`store/episodeSticky.ts` —— zustand store + `hydrate()` 一次从 localStorage 恢复;拖拽 / 选集 / 选书均自动持久化
-  - **全局单例**:一次只一个浮窗(全局 zustand);多窗口留后续
-  - **测试**:`__tests__/EpisodeNotesSticky.test.tsx` 10 个 case(状态恢复 / trigger 行为 / 重置集数 / picker 候选 / 删除降级 / movie 「—」 / 拖拽写盘 / Esc 关闭 / 标题行渲染)
+  - **新 store**:`store/episodeSticky.ts` —— zustand store + `hydrate()` 一次从 localStorage 恢复;选集 / 选书自动持久化
+  - **Rust 命令**:`open_sticky_window`(在 commands.rs)—— 同 label 已存在时 unminimize + set_focus;不存在时新建;capabilities/default.json 把 'sticky' 加入 windows 白名单
+  - **测试**:`__tests__/EpisodeNotesSticky.test.tsx` 10 个 case(始终渲染 / hydrate / trigger 调 IPC + mock / selectBook 重置 / picker 候选 / 删除降级 / movie「—」/ setPosition 写盘 / Esc 关 popover / 标题行渲染)
 - [x] **笔记实际修改日期保留**（`EpisodeRecord.lastModified` / `SeasonInfo.lastModified`,v1.5 新增）—— 用户核心诉求"点进去但什么都没改,老时间不变"
   - `lastModified: number`(毫秒)出现在 EpisodeRecord 和 SeasonInfo 顶层;note / title / stamps 任一被改时刷
   - **关键决策**:`watched` toggle / `episode_bump` 联动 / 季号 / 集数变化**不刷** `lastModified`(用户期望"什么都没改,老时间不变")
