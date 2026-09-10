@@ -19,5 +19,8 @@ src-tauri/gen/
 *NOTES.md
 LEGACY-LOCATION*.md
 
+# Windows 快捷方式
+*.lnk
+
 # 例外：docs/dev-notes.md 是随仓库走的经验沉淀文件，需纳入版本管理
 !docs/dev-notes.md
