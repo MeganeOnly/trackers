@@ -27,6 +27,7 @@ import {
 } from '@ui/GraphView'
 import { computeUnlocked } from '@core'
 import type { Book, BookStatus } from '@shared/types'
+import { isBookDone } from '@shared/types'
 import { useBooksStore } from '../store/books'
 import { useRelationsStore } from '../store/relations'
 import { STATUS_LABELS } from './BookDetail.labels'
@@ -133,7 +134,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     const { unlocked } = computeUnlocked(
       books.map((b) => b.id),
       edges,
-      (id) => books.some((b) => b.id === id && b.status === 'finished')
+      (id) => books.some((b) => b.id === id && isBookDone(b))
     )
     const nodes: BookNode[] = books.map((b) => ({
       id: b.id,

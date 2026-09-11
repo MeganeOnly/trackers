@@ -4,7 +4,7 @@ import { useRelationsStore } from './relations'
 import { computeBlockingRelations, computeUnlocked } from '@core'
 import type { BlockingRelation } from '@core'
 import type { Book, EpisodeNotes, EpisodeRecord, SeasonInfo } from '@shared/types'
-import { episodeKey } from '@shared/types'
+import { episodeKey, isBookDone } from '@shared/types'
 
 export function useUnlocked(): {
   unlocked: Map<string, boolean>
@@ -18,7 +18,7 @@ export function useUnlocked(): {
   const unlocked = computeUnlocked(
     books.map((b) => b.id),
     edges,
-    (id, _requiredCount) => books.some((b) => b.id === id && b.status === 'finished')
+    (id, _requiredCount) => books.some((b) => b.id === id && isBookDone(b))
   )
   // 与 unlock 同步算 —— 同样的 edges 输入,O(E) 一次扫描
   const relations = useMemo(() => computeBlockingRelations(edges), [edges])

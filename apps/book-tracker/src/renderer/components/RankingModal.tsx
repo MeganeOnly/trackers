@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { WorkKind } from '@shared/types'
 import { WORK_KIND_ORDER } from '@shared/types'
+import { isBookDone } from '@shared/types'
 import { Modal } from './Modal'
 import { RankingKindSelect } from './RankingKindSelect'
 import { RankingList } from './RankingList'
@@ -40,7 +41,7 @@ export function RankingModal({ onClose }: RankingModalProps): JSX.Element {
   useEffect(() => {
     if (kind) return
     for (const k of WORK_KIND_ORDER) {
-      if (books.some((b) => b.status === 'finished' && b.kind === k)) {
+      if (books.some((b) => isBookDone(b) && b.kind === k)) {
         setKind(k)
         return
       }
@@ -66,7 +67,7 @@ export function RankingModal({ onClose }: RankingModalProps): JSX.Element {
     return counts
   }, [books])
 
-  const totalFinished = books.filter((b) => b.status === 'finished').length
+  const totalFinished = books.filter((b) => isBookDone(b)).length
   const totalPoolForKind = kind ? kindCounts[kind] ?? 0 : 0
 
   return (

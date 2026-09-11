@@ -6,6 +6,7 @@ import { useSettingsStore } from '../store/settings'
 import { useSeriesStore } from '../store/series'
 import { WORK_KIND_LABELS } from '@shared/types'
 import type { Book, BookStatus, Series } from '@shared/types'
+import { isBookDone } from '@shared/types'
 import { STATUS_LABELS, SIDEBAR_STATUS_ORDER } from './BookDetail.labels'
 import { SeriesRowInSidebar } from './SeriesRowInSidebar'
 import { SidebarSeriesView } from './SidebarSeriesView'
@@ -155,7 +156,7 @@ function ItemRowCard({
         </span>
       )}
       <span className="tracker-id">{b.id}</span>
-      {b.status === 'finished' && (
+      {isBookDone(b) && (
         <span className="tracker-stamp" data-state="finished">已读</span>
       )}
     </li>

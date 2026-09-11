@@ -6,6 +6,7 @@ import {
   recomputeRatings
 } from '@core'
 import type { Book, PairwiseResult, RankingFile, SeasonInfo, WorkKind } from '@shared/types'
+import { isBookDone } from '@shared/types'
 import { api } from '../lib/api'
 
 /**
@@ -73,7 +74,7 @@ export interface RankCandidate {
  * 无 seasons 字段的 tv/anime 兜底为单季(`${id}#1`),保留可排名语义。
  */
 export function expandRankingPool(books: ReadonlyArray<Book>, kind: WorkKind): RankCandidate[] {
-  const finished = books.filter((b) => b.status === 'finished' && b.kind === kind)
+  const finished = books.filter((b) => isBookDone(b) && b.kind === kind)
   const out: RankCandidate[] = []
   for (const b of finished) {
     if (kind === 'tv' || kind === 'anime') {

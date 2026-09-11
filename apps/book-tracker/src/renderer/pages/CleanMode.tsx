@@ -6,6 +6,7 @@ import { useSearchStore, matchBook } from '../store/search'
 import { useSettingsStore } from '../store/settings'
 import { WORK_KIND_LABELS } from '@shared/types'
 import type { Book, BookStatus } from '@shared/types'
+import { isBookDone } from '@shared/types'
 
 const COLLAPSED_SECTIONS: { key: BookStatus; label: string }[] = [
   { key: 'shelved', label: '搁置' },
@@ -159,7 +160,7 @@ export function CleanMode({ onOpenNotes }: CleanModeProps): JSX.Element {
         <FocusStackView
           readableList={readableList}
           finishedList={visibleBooks
-            .filter((b) => b.status === 'finished')
+            .filter((b) => isBookDone(b))
             .sort((a, b) => b.updated.localeCompare(a.updated))}
           focalBook={nowReading}
           query={query}

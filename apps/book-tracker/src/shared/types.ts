@@ -265,6 +265,26 @@ export type BookStatus =
   | 'finished' // 已读
   | 'abandoned' // 弃读
 
+/**
+ * 达成判定：只有 `finished` 才算"已掌握"，才会让前置它的作品解锁。
+ *
+ * 与 life-tracker `isGoalDone`（TS @shared/types.ts + Rust service/relations.rs）
+ * **对称** —— TS 端集中一处判定，Rust 端镜像一致（见 types.rs `Book.status`
+ * 反序列化与 `is_done` 谓词）。两 app 语义差异：
+ *
+ * - book-tracker:status 直接决定 done（无量化进度概念 —— 章节进度是纯 UI 提示）
+ * - life-tracker:status==='done' **或** progress.current >= progress.total
+ *
+ * 这是有意为之 —— book-tracker 的 `progress` 是章节计数（不参与"全达成"语义），
+ * life-tracker 的 `progress` 是量化目标（自动达成）。
+ *
+ * **判定**：新增 BookStatus 时全仓库 grep `status === 'finished'` / `isBookDone`
+ * 一次保险（参照 life-tracker dev-notes §v2.x "新增字段时全仓库 grep" 原则）。
+ */
+export function isBookDone(b: Book): boolean {
+  return b.status === 'finished'
+}
+
 /** 创建/编辑输入：用户填的字段，不含 id/created/updated/read_count/tags 默认值；
  *  `episodes` 也不在 BookInput 里 —— 单集笔记是详情页独占编辑的，不在加作品表单出现。
  *  `seasons` 保留在 BookInput（季结构是创建作品时确定的）。
