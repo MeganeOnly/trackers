@@ -3985,6 +3985,87 @@ UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert �
 
 ---
 
+## 2026-09:`Progress.total` 在 IPC 里是 `undefined` 不是 `null` —— 渲染层漏判导致 "10/undefined"
+
+### 1. 现象
+
+用户反馈 book-tracker 日常模式顶部「正在看」一行,电视剧《少年包青天·第二次》显示成:
+
+```
+正在看: 少年包青天·第二次 · 10/undefined
+```
+
+分母位置出现字面量字符串 `undefined`,不是"未知总量"的语义,而是真把 JS 字面量拼进了 UI。
+
+### 2. 根因链(三层不一致)
+
+| 层 | 文件 / 位置 | 实际行为 |
+|---|---|---|
+| Rust 序列化 | `crates/tracker-core/src/types.rs:19` | `Progress.total` 用 `#[serde(skip_serializing_if = "Option::is_none")]`,`total: None` 时**字段被省略** |
+| IPC payload | — | `{"current": 10}`(没有 total key),不是 `{"current": 10, "total": null}` |
+| TS 反序列化 | — | 缺字段的 interface 字段运行时变 `undefined`(TS 类型契约骗你,运行时实际是 `undefined` 而非强制的 `number \| null`) |
+| 渲染判断 | `apps/book-tracker/src/renderer/pages/CleanMode.tsx:147` | `nowReading.progress.total !== null` —— **`undefined !== null` 是 `true`** → 走 `${current}/${total}` 分支 → 把 undefined 拼成 "10/undefined" |
+
+同款 bug 还存在于:
+- `apps/book-tracker/src/shared/progress.ts:9`(`formatProgress`,BookDetail 用 —— BookDetail 的 `formatProgress(book.progress) || '尚未记录'` fallback 救不了,因为 "10/undefined" 不是空串)
+- `apps/life-tracker/src/shared/progress.ts:9`(`formatGoalProgress`)
+- `apps/life-tracker/src/shared/types.ts:76`(`isGoalDone`,语义上巧合不误判但判断风格不一致)
+- `apps/life-tracker/src/renderer/components/GoalList.tsx:128, :150`
+- `apps/life-tracker/src/renderer/pages/CleanMode.tsx:178, :235, :326, :396`
+- `apps/life-tracker/src/renderer/components/GoalDetail.tsx:298`
+
+共 **13 处**渲染层判断 + 1 处核心类型契约 + 2 处 formatter。
+
+### 3. 对比:`BookList.tsx` 早就写对了
+
+```ts
+b.progress.total ? `/${b.progress.total}` : '+'
+```
+
+JS 里 `undefined` / `null` / `0` 都是 falsy,自动走 fallback。`formatProgress` 和 CleanMode 没用这个模式,直接 `!== null`,漏了 undefined。
+
+### 4. 修复(治标 + 治本两层)
+
+**类型契约**(治本):`packages/tracker-core/src/types.ts:11`
+
+```ts
+total: number | null    →   total?: number | null
+```
+
+加 JSDoc 说明 IPC 实际行为:`total: None` 时 Rust 端 `skip_serializing_if` 省略字段,JSON 反序列化缺 key 变 `undefined`。类型契约对齐运行时实际形态,避免后续 `!== null` 误判。
+
+**渲染判断**(治标):所有 13 处 `!== null` 改成 `!= null`(loose equality 同时排除 null/undefined),加 inline 注释引用 `@core/types.ts` Progress 注释。`isGoalDone` 的实际判定结果没差(`current >= undefined` 是 `false`),但语义对齐避免后续被误改成 `=== undefined`。
+
+### 5. 为什么不直接改 Rust 序列化?
+
+`Progress` 同时用于 **IPC payload** 和 **磁盘 frontmatter 持久化**。`skip_serializing_if = "Option::is_none"` 是写盘策略的核心约定(避免 `progress: {"current": 10, "total": null}` 污染 frontmatter / git diff)。改成"IPC 强制写 null 但写盘省略字段"需要在 Rust 端给 `Progress` 拆两个独立 serde(IPC 用 + 持久化用),且 IPC 路径上加死字段逻辑,复杂度上升 vs 收益不抵(渲染层 `!= null` 一行就治了)。**判定**:核心数据模型的序列化策略优先保向后兼容;UI 层漏判用最简 fix 兜底。
+
+### 6. 回归测试
+
+加 `apps/book-tracker/src/shared/__tests__/formatProgress.test.ts` + `apps/life-tracker/src/shared/__tests__/formatGoalProgress.test.ts`,各 5 个 case:
+
+- `total=undefined`(模拟 IPC 缺字段,`{ current: 10 } as unknown as Progress` 类型擦除)→ 不输出 "undefined"
+- `total=null` → "N · 连载中" / "N 项"
+- `total=数字` → "N / M"
+- `current=0 且 total=null` → ""
+- `null / undefined` → ""
+
+类型擦除 + `not.toContain('undefined')` 断言一起锁住 "10/undefined" 的精确形态。
+
+### 7. 判定(后续加 IPC Optional 字段)
+
+**任何**"Rust 端 `Option<T>` + `skip_serializing_if` 序列化"的字段,在 TS interface 里都应**显式 optional**(`field?: T | null`),而不是 `field: T | null`。后者是「骗 typecheck」—— `JSON.parse` 不会拒绝缺 key,运行时拿到的是 `undefined`,类型契约骗了你。**渲染层判断凡涉及 IPC 字段,统一用 `!= null`(loose)而不是 `!== null`(strict)**;类型契约 + 判断风格同步治。
+
+如果类型契约对齐 optional 后还要保留 strict null 判断,等于让代码读起来"总得有值"但运行时拿不到值 —— 维护性陷阱。
+
+### 8. 回归验证
+
+- `packages/tracker-core` + `apps/life-tracker` 完整 typecheck 通过(`apps/book-tracker` 有一个 pre-existing error in `EpisodeNotesSticky.Popovers.tsx:170`,跟本次修复无关,git stash 验证确认是 main 已存在)
+- 全套 vitest **496 tests passed**(book 263 + life 233,含新增 10 个 regression case)
+- 类型契约改动 0 处 runtime behavior 差异(只是声明更宽松)
+
+---
+
 ## 2026-09:[共享] monorepo 体检整改 —— 仓库脏数据 + 命名债务 + 字典重复 + UI 抽取(v2.2 P0~P2 全集)
 
 ### 1. 现象
@@ -4090,4 +4171,5 @@ P2 (UI 抽取):
 - **[单 app book-tracker] `isBookDone` 集中函数的 ROI 比看起来高**:7 处内联看似简单,但加 done 判定新条件(比如想加 `read_count > 0`)就要 grep 7 处 + 改 7 处。集中后单点修改 + typecheck 兜底,**判定**:任何"X 字段等于 Y 字面量"的内联 3+ 次就该抽函数。
 - **[单 app life-tracker] 字典 dedup 别总等"下次一起做"**:book-tracker §v2.x 已经 dedup 过 STATUS_LABELS,life-tracker 没做不是技术阻碍,是优先级。**判定**:dev-notes §v2.x 的"先抽共享字典 → 再拆子组件"原则对两个 app 都适用,做 book 时应该顺手同步做 life。
 - **[共享] UI 抽取成本 = 调用点改动 × 复杂度**:TopBar 抽 ~半天(2 个 app 端 wrapper 各改 ~30 行);PrereqEditor 估 ~2-3 天(每个 app 1000+ 行 + 3 套参数化 props + 改测试)。**判定**:ROADMAP 候选 A 的"3-5 天"是整体估算,具体到组件要看耦合度,不要把"待办"当"必须一起做"。
+
 
