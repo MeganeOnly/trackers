@@ -21,7 +21,7 @@ interface WorkPickerPopoverProps {
   /** 当前选中的作品 id(高亮) */
   currentBookId: string | null
   /** popover 自身的 DOM ref(父组件传入,用于 contain 判断) */
-  popoverRef: React.RefObject<HTMLDivElement>
+  popoverRef: React.MutableRefObject<HTMLDivElement | null>
   /** 关闭回调 —— 由父组件统一管(浮窗 × / Esc / 点空白) */
   onClose: () => void
 }
@@ -125,7 +125,7 @@ interface EpisodePickerPopoverProps {
   seasons: SeasonInfo[]
   currentSeason: number
   currentEpisode: number
-  popoverRef: React.RefObject<HTMLDivElement>
+  popoverRef: React.MutableRefObject<HTMLDivElement | null>
   onClose: () => void
 }
 
