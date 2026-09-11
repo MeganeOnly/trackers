@@ -1,6 +1,6 @@
 //! Tauri commands —— 把 service 层暴露给 renderer。
 //!
-//! 与 `src/shared/api.ts` 的 `ElectronAPI` 1:1 对应(命令名 snake_case)。
+//! 与 `src/shared/api.ts` 的 `TrackerAPI` 1:1 对应(命令名 snake_case)。
 
 use std::collections::HashMap;
 

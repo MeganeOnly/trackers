@@ -58,7 +58,7 @@ export interface TrashAPI {
   empty(): Promise<number>
 }
 
-export interface ElectronAPI {
+export interface TrackerAPI {
   goals: GoalAPI
   relations: RelationsAPI
   config: ConfigAPI

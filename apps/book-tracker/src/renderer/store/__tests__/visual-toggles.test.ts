@@ -34,7 +34,7 @@ import postcss from 'postcss'
 // api.config.set 必须 echo back 用户传的 patch,
 // 否则 setUseLocalFonts action 的「stored !== normalized → 强制回滚」分支
 // 会把刚写好的 DOM 又改回 remote,导致测试假阳性失败。
-// book-tracker/src/renderer/lib/api.ts 的形状见 src/shared/api.ts (ElectronAPI)。
+// book-tracker/src/renderer/lib/api.ts 的形状见 src/shared/api.ts (TrackerAPI)。
 vi.mock('../../lib/api', () => ({
   api: {
     config: {

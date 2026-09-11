@@ -1,6 +1,6 @@
 // Tauri renderer API shim —— 1:1 桥接 src-tauri/src/commands.rs 的 #[tauri::command].
 //
-// 与 src/shared/api.ts 的 ElectronAPI 形状一致,这样 renderer 代码切换时
+// 与 src/shared/api.ts 的 TrackerAPI 形状一致,这样 renderer 代码切换时
 // 调用点形态不变(只把 `window.electron.x.y` 换成 `api.x.y`)。
 //
 // 额外多了 `app.ensureDataDir()`,对应 src-tauri/src/lib.rs 里的
@@ -13,9 +13,9 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import type { Goal, GoalInput, Config, Edge } from '@shared/types'
-import type { BrokenEntry, ElectronAPI, TrashEntry } from '@shared/api'
+import type { BrokenEntry, TrackerAPI, TrashEntry } from '@shared/api'
 
-export const api: ElectronAPI & {
+export const api: TrackerAPI & {
   app: {
     ensureDataDir: () => Promise<string>
   }

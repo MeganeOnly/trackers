@@ -115,7 +115,7 @@ src-tauri/                        # Rust 后端
 
 src/shared/                       # Book 领域类型 + 文案(被 renderer 用,Rust 端有 serde 镜像)
 ├── types.ts                      # Book / BookStatus / Config + re-export core 的 Edge/Progress/RankingFile/PairwiseResult
-├── api.ts                        # ElectronAPI 接口定义(被 renderer 用)
+├── api.ts                        # TrackerAPI 接口定义(被 renderer 用)
 └── progress.ts                   # formatProgress(领域文案;纯函数在 tracker-core)
 ```
 

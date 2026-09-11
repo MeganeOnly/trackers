@@ -177,7 +177,7 @@ export interface AppAPI {
   openStickyWindow(): Promise<void>
 }
 
-export interface ElectronAPI {
+export interface TrackerAPI {
   books: BookAPI
   relations: RelationsAPI
   config: ConfigAPI
