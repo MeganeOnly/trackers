@@ -3985,3 +3985,109 @@ UI 提示放按钮附近而非 toast / alert：单行短字段错误用 alert �
 
 ---
 
+## 2026-09:[共享] monorepo 体检整改 —— 仓库脏数据 + 命名债务 + 字典重复 + UI 抽取(v2.2 P0~P2 全集)
+
+### 1. 现象
+
+定期体检发现 4 类问题（详见不合理的部分清单 2026-09 整改 session）：
+
+- **P0 仓库脏数据**:三个 `.cargo/config.toml` 写死 `C:/msys64/...` 本机路径(违反 AGENTS.md 开头"不含本机路径"原则);`apps/life-tracker/.git` 空目录 + `apps/life-tracker/此电脑.lnk` Windows 快捷方式泄漏;`dist/ / node_modules/ / .vite/ / gen/ / *.tsbuildinfo / *.log` 等构建/缓存产物散落工作区(本来就是 gitignore 范围内,但被忽略的 dirty 文件让"工作区干净"成奢望)。
+- **P1 文档/命名债务**:`apps/life-tracker/README.md` 整个文件是 book-tracker 的复制粘贴残留(标题、状态机、数据目录全是书的);`apps/book-tracker/docs/architecture.md` 引用已迁移到 `tracker-core` 的 `src/shared/unlock.ts`;全仓 `ElectronAPI` 接口名是 Electron 时代残留(项目早就 Tauri 化)。
+- **P2 字典重复 + UI 抽取**:`STATUS_LABELS` 在 life-tracker 5 个文件各定义一份(GraphView 还起了个别名 `STATUS_LABEL`);book-tracker 没有对应 `isBookDone` 集中函数,达成判定在 7 个地方内联;`TopBar.tsx` 两 app 各 ~100 行高度重复;`docs/shared-boundary.md §A` 把"TopBar/GraphView/GraphModal/PrereqEditor 都抽到 packages/tracker-ui"写在已落地清单,但实际只有 Modal + GraphView 真抽了。
+
+### 2. 关键设计决策
+
+#### 2.1 删除 .cargo/config.toml 不破坏构建
+
+`.cargo/config.toml` 三处都写 linker `C:/msys64/ucrt64/bin/gcc.exe`。删后其他开发者必须自己在 PATH 加 `ucrt64/bin`,AGENTS.md §六已经有这条警告——**PATH 解决比 config 文件解决更跨平台**,不同机器 MSYS2 装 D:/、E:/ 都能 work。Windows 上的"linker 找不到"症状是 `ld returned 53` / `dlltool: program not found`,错的是环境,不是代码。**判定**:本机专属配置一律走环境变量,不该 commit。
+
+#### 2.2 工作区脏文件不用 `git rm --cached`
+
+体检时发现 `dist/` `node_modules/` `gen/` 等虽然已经 gitignore,但仍然存在工作区——这是因为开发者跑过 `npm install` / `cargo build` / `tauri dev`。**这些文件本来就该 ignore,根本没被追踪过**,直接 `rm` 即可,不动 git。**判定**:`git status --short` 是真值;看到脏文件先 `git ls-files <path>` 确认是否被追踪,别一上来就 `git rm`。
+
+#### 2.3 `ElectronAPI` → `TrackerAPI` 是技术栈无关的命名
+
+旧名是从 Electron 迁到 Tauri 时保留下来的"语义等价但技术栈绑定"的名字。新名 `TrackerAPI` 不绑定 Electron 也不绑定 Tauri,跟 `tracker-core` / `tracker-ui` 命名空间对齐。**判定**:跨技术栈重命名前先 grep 全仓,这次 12 处一次性替换(包括 2 处 Rust 注释 + 1 处 AGENTS.md 注释);Rust 端不受 TS 改名影响(只是注释)。
+
+#### 2.4 life-tracker STATUS_LABELS dedup 跟 book-tracker 不对称
+
+book-tracker `BookDetail.labels.ts` 已经 dedup 4 处副本(dev-notes §v2.x 有记录),life-tracker 没做同样 dedup 是因为被遗漏——不是技术阻碍。统一到 `GoalLabels.ts`,但**保留 `SIDEBAR_STATUS_ORDER` vs `GRAPH_STATUS_ORDER` 两份不同顺序**:侧栏要 `in_progress` 优先(常用状态),关系图要 `done` 优先(视觉强调已完成)。这是有意的产品决策差异,跟 book-tracker `STATUS_LABEL`(短) vs `STATUS_LABELS`(长)同款判定——**dedup 范围 = 语义完全相同的字段;缩略/排序差异保留本地**。
+
+#### 2.5 `isBookDone` 与 `isGoalDone` 的对称 + 故意的不对称
+
+life-tracker 早就有 `isGoalDone`(`status === 'done' || progress.current >= progress.total`),book-tracker 没有对应物——`b.status === 'finished'` 在 7 处内联。**book-tracker 没有"量化进度自动达成"概念**(`progress` 仅是章节计数,不参与 done 判定),所以 `isBookDone(b)` 比 `isGoalDone(g)` 简单——仅 `b.status === 'finished'`。JSDoc 明确写了**为什么 book 与 life 不同**,防止后续 agent 试图"统一它们"而引入量化进度语义。**判定**:跨 app 复用接口的"故意差异"必须在 doc 里写明,不写就成 bug。
+
+#### 2.6 BaseTopBar 抽取 = 框架下沉 + 领域按钮 slot 注入
+
+两 app TopBar 结构 90% 相同,差异只在 title + placeholder + add 按钮文案 + 2 个领域按钮。抽 `BaseTopBar` 接收所有共有 props + `children` slot 注入领域按钮,app 端 TopBar.tsx 从 ~100 行瘦身到 ~60-70 行。**模式**:"框架代码下沉 + children slot 注入领域差异"——vs 完全参数化 callback(把所有可能的领域按钮都列为 prop),后者会让 tracker-ui 的 TopBar 知道 5 个领域按钮的语义(把领域知识泄漏到共享层)。
+
+#### 2.7 暂缓抽取 PrereqEditor 的判定
+
+`PrereqEditor` 强领域耦合:每个 app 直接 import 自己的 store (`useBooksStore` vs `useGoalsStore`) + 自己的 label 字典 (`BookDetail.labels` vs `GoalLabels`) + 自己的 done 谓词 (`isBookDone` vs `buildDonePredicate`)。抽到 tracker-ui 需要 3 套 props 全参数化,工作量 ~2-3 天,改动每个调用点。当前每个 app 约 1000 行,虽然重复但"可控的领域复杂度";强行抽出会让 props surface area 爆炸。**判定**:参数化抽取的 ROI 必须算"调用点改动数 × 复杂度",如果调用点多且参数类型重复出现,优先做 shared **类型** (`PrereqSpec`) 而不是 shared **组件**。shared-boundary.md §A.已抽表 这次明确标注 PrereqEditor 暂留 app + 理由。
+
+### 3. 实施清单
+
+```
+P0 (仓库卫生):
+  .cargo/config.toml, apps/<x>/src-tauri/.cargo/config.toml  3 files × 6 lines 删除
+  apps/life-tracker/.git                                       rmdir
+  apps/life-tracker/此电脑.lnk                                  rm
+  edge-console.log, workspace_install.log,
+  apps/<x>/dist/, apps/<x>/tsconfig.*.tsbuildinfo,
+  apps/<x>/src-tauri/gen/, apps/<x>/node_modules/,
+  packages/<x>/node_modules/, target/, *.log                   rm
+
+P0 (.gitignore 强化):
+  **/.git, **/node_modules/.vite, **/src-tauri/gen,
+  **/src-tauri/target                                          加规则
+
+P1 (文档 + 命名):
+  apps/life-tracker/README.md                                  重写
+  apps/book-tracker/docs/architecture.md                       更新 shared-core 架构图
+  ElectronAPI → TrackerAPI                                     全仓 12 处
+  apps/<x>/shared/api.ts (2 处)
+  apps/<x>/renderer/lib/api.ts (2 处)
+  apps/<x>/src-tauri/src/commands.rs (2 处注释)
+  apps/book-tracker/AGENTS.md + visual-toggles.test.ts (2 处注释)
+
+P2 (字典 dedup):
+  apps/life-tracker/src/renderer/components/GoalLabels.ts      新建
+  apps/life-tracker/src/renderer/{components,pages}/*         6 文件 dedup
+  apps/book-tracker/src/shared/types.ts                         加 isBookDone(b)
+  apps/book-tracker/src/renderer/{components,store,pages}/*   7 处替换
+
+P2 (UI 抽取):
+  packages/tracker-ui/src/BaseTopBar.tsx                       新建
+  packages/tracker-ui/src/index.ts                              导出 BaseTopBar
+  apps/<x>/src/renderer/components/TopBar.tsx                  2 文件改造
+  docs/shared-boundary.md                                       校准 §A + §UI 基座
+```
+
+### 4. 关键判定表
+
+| 决策 | 选项 | 选择 | 理由 |
+|---|---|---|---|
+| `.cargo/config.toml` 留/删 | 留(其他机器也用 MSYS2)/ 删(让用户配 PATH) | 删 | 跨平台兼容;AGENTS.md §六已经有 PATH 警告 |
+| 工作区脏文件处理 | `git rm --cached` / `rm`(物理删) | `rm` | `git ls-files` 先确认;未追踪文件直接删 |
+| `ElectronAPI` 改名目标 | `TrackerAPI` / `TauriAPI` / 保留 | `TrackerAPI` | 技术栈无关,跟 tracker-core / tracker-ui 对齐 |
+| `STATUS_LABELS` 顺序差异 | 强制统一 / 保留两份 | 保留 `SIDEBAR_STATUS_ORDER` + `GRAPH_STATUS_ORDER` | 产品决策差异(常用 vs 视觉强调);同款 §v2.x dedup 原则 |
+| `isBookDone` 与 `isGoalDone` | 强制统一 / 故意差异 | 故意差异 | book 的 progress 不是 done 条件;doc 写明原因 |
+| TopBar 抽取模式 | 完全参数化 callback / 框架下沉 + children slot | children slot | 避免领域知识泄漏到 tracker-ui;app 端从 ~100 行瘦到 ~60-70 行 |
+| PrereqEditor 抽取 | 抽 + 全参数化 / 暂缓 | 暂缓 | store + labels + done-谓词 3 套参数化 ROI 低;shared-boundary.md 标注理由 |
+
+### 5. 回归验证
+
+- **typecheck**:`npm run typecheck` 三端全过(顺手修了 `EpisodeNotesSticky.Popovers.tsx:170` 的 TS2540——RefObject 改成 MutableRefObject,这个错 HEAD 里就有,本次体检才暴露)
+- **vitest**:`npm run test` 全跑 675/675 测试通过(@tracker/ui 41 + tracker-core 148 + book-tracker 258 + life-tracker 228)
+- **commit 粒度**:9 个 commit,每条对应一个独立 concern(P0/每类文档/TrackerAPI/GoalLabels/isBookDone/TopBar/...),遵循项目 commit message 规范
+- **stash 保留**:`stash@{0}: On main: wip-pre-cleanup` 含 11 文件 128 行的未提交开发工作,跟本次体检无关,留着
+
+### 6. 教训(共享 + 单 app)
+
+- **[共享] 仓库体检应做清单化**:AGENTS.md 末尾"每次整改、增添功能后追加经验"是软规范,但**主动定期体检**才是发现仓库卫生 / 命名 / 重复问题的关键。本次体检发现 P0~P2 四个层级的问题,建议每个 release 前跑一遍 `git status` + 全仓 grep 常见反模式(`status === 'finished'` / `STATUS_LABELS` / `interface ElectronAPI`)。
+- **[共享] 命名债务 = 技术债的隐性载体**:`ElectronAPI` 是迁移后留下的"语义等价但技术栈绑定"的名字,rename 12 处只花 ~5 分钟,但 grep `ElectronAPI` 时给未来 agent 带来的困惑难以衡量。**判定**:迁移时同步改名,不要"为兼容性保留旧名"。
+- **[共享] docs/shared-boundary.md 是体检的"权威清单"**:很多"已抽 vs 暂未抽"靠它维护。如果它跟实际代码不一致(像本次发现的 TopBar/GraphView 误标),下次体检又会走弯路。**判定**:文档变更跟代码变更必须在同一 commit,否则文档漂移。
+- **[单 app book-tracker] `isBookDone` 集中函数的 ROI 比看起来高**:7 处内联看似简单,但加 done 判定新条件(比如想加 `read_count > 0`)就要 grep 7 处 + 改 7 处。集中后单点修改 + typecheck 兜底,**判定**:任何"X 字段等于 Y 字面量"的内联 3+ 次就该抽函数。
+- **[单 app life-tracker] 字典 dedup 别总等"下次一起做"**:book-tracker §v2.x 已经 dedup 过 STATUS_LABELS,life-tracker 没做不是技术阻碍,是优先级。**判定**:dev-notes §v2.x 的"先抽共享字典 → 再拆子组件"原则对两个 app 都适用,做 book 时应该顺手同步做 life。
+- **[共享] UI 抽取成本 = 调用点改动 × 复杂度**:TopBar 抽 ~半天(2 个 app 端 wrapper 各改 ~30 行);PrereqEditor 估 ~2-3 天(每个 app 1000+ 行 + 3 套参数化 props + 改测试)。**判定**:ROADMAP 候选 A 的"3-5 天"是整体估算,具体到组件要看耦合度,不要把"待办"当"必须一起做"。
+
