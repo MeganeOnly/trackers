@@ -3,12 +3,27 @@
 // 两个 tracker app 共用的通用类型。领域类型（Book / Goal / Config 等）由各 app 定义。
 // 与 `crates/tracker-core/src/types.rs` 1:1 对应（IPC JSON 字段一致）。
 
-/** 进度。total = null 表示总量未知（连载 / 开放式目标）。 */
+/**
+ * 进度。`total = null` 表示总量未知（连载 / 开放式目标）。
+ *
+ * **`total` 在 IPC payload 里会变成 `undefined`** —— Rust 端 `Progress` 用
+ * `#[serde(skip_serializing_if = "Option::is_none")]` 序列化,`total: None` 时字段
+ * 被省略;TS 端 interface 字段缺 key 时运行时变成 `undefined`(类型契约里写的是
+ * `number | null`,但 JSON 反序列化不强制存在性)。所以所有判断 total 的代码
+ * 必须用 `!= null`(loose equality 同时排除 null/undefined)或显式
+ * `!== null && !== undefined`,**不要**用 `!== null` —— 后者会漏判 undefined,
+ * 把 undefined 拼进字符串显示成 "10/undefined"。
+ *
+ * 写盘策略（Rust 端 `data::books::write_book` line 513-520 镜像）:`total = None`
+ * 时 frontmatter 里 `progress` 子对象**省略 total key**(避免污染 git diff),
+ * 所以老文件读回时 `parse_progress` 仍归一为 `total: None`,但 IPC payload 一律
+ * 走 `skip_serializing_if` 的省略路径。
+ */
 export interface Progress {
   /** 当前进度（≥0） */
   current: number
-  /** 总量；null = 未知 */
-  total: number | null
+  /** 总量；`null` / `undefined` = 未知(undefined 见顶部注释,IPC 实际形态) */
+  total?: number | null
 }
 
 /** 解锁规则 */
