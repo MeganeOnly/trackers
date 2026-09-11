@@ -31,13 +31,16 @@ Tauri 2 应用只有**两个进程层** + 一份**共享类型契约**：
 │  - <data_dir>/{books/*.md, relations.json, config.json}      │
 └─────────────────────────────────────────────────────────────┘
 
-        ┌───────────────────────────────────────────┐
-        │ src/shared/types.ts(TS 类型契约)          │
-        │ src/shared/api.ts(ElectronAPI 接口)       │
-        │ src/shared/unlock.ts + progress.ts(纯函数)│
+        ┌────────────────────────────────────────────┐
+        │ src/shared/types.ts(TS 类型契约,Book 领域)│
+        │ src/shared/api.ts(TrackerAPI 接口)         │
+        │ @core (packages/tracker-core)             │
+        │   unlock.ts + progress.ts + analyze.ts +  │
+        │   validate.ts + ranking.ts(纯函数)        │
         │                                            │
         │ ↕ Rust 端手写镜像 src-tauri/src/types.rs   │
-        └───────────────────────────────────────────┘
+        │   + crates/tracker-core(共享)             │
+        └────────────────────────────────────────────┘
 ```
 
 **与 Electron 三层架构的对比**：
@@ -213,10 +216,13 @@ npm run build            # tauri build:产物在 src-tauri/target/release/bundle
 ### 测试
 
 ```bash
-npm test                          # vitest:renderer/shared 纯函数(31/31)
-cd src-tauri && cargo test        # Rust 单元测试(61/61)
-npm run typecheck                 # tsc 双段(node: vite.config.ts;web: renderer + shared)
+npm test                          # vitest:tracker-core 共享测试 + book-tracker 领域测试
+cd src-tauri && cargo test        # Rust 单元测试
+npm run typecheck                 # tsc 双段(node: vite.config.ts;web: renderer + shared + @core)
 ```
+
+> 测试数量随版本演化（v1 时是 `vitest 31 / cargo 61`），以当前实际跑出来的数字为准；
+> `npm run test:book` / `cargo test -p book-tracker` 看具体输出。
 
 ### CI 发布
 
