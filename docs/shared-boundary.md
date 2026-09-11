@@ -28,7 +28,7 @@
 | crates/tracker-core: data_dir.rs（双仓 + cache + init_with_picker，app 名参数化） | Rust |
 | crates/tracker-core: ranking（PairwiseResult / RankingFile / PairwiseWinner；两两对比 Elo 算法） | Rust |
 | packages/tracker-core: unlock.ts / validate.ts / progress.ts / ranking.ts（Edge/Progress/UnlockResult/BrokenEntry/PrereqSpec/ExcludeSpec/PairwiseResult/RankingFile + Elo 纯函数） | TS |
-| packages/tracker-ui: Modal / TopBar / GraphView / GraphModal / PrereqEditor / styles-base.css | TS/React |
+| packages/tracker-ui: Modal / GraphView（核心 + 物理 / 布局 / 工具 hook）/ styles-base.css | TS/React |
 
 ### B. 参数化共享（进 core，抽象薄）
 
@@ -51,10 +51,21 @@
 
 `packages/tracker-ui` 已完整落地（v1.1 起逐步抽取），两 app 通过 `@ui/*` alias 共享：
 
-- **React 组件**：`Modal`（v1.1）/ `GraphView`（v1 后续）/ `TopBar` / `GraphModal` / `PrereqEditor`（各 app 仍持有，因含领域 store 接入；共享层只导出纯展示件）
+- **React 组件**：
+  - `Modal`（v1.1 起完整抽出）— 字节级共享，两 app 通过 `export { Modal } from '@ui/Modal'` 重导出
+  - `GraphView`（核心）— v1 后续下沉；app 端保留 ~30% 领域 wrapper（`apps/<name>/src/renderer/components/GraphView.tsx`），负责"领域节点 → BaseGraphNode"映射 + 领域 status 颜色 + 领域 unlock 谓词
+- **GraphView 子模块（全部在 tracker-ui）**：
+  - `index.tsx` — 物理引擎 + d3-force 接线 + 渲染
+  - `useGraphFilters / useGraphPath / useGraphPhysics` — 工具 hooks
+  - `SearchBox / FiltersPanel / ColorPicker / ContextMenu / NodeSidebar / ForceParamsPanel` — 通用 UI
+  - `drawTagChips / motionInit / useResize / useAutoCenter / useInitialZoom / useTreeLayout / nodeRadius` — 渲染 / 物理辅助
 - **CSS 基座**：`base.css`（全局 reset + token + typography）+ `themes/{classic,library,codex}.css` + `GraphView.css`
 - **hooks / DOM 中介**：`useTheme.ts`（`applyTheme` / `applyFormat` / `applyFontSource` / `applyCozyTokens` + `normalizeTheme` / `normalizeFormat` / `normalizeBool` + `applyInitialTheme` / `applyInitialFormat` / `applyInitialFontSource` / `applyInitialCozyTokens`）
 - **字体文件**：`src/fonts/*.ttf`（v2.1 加 Fraunces 本地副本，~460KB / 6 个 ttf）
+
+**各 app 仍持有（暂未下沉到 tracker-ui）**：
+- `TopBar.tsx` — 高度 props 化但**领域差异大**：book-tracker 暴露 `+ 添加 / 图 / 排 / 待选 / 设置`；life-tracker 暴露 `+ 加目标 / 图 / 回收站 / 分析 / 设置`。两 app 视觉相似度高但按钮集不同；参数化 props 可以抽，但目前不阻塞（每个 app 约 100 行）
+- `PrereqEditor.tsx` — **强领域耦合**：直接 import 领域 store（`useBooksStore` / `useGoalsStore`）+ 领域 label 字典 + 领域 done 谓词（`isBookDone` / `buildDonePredicate`）。抽取需要把 store + labels + done-谓词全参数化，工作量大；当前成本/收益不划算，留 app
 
 新增视觉/交互能力时**默认进共享层**（两 app 同时受益）；领域专属样式（状态色 / 卡片结构）留 app。
 

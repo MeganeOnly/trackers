@@ -17,6 +17,8 @@
 // 不在 index.ts 里 re-export css —— Vite alias 解析更稳定。
 
 export { Modal } from './Modal'
+export { BaseTopBar } from './BaseTopBar'
+export type { BaseTopBarProps, Mode } from './BaseTopBar'
 export { StampChip } from './StampChip'
 export {
   DEFAULT_THEME,
