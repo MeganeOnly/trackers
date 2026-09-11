@@ -611,7 +611,7 @@ pub fn set_prev_season(
     // 因为 D 在这里是"prev 的反向对象",改的是 D 的 next 方向,而 D.next 是被 service
     // 自动同步管理的(没有 explicit 标记),所以可以直接清。
     if let Some(new_pid) = &normalized {
-        if let Some(mut b) = data::read_book(books_dir, new_pid)? {
+        if let Some(b) = data::read_book(books_dir, new_pid)? {
             let old_prev = b.prev_season_id.clone();
             if let Some(old_did) = &old_prev {
                 if old_did != id {
