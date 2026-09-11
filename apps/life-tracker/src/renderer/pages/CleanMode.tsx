@@ -10,14 +10,7 @@ import { URGENCY_WEIGHT, daysUntil, urgencyOf } from '@shared/deadline'
 import { categoryVar } from '@shared/categoryColor'
 import type { DeadlineUrgency } from '@shared/deadline'
 import type { Goal, GoalStatus } from '@shared/types'
-
-const STATUS_LABELS: Record<GoalStatus, string> = {
-  not_started: '未开始',
-  in_progress: '进行中',
-  done: '已达成',
-  shelved: '搁置',
-  abandoned: '放弃'
-}
+import { STATUS_LABELS } from '../components/GoalLabels'
 
 const COLLAPSED_SECTIONS: { key: string; label: string }[] = [
   { key: 'shelved', label: '搁置' },

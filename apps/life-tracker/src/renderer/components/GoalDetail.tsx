@@ -7,27 +7,12 @@ import { formatGoalProgress } from '@shared/progress'
 import { daysUntil, urgencyOf } from '@shared/deadline'
 import { StampChip } from '@ui/StampChip'
 import type { Goal, GoalInput, GoalStatus } from '@shared/types'
+import { STATUS_LABELS, STATUS_OPTIONS } from './GoalLabels'
 
 interface GoalDetailProps {
   /** 显式指定显示哪个目标；不传则用全局 selectedId */
   goalId?: string
 }
-
-const STATUS_LABELS: Record<GoalStatus, string> = {
-  not_started: '未开始',
-  in_progress: '进行中',
-  done: '已达成',
-  shelved: '搁置',
-  abandoned: '放弃'
-}
-
-const STATUS_OPTIONS: { value: GoalStatus; label: string }[] = [
-  { value: 'not_started', label: '未开始' },
-  { value: 'in_progress', label: '进行中' },
-  { value: 'done', label: '已达成' },
-  { value: 'shelved', label: '搁置' },
-  { value: 'abandoned', label: '放弃' }
-]
 
 function todayStr(): string {
   const d = new Date()

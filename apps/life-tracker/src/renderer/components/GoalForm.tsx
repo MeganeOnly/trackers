@@ -2,20 +2,13 @@ import { useState } from 'react'
 import { Modal } from './Modal'
 import { useGoalsStore } from '../store/goals'
 import type { Goal, GoalStatus } from '@shared/types'
+import { STATUS_OPTIONS } from './GoalLabels'
 
 interface GoalFormProps {
   /** null = 加目标；非空 = 编辑目标 */
   goal: Goal | null
   onClose: () => void
 }
-
-const STATUS_OPTIONS: { value: GoalStatus; label: string }[] = [
-  { value: 'not_started', label: '未开始' },
-  { value: 'in_progress', label: '进行中' },
-  { value: 'done', label: '已达成' },
-  { value: 'shelved', label: '搁置' },
-  { value: 'abandoned', label: '放弃' }
-]
 
 export function GoalForm({ goal, onClose }: GoalFormProps): JSX.Element {
   const create = useGoalsStore((s) => s.create)

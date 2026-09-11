@@ -30,6 +30,7 @@ import {
 import { analyzeGraph, computeUnlocked, groupMemberId } from '@core'
 import { buildDonePredicate } from '@shared/done'
 import type { Edge, GoalStatus, PrereqSpec } from '@shared/types'
+import { STATUS_COLORS, STATUS_LABELS, GRAPH_STATUS_ORDER } from './GoalLabels'
 import { useGoalsStore } from '../store/goals'
 import { useRelationsStore } from '../store/relations'
 
@@ -38,22 +39,6 @@ const ANALYZE_COLORS = {
   bottleneck: '#d63031',
   orphan: '#999999'
 } as const
-
-const STATUS_COLORS: Record<GoalStatus, string> = {
-  not_started: '#999999',
-  in_progress: '#4a7c59',
-  done: '#2d5a3a',
-  shelved: '#c89456',
-  abandoned: '#c0573d'
-}
-
-const STATUS_LABEL: Record<GoalStatus, string> = {
-  not_started: '未开始',
-  in_progress: '进行中',
-  done: '已达成',
-  shelved: '搁置',
-  abandoned: '放弃'
-}
 
 interface GoalNode extends BaseGraphNode {
   title: string
@@ -156,7 +141,7 @@ interface GraphViewProps {
   highlightId?: string | null
 }
 
-const STATUS_ORDER: GoalStatus[] = ['done', 'in_progress', 'not_started', 'shelved', 'abandoned']
+
 
 export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
   const [layoutMode, setLayoutMode] = useState<'force' | 'tree' | 'analyze'>('force')
@@ -184,13 +169,11 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [goals])
 
-  const availableStatuses = [
-    { value: 'not_started', label: '未开始', color: STATUS_COLORS.not_started },
-    { value: 'in_progress', label: '进行中', color: STATUS_COLORS.in_progress },
-    { value: 'done', label: '已达成', color: STATUS_COLORS.done },
-    { value: 'shelved', label: '搁置', color: STATUS_COLORS.shelved },
-    { value: 'abandoned', label: '放弃', color: STATUS_COLORS.abandoned }
-  ]
+  const availableStatuses = GRAPH_STATUS_ORDER.map((value) => ({
+    value,
+    label: STATUS_LABELS[value],
+    color: STATUS_COLORS[value]
+  }))
 
   const data = useMemo(() => {
     const goalIds = new Set(goals.map((g) => g.id))
@@ -278,13 +261,13 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
       else buckets.set(n.status, [n])
     }
     const groups: SidebarGroup[] = []
-    for (const status of STATUS_ORDER) {
+    for (const status of GRAPH_STATUS_ORDER) {
       const items = buckets.get(status)
       if (!items || items.length === 0) continue
       items.sort((a, b) => a.title.localeCompare(b.title))
       groups.push({
         id: status,
-        label: STATUS_LABEL[status],
+        label: STATUS_LABELS[status],
         items: items.map((n) => ({ id: n.id, title: n.title, color: STATUS_COLORS[n.status] }))
       })
     }
@@ -334,7 +317,7 @@ export function GraphView({ highlightId }: GraphViewProps): JSX.Element {
         if (!n.unlocked) return '#c8c8c8'
         return STATUS_COLORS[n.status]
       }}
-      getNodeLabel={(n) => `${n.title} (${STATUS_LABEL[n.status]})`}
+      getNodeLabel={(n) => `${n.title} (${STATUS_LABELS[n.status]})`}
       getLinkColor={(l, ctx) => {
         // analyze mode：critical path 上的边用橙色
         if (layoutMode === 'analyze' && l.isInCriticalPath) return ANALYZE_COLORS.critical

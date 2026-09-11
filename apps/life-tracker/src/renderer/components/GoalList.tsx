@@ -5,26 +5,18 @@ import { useSearchStore, matchGoal } from '../store/search'
 import { useSettingsStore } from '../store/settings'
 import { categoryVar } from '@shared/categoryColor'
 import type { Goal, GoalStatus } from '@shared/types'
+import { STATUS_LABELS, SIDEBAR_STATUS_ORDER } from './GoalLabels'
 
-const STATUS_LABELS: Record<GoalStatus, string> = {
-  not_started: '未开始',
-  in_progress: '进行中',
-  done: '已达成',
-  shelved: '搁置',
-  abandoned: '放弃'
-}
-
-const STATUS_ORDER: GoalStatus[] = ['in_progress', 'not_started', 'done', 'shelved', 'abandoned']
 /**
  * 侧栏常规分组渲染顺序：「放弃」按用户要求仅在「被收起」bucket 内出现，
  * 所以常规 4 组只用 in_progress / not_started / done / shelved。
  */
-const REGULAR_STATUS_ORDER: GoalStatus[] = ['in_progress', 'not_started', 'done', 'shelved']
+const REGULAR_STATUS_ORDER: GoalStatus[] = SIDEBAR_STATUS_ORDER.slice(0, 4)
 /**
  * 「被收起」bucket 内的子分组渲染顺序：全 5 个 status 都展示，
  * 包括 abandoned —— 放弃的目标一律归 bucket（用户明确要求"放弃仅在收起中"）。
  */
-const BUCKET_STATUS_ORDER: GoalStatus[] = STATUS_ORDER
+const BUCKET_STATUS_ORDER: GoalStatus[] = SIDEBAR_STATUS_ORDER
 
 /**
  * 判断目标是否该归到「被收起」bucket：

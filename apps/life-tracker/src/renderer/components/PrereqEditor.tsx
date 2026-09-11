@@ -11,17 +11,10 @@ import type {
   GoalStatus,
   PrereqSpec
 } from '@shared/types'
+import { STATUS_LABELS } from './GoalLabels'
 
 interface PrereqEditorProps {
   goalId: string
-}
-
-const STATUS_LABELS: Record<GoalStatus, string> = {
-  not_started: '未开始',
-  in_progress: '进行中',
-  done: '已达成',
-  shelved: '搁置',
-  abandoned: '放弃'
 }
 
 /**
