@@ -145,7 +145,7 @@ export function CleanMode({ onOpenNotes }: CleanModeProps): JSX.Element {
             {nowReading.read_count > 1 && ` · 第 ${nowReading.read_count} 次`}
             {nowReading.progress && (
               <span className="currently-progress">
-                {nowReading.progress.total !== null
+                {nowReading.progress.total != null
                   ? ` · ${nowReading.progress.current}/${nowReading.progress.total}`
                   : nowReading.progress.current > 0
                     ? ` · ${nowReading.progress.current} (连载中)`
@@ -339,7 +339,7 @@ function FocusStackView({
             {focalBook.year > 0 && ` · ${focalBook.year}`}
             {focalBook.read_count > 1 && ` · 第 ${focalBook.read_count} 次`}
           </div>
-          {focalBook.progress && focalBook.progress.total !== null && (
+          {focalBook.progress && focalBook.progress.total != null && (
             <div className="focal-card-progress">
               <span className="focal-card-progress-text">
                 {focalBook.progress.current}/{focalBook.progress.total}

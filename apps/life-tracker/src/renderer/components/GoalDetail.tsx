@@ -280,7 +280,7 @@ export function GoalDetail({ goalId }: GoalDetailProps): JSX.Element {
           <div className="progress-card-header">
             <span className="progress-label">完成次数</span>
             <span className="progress-text">
-              {goal.progress && goal.progress.total !== null
+              {goal.progress && goal.progress.total != null
                 ? `${goal.progress.current} / ${goal.progress.total}`
                 : goal.progress
                   ? `${goal.progress.current}+`

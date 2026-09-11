@@ -117,7 +117,7 @@ function ItemRowList({ g, selected, onSelect }: ItemRowProps): JSX.Element {
       <span className="title">{g.title}</span>
       {g.status === 'in_progress' && g.progress && (
         <span className="read-count">
-          {g.progress.total !== null
+          {g.progress.total != null
             ? `${g.progress.current}/${g.progress.total}`
             : `${g.progress.current}+`}
         </span>
@@ -139,7 +139,7 @@ function ItemRowList({ g, selected, onSelect }: ItemRowProps): JSX.Element {
  */
 function ItemRowCard({ g, selected, onSelect }: ItemRowProps): JSX.Element {
   const progress =
-    g.status === 'in_progress' && g.progress && g.progress.total !== null
+    g.status === 'in_progress' && g.progress && g.progress.total != null
       ? g.progress
       : null
   const hasMeta = progress !== null || !!g.deadline

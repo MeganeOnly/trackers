@@ -70,10 +70,14 @@ export interface Goal {
 /**
  * 达成判定：status === 'done'，或量化进度已满（current >= total）。
  * 只有"达成"的目标才能解锁其前置目标（book-tracker 的 finished 对应物）。
+ *
+ * **`total != null` 而非 `!== null`**：`Progress.total` 在 IPC payload 里会被
+ * 省略成 undefined（见 `@core/types.ts` Progress 注释）。当前实算结果没差
+ * （`current >= undefined` 是 `false`），但语义对齐避免后续被误改成 `=== undefined`。
  */
 export function isGoalDone(g: Goal): boolean {
   if (g.status === 'done') return true
-  return !!g.progress && g.progress.total !== null && g.progress.current >= g.progress.total
+  return !!g.progress && g.progress.total != null && g.progress.current >= g.progress.total
 }
 
 /** 主题预设（视觉风格）：classic = 当前样式（保留）；codex = 朱砂红印章风 */

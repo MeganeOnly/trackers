@@ -168,7 +168,7 @@ export function CleanMode({ onOpenAnalyze }: { onOpenAnalyze?: () => void } = {}
                 {g.deadline && ` · 截止 ${g.deadline}`}
                 {g.progress && (
                   <span className="currently-progress">
-                    {g.progress.total !== null
+                    {g.progress.total != null
                       ? ` · ${g.progress.current}/${g.progress.total}`
                       : g.progress.current > 0
                         ? ` · ${g.progress.current}`
@@ -225,7 +225,7 @@ export function CleanMode({ onOpenAnalyze }: { onOpenAnalyze?: () => void } = {}
                           </span>
                         )}
                         {goal.progress &&
-                          goal.progress.total !== null &&
+                          goal.progress.total != null &&
                           goal.progress.current >= goal.progress.total && (
                             <span className="auto-done-hint"> · 进度已满</span>
                           )}
@@ -316,7 +316,7 @@ export function CleanMode({ onOpenAnalyze }: { onOpenAnalyze?: () => void } = {}
                             {g.status === 'done' &&
                             isGoalDone(g) &&
                             g.progress &&
-                            g.progress.total !== null
+                            g.progress.total != null
                               ? `${g.progress.current}/${g.progress.total}`
                               : g.category || ''}
                           </span>
@@ -386,7 +386,7 @@ function FocusStackView({
               </span>
             )}
           </div>
-          {focalGoal.progress && focalGoal.progress.total !== null && (
+          {focalGoal.progress && focalGoal.progress.total != null && (
             <div className="focal-card-progress">
               <span className="focal-card-progress-text">
                 {focalGoal.progress.current}/{focalGoal.progress.total}
